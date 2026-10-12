@@ -151,7 +151,6 @@ keep_private "$EXPORTER/.env"
 
 # ── 5. windmill/.env ──
 step "ตั้งค่า Windmill (windmill/.env)"
-WINDMILL_FRESH=0
 if [ -e "$WINDMILL/.env" ]; then
   ok "มีอยู่แล้ว ไม่แตะ"
 else
@@ -161,7 +160,6 @@ else
     "$WINDMILL/.env.example" | write_secret_file "$WINDMILL/.env" || stop "เขียน windmill/.env ไม่สำเร็จ"
   grep -q "^POSTGRES_PASSWORD=$PG_PASS$" "$WINDMILL/.env" && grep -q "^DATABASE_URL=postgres://postgres:$PG_PASS@" "$WINDMILL/.env" \
     || { rm -f "$WINDMILL/.env"; stop "รูปแบบ windmill/.env.example ไม่ตรงที่สคริปต์รู้จัก" "ถ่ายรูปหน้าจอนี้ส่งผู้ดูแลระบบ"; }
-  WINDMILL_FRESH=1
   ok "เขียน windmill/.env แล้ว (รหัสฐานข้อมูลสุ่มใหม่)"
 fi
 keep_private "$WINDMILL/.env"
@@ -182,18 +180,20 @@ elif ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 
   warn "ยังไม่มี Docker (พร้อม docker compose)"
   PENDING+=("ติดตั้ง Docker Engine + docker compose ตามคู่มือ Docker สำหรับ Ubuntu แล้วรันคำสั่งนี้ซ้ำ")
 elif DOCKER_ERR="$(docker info 2>&1 >/dev/null)"; then
+  # ครั้งแรก build worker ที่มี Chromium อาจใช้หลายนาที
   (cd "$WINDMILL" && docker compose up -d) || stop "เปิด Windmill ไม่สำเร็จ" "ดูสาเหตุ: cd windmill && docker compose logs"
   WINDMILL_UP=1
   ok "Windmill เปิดแล้วที่ http://localhost:8000"
+  # ตั้งรหัส admin / tag chromium / สคริปต์ / schedule ผ่าน API แทนการคลิกหน้าเว็บ (ticket 03) — รันซ้ำได้ ไม่มีอะไรเปลี่ยน = ไม่แตะ
+  # ล้ม = จดไว้ในสิ่งที่ยังต้องทำ แล้วทำขั้นอื่นต่อ (ลองล็อกอิน HotelTime ยังมีประโยชน์)
+  node "$WINDMILL/setup.mjs" | sed 's/^/   /' \
+    || PENDING+=("ตั้งค่า Windmill ไม่สำเร็จ (ดูข้อความด้านบน) — แก้แล้วรัน: node windmill/setup.mjs หรือรันคำสั่งนี้ซ้ำ")
 elif printf '%s' "$DOCKER_ERR" | grep -qi "permission denied"; then
   warn "บัญชีนี้ยังไม่มีสิทธิ์ใช้ Docker"
   PENDING+=("ให้สิทธิ์ Docker: sudo usermod -aG docker $USER แล้ว logout/login ใหม่ แล้วรันคำสั่งนี้ซ้ำ")
 else
   warn "Docker ไม่ได้ทำงานอยู่"
   PENDING+=("เปิด Docker: sudo systemctl enable --now docker แล้วรันคำสั่งนี้ซ้ำ")
-fi
-if [ "$WINDMILL_UP" = 1 ] && [ "$WINDMILL_FRESH" = 1 ]; then
-  PENDING+=("ตั้งค่า Windmill ครั้งแรกที่ http://localhost:8000 ตาม windmill/INSTALL.md ข้อ 3–6: เปลี่ยนรหัส admin (ค่าเริ่มต้นของ Windmill), ผูก tag chromium ให้ worker \"custom\", สร้างสคริปต์ pms_export_daily และตั้ง schedule 12:00 / 15:00 / 18:00")
 fi
 
 # ── 8. ลองล็อกอิน HotelTime ──
@@ -217,6 +217,7 @@ else
   for item in "${PENDING[@]}"; do i=$((i + 1)); echo "   $i. $item"; done
 fi
 echo
+[ "$WINDMILL_UP" = 1 ] && echo "   • HotelTime: รันเองทุกวัน 12:00 (เก็บตก 15:00/18:00) — ดูประวัติที่ http://localhost:8000/runs · ล็อกอิน admin@windmill.dev รหัสอยู่ใน windmill/.admin-password"
 echo "   • FoodStory: ดับเบิลคลิกไอคอน \"ดึง FoodStory เมื่อวาน\" บน Desktop (ครั้งแรกอาจต้องคลิกขวา → Allow Launching)"
 echo "   • คู่มือพนักงาน: docs/FOODSTORY-DAILY-STAFF-GUIDE.md"
 echo "════════════════════════════════════════════════════════"

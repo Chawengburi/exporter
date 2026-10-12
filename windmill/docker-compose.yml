@@ -213,7 +213,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
     ports:
-      - "127.0.0.1:8000:80"
+      # WM_PORT ตั้งใน .env ได้ (ค่าเริ่มต้น 8000) — ชุดทดสอบ test-setup-in-docker.sh ใช้พอร์ตอื่นเพื่อไม่ชนตัวจริง
+      - "127.0.0.1:${WM_PORT:-8000}:80"
     environment:
       - BASE_URL=":80"
     logging: *default-logging

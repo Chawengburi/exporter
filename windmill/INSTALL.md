@@ -24,6 +24,9 @@ Hostinger ที่รัน openClaw) หรือติดตั้งซ้�
 | worker group "custom" ต้องฟัง tag `chromium` | เก็บใน Postgres ของ Windmill เอง ไม่ใช่ git | ตั้งใหม่ทุกครั้งที่ขึ้นเครื่องใหม่ (§ 4) — `docker compose up` อย่างเดียวไม่พอ |
 | เนื้อหา script `pms_export_daily` | เก็บใน Postgres ของ Windmill เอง ไม่ใช่ git | สร้างใหม่ตาม § 5 (มีเนื้อหาสคริปต์แปะให้ทั้งก้อน) |
 
+**สามแถวที่เก็บใน Postgres ของ Windmill (`permissioned_as`, worker group "custom", script) + รหัส admin:** `node windmill/setup.mjs`
+ทำให้ทั้งหมด (ดูทางลัดด้านล่าง) — ไม่ต้องคลิกหน้าเว็บ
+
 **ใช้ได้เลยไม่ต้องแก้:** `docker-compose.yml` ทั้งไฟล์ (นอกจาก path ด้านบน), `Caddyfile`,
 `worker-custom/Dockerfile` — ทั้งหมด version-pinned และไม่มีอะไรเฉพาะเครื่องนี้
 
@@ -47,6 +50,15 @@ cp .env.example .env
 ค่าเริ่มต้นใช้ได้เลยสำหรับ trial บนเครื่องส่วนตัว (`POSTGRES_PASSWORD=changeme` — Postgres ไม่ถูก
 publish ออก host เลย ดู § 7) เปลี่ยนได้ถ้าต้องการ แต่ต้องแก้ทั้ง `POSTGRES_PASSWORD` และ
 `DATABASE_URL` ให้ตรงกัน (คอมเมนต์ในไฟล์อธิบายไว้แล้ว)
+
+## ⚡ ทางลัด: ตั้งค่าข้อ 4–6 ด้วยคำสั่งเดียว (2026-10-12)
+
+หลัง `docker compose up -d` (ข้อ 3) รัน **`node windmill/setup.mjs`** แทนการคลิกหน้าเว็บข้อ 4–6 — เปลี่ยนรหัส
+`admin@windmill.dev` จาก `changeme` เป็นรหัสสุ่ม (เก็บใน `windmill/.admin-password` สิทธิ์ 600 ไม่อยู่ใน git), ผูก tag `chromium`
+ให้ worker "custom", deploy สคริปต์จาก `windmill/scripts/*.sh` เป็น `u/<ผู้ตั้ง>/pms_export_daily` และ `..._catchup`, ตั้ง schedule
+12:00 และ 15:00/18:00 (Asia/Bangkok) โดย "Permissioned as" เป็นผู้ที่รันเสมอ · รันซ้ำได้ (ไม่มีอะไรเปลี่ยน = ไม่แตะ) · แก้สคริปต์ใน
+repo แล้วรันซ้ำ = deploy เวอร์ชันใหม่ · บน Ubuntu `deploy/ubuntu/install.sh` เรียกให้เองหลังเปิด Windmill · ทดสอบด้วย
+`bash windmill/test-setup-in-docker.sh` (Windmill ชุดแยก พอร์ต 18000 ลบทิ้งเองหลังจบ) · ข้อ 4–6 ด้านล่างเก็บไว้เป็นทางสำรอง/อธิบายที่มา
 
 ## 3. เปิด stack หลัก + ล็อกอินครั้งแรก
 
