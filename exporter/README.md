@@ -77,7 +77,8 @@ npm link                            # ทำให้เรียก `exporter` 
   (วันที่ปิดยอดแล้ว ย้ายไปรันเที่ยงคืนก็ยังถูก · ไม่ไล่เก็บวันที่พลาด รอบรายเดือนครอบคลุมให้ — ADR-0006, ticket 10) ·
   `daily/latest` · ไฟล์ `<เมื่อวาน>__<กลุ่ม>__<id>.xlsx` · ข้ามการเช็คไขว้ยอดขาย (salebymonthsum เป็นยอดทั้งเดือน เทียบกับวันเดียว
   ไม่ได้ — เหตุผลอยู่ใน `crossCheckSkipped` ของ `_manifest.json`) · รายงานที่ไม่มีตัวกรองวันที่ (สต็อก พนักงาน ฯลฯ) คือภาพ ณ ตอนรัน
-  · พนักงานรันด้วยการดับเบิลคลิก `exporter/launchers/foodstory-daily.command` (symlink ไว้บน Desktop — หา node เอง, เช็ค `.env`/
+  · พนักงานรันด้วยการดับเบิลคลิก `exporter/launchers/foodstory-daily.command` (macOS/Ubuntu — วางบน Desktop ด้วย
+  `bash exporter/launchers/install-desktop-launcher.sh`: macOS = symlink, Ubuntu = ไฟล์ .desktop — หา node เอง, เช็ค `.env`/
   `node_modules`, สรุปภาษาไทยตอนจบ; ticket 11) คู่มือ: [`docs/FOODSTORY-DAILY-STAFF-GUIDE.md`](../docs/FOODSTORY-DAILY-STAFF-GUIDE.md)
 - FoodStory รายเดือน → `exporter/data/foodstory/monthly/<YYYY-MM>/` สำหรับรอบแรกของเดือนนั้น · ดึงเดือนเดิมซ้ำได้
   `monthly/<YYYY-MM>__<YYYY-MM-DD>/` (วันที่ดึง) แทนการเขียนทับ (ADR-0005 — ยอดที่ร้านแก้ย้อนหลังไม่ทับของเดิม) · ดึงซ้ำ

@@ -55,21 +55,28 @@
 
 ### ติดตั้งครั้งแรก (ทำครั้งเดียวต่อเครื่อง)
 
-ไม่ผูกกับเครื่องใดเครื่องหนึ่ง — ตอนนี้ (2026-10) ติดตั้งบน Mac ของผู้ดูแลระบบ (เครื่อง dev/test ที่รัน exporter อยู่แล้ว) ·
-ทำแบบเดียวกันบนเครื่องกลางเมื่อย้ายระบบ
+ไม่ผูกกับเครื่องใดเครื่องหนึ่ง — ใช้ได้ทั้ง **macOS** และ **Ubuntu Desktop** (ต้องมีจอและมีคนกด captcha) · ตอนนี้ (2026-10) ติดตั้งบน Mac
+ของผู้ดูแลระบบ (เครื่อง dev/test) และกำลังย้ายไปเครื่อง Ubuntu
 
-1. ติดตั้ง Node.js **22.18 ขึ้นไป** (ผ่าน nvm, Homebrew หรือตัวติดตั้งจาก nodejs.org ก็ได้ — ไฟล์ดับเบิลคลิกหา node เองทั้ง
-   `PATH`, nvm default, `/opt/homebrew/bin` และ `/usr/local/bin` ไม่ต้องตั้ง `PATH`)
-2. ในโฟลเดอร์ `exporter/`: `npm install` แล้ว `npx playwright install chromium`
+1. ติดตั้ง Node.js **22.18 ขึ้นไป** — ไฟล์ดับเบิลคลิกหา node เองทั้ง `PATH`, nvm default, `/opt/homebrew/bin`, `/usr/local/bin` และ
+   `/usr/bin` ไม่ต้องตั้ง `PATH`
+   - macOS: nvm, Homebrew หรือตัวติดตั้งจาก nodejs.org
+   - Ubuntu: nvm หรือ NodeSource (`apt` ของ Ubuntu เองมักเป็นรุ่นเก่ากว่า 22.18 — เช็คด้วย `node --version`)
+2. ในโฟลเดอร์ `exporter/`: `npm install` แล้วติดตั้งเบราว์เซอร์
+   - macOS: `npx playwright install chromium`
+   - Ubuntu: `npx playwright install --with-deps chromium` (ติดตั้ง library ของระบบด้วย — จะถามรหัส sudo)
 3. สร้าง `exporter/.env` จาก `.env.example` ใส่ `FOODSTORY_*` (อีเมล/รหัสผ่าน/สาขา) — ไฟล์นี้ห้าม commit
-4. วางไฟล์บน Desktop เป็น **symlink หรือ alias** (อย่าก๊อปไฟล์ — ก๊อปแล้วจะหาโฟลเดอร์ exporter ไม่เจอ):
+4. วางไฟล์บน Desktop — รันในบัญชีของคนที่จะใช้เครื่อง **ห้ามใส่ `sudo`** (ไอคอนจะไปอยู่บน Desktop ของบัญชีที่รัน):
 
    ```bash
-   ln -s "<ที่อยู่ repo>/exporter/launchers/foodstory-daily.command" ~/Desktop/"ดึง FoodStory เมื่อวาน.command"
+   bash exporter/launchers/install-desktop-launcher.sh
    ```
 
-   หรือใน Finder: คลิกขวาที่ `exporter/launchers/foodstory-daily.command` → Make Alias → ลาก alias ไปไว้บน Desktop
-5. ลองดับเบิลคลิกเองหนึ่งรอบ ครั้งแรก macOS อาจถามสิทธิ์ให้ Terminal — กดอนุญาต
+   - macOS: ได้ symlink ชื่อ "ดึง FoodStory เมื่อวาน" บน Desktop (อย่าก๊อปไฟล์ .command เอง — ก๊อปแล้วจะหาโฟลเดอร์ exporter ไม่เจอ)
+   - Ubuntu: ได้ไอคอน "ดึง FoodStory เมื่อวาน" บน Desktop และในเมนูแอป (ค้นชื่อได้) · ถ้าดับเบิลคลิกแล้วขึ้นว่าไม่ไว้ใจ (untrusted)
+     ให้คลิกขวาที่ไอคอน → **Allow Launching** ครั้งเดียว
+   - รันซ้ำได้ · ถ้ามีไฟล์ชื่อเดียวกันที่ไม่ได้สร้างจากคำสั่งนี้ จะไม่เขียนทับ (ให้ดูแล้วลบเอง)
+5. ลองดับเบิลคลิกเองหนึ่งรอบ — macOS ครั้งแรกอาจถามสิทธิ์ให้ Terminal ให้กดอนุญาต · Ubuntu จะเปิดหน้าต่าง Terminal ให้เอง
 
 ### ไฟล์ไปอยู่ที่ไหน
 

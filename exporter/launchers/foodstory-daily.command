@@ -1,5 +1,5 @@
 #!/bin/bash
-# ดับเบิลคลิกจาก Finder → ดึงรายงาน FoodStory ของ "เมื่อวาน" ทั้งหมด (ticket 11, ADR-0006)
+# ดับเบิลคลิกจาก Desktop (macOS: Finder · Ubuntu: ไอคอน .desktop) → ดึงรายงาน FoodStory ของ "เมื่อวาน" ทั้งหมด (ticket 11, ADR-0006)
 #
 # พนักงานกด reCAPTCHA ครั้งเดียว ที่เหลือรันเองจนจบ แล้วสรุปเป็นภาษาไทย · วางบน Desktop เป็น alias/symlink ได้ — สคริปต์ตาม
 # symlink กลับมาหาโฟลเดอร์ exporter เอง ไม่ผูกกับ path ของเครื่องไหน · คู่มือ: docs/FOODSTORY-DAILY-STAFF-GUIDE.md
@@ -48,7 +48,8 @@ nvm_default_node() {
   . "$NVM_DIR/nvm.sh" >/dev/null 2>&1 && nvm which default 2>/dev/null
 }
 NODE=""
-for candidate in "$(command -v node 2>/dev/null)" /opt/homebrew/bin/node /usr/local/bin/node; do
+# macOS: Homebrew (/opt/homebrew, /usr/local) · Ubuntu: apt/NodeSource (/usr/bin) · ทั้งคู่: nvm default ข้างล่าง
+for candidate in "$(command -v node 2>/dev/null)" /opt/homebrew/bin/node /usr/local/bin/node /usr/bin/node; do
   if [ -n "$candidate" ] && [ -x "$candidate" ] && node_ok "$candidate"; then NODE="$candidate"; break; fi
 done
 if [ -z "$NODE" ]; then
@@ -84,7 +85,8 @@ if ! take_lock; then
   rm -f "$LOCK"
   take_lock || stop_with "ล็อกการรันไม่ได้ ($LOCK)"
 fi
-MARK="$(mktemp -t foodstory-daily)" # เวลาเริ่ม — ใช้หา `_run.json` ที่รอบนี้เขียน
+# เวลาเริ่ม — ใช้หา `_run.json` ที่รอบนี้เขียน · template ต้องมี XXXXXX เอง: GNU mktemp (Ubuntu) ปฏิเสธ `-t ชื่อ` แบบ macOS
+MARK="$(mktemp "${TMPDIR:-/tmp}/foodstory-daily.XXXXXX")" || stop_with "สร้างไฟล์ชั่วคราวไม่ได้"
 trap 'release_lock; rm -f "$MARK"' EXIT
 
 echo
