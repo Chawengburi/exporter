@@ -196,9 +196,10 @@ export function renderStatus(report: StatusReport): string {
   const out = [`exporter status — ${report.at} (เวลาไทย)`];
   for (const s of report.sections) out.push('', s.title, ...s.lines.map((l) => `  ${MARK[l.level]} ${l.text}`));
   out.push('');
+  // บรรทัดท้ายสุด = เรื่องที่หนักที่สุด (คนมักอ่านแค่บรรทัดสุดท้าย)
   if (report.verdict === 'ok') out.push('✅ ปกติ — ไม่ต้องทำอะไร');
-  if (report.problems.length > 0) out.push(`✘ ต้องดู ${report.problems.length} เรื่อง — ทำตามข้อความด้านบน ถ้าแก้เองไม่ได้ถ่ายรูปหน้าจอนี้ส่งผู้ดูแลระบบ`);
   if (report.actions.length > 0) out.push(`⚠ มีสิ่งที่ต้องทำ ${report.actions.length} อย่าง (ดู ⚠ ด้านบน)`);
+  if (report.problems.length > 0) out.push(`✘ ต้องดู ${report.problems.length} เรื่อง — ทำตามข้อความด้านบน ถ้าแก้เองไม่ได้ถ่ายรูปหน้าจอนี้ส่งผู้ดูแลระบบ`);
   return `${out.join('\n')}\n`;
 }
 

@@ -225,3 +225,9 @@ test('exporter status: โฟลเดอร์คลังไม่มีอย
   const local = spawnSync(process.execPath, ['src/index.ts', 'status', '--data', dataDir, '--at', '2026-10-12T00:30', '--json'], { cwd: EXPORTER, encoding: 'utf8' });
   assert.equal(JSON.parse(local.stdout).at, '2026-10-12 00:30');
 });
+
+test('มีทั้งปัญหาและสิ่งที่ต้องทำ: บรรทัดสุดท้ายต้องเป็น ✘ (คนอ่านแค่บรรทัดท้ายต้องไม่พลาดปัญหา)', async () => {
+  const { renderStatus } = await import('../src/core/status.ts');
+  const out = renderStatus(buildStatus(store({}), thai('2026-10-12T20:05'))).trimEnd().split('\n');
+  assert.match(out.at(-1)!, /^✘/);
+});
