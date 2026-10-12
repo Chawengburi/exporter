@@ -88,6 +88,7 @@ npm link                            # ทำให้เรียก `exporter` 
   `_run.json` · exit code 0/2/1 แบบเดียวกับ HotelTime (truncated นับเป็นล้ม) · `--json` บอกโฟลเดอร์ใน `outDir`
 
 ```bash
+exporter status                              # สรุปภาษาไทยว่าระบบปกติไหม (อ่านคลังอย่างเดียว · exit 1 = มีเรื่องต้องดู · --json)
 exporter login --check                       # ตรวจว่า credential ใช้ได้จริง
 exporter reports                             # ดูรายงานที่รองรับและกติกาการแบ่งก้อน
 

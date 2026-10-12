@@ -211,6 +211,33 @@ program
   });
 
 program
+  .command('status')
+  .description('สรุปภาษาไทยหน้าเดียวว่าระบบปกติไหม — อ่านจากคลัง data/ เท่านั้น ไม่เปิดเบราว์เซอร์ (exit 0 = ปกติ/มีสิ่งต้องทำ · 1 = มีปัญหา · 2 = ใช้คำสั่งผิด)')
+  .option('--json', 'พิมพ์ผลเป็น JSON', false)
+  .option('--days <n>', 'ย้อนดูกี่วัน', '7')
+  .option('--data <dir>', 'โฟลเดอร์คลัง (ค่าเริ่มต้น exporter/data)')
+  .option('--at <time>', 'ประเมินเหมือนเป็นเวลานี้ (ตรวจย้อนหลัง/ทดสอบ) — ไม่ใส่ timezone = เวลาไทย เช่น 2026-10-12T20:00')
+  .action(async (opts: { json: boolean; days: string; data?: string; at?: string }) => {
+    const { buildStatus, defaultDataDir, readStoreSnapshot, renderStatus } = await import('./core/status.ts');
+    const { existsSync } = await import('node:fs');
+    const usage = (message: string) => {
+      console.error(message);
+      process.exitCode = 2; // แยกจาก 1 (= ระบบมีปัญหา) ให้ cron/การแจ้งเตือนรู้ว่าเป็นแค่สั่งผิด
+    };
+    const days = Number(opts.days);
+    // ไม่มี timezone = เวลาไทย (คนอ่านเวลาไทย) · วันที่อย่างเดียว = เที่ยงคืนเวลาไทย
+    const atText = opts.at && !/(Z|[+-]\d{2}:?\d{2})$/.test(opts.at) ? `${opts.at.includes('T') ? opts.at : `${opts.at}T00:00`}+07:00` : opts.at;
+    const at = atText ? new Date(atText) : new Date();
+    if (!Number.isInteger(days) || days < 2) return usage('--days ต้องเป็นจำนวนเต็มตั้งแต่ 2 ขึ้นไป');
+    if (Number.isNaN(at.getTime())) return usage('--at อ่านไม่ออก — ใช้แบบ 2026-10-12T20:00 (เวลาไทย) หรือ 2026-10-12T13:00:00Z');
+    const dataDir = opts.data ?? defaultDataDir();
+    if (!existsSync(dataDir)) return usage(`ไม่พบโฟลเดอร์คลัง ${dataDir} — ใส่ --data ให้ถูก หรือรันจากโฟลเดอร์ exporter ที่ติดตั้งแล้ว`);
+    const report = buildStatus(await readStoreSnapshot(dataDir), at, { windowDays: days });
+    process.stdout.write(opts.json ? `${JSON.stringify(report, null, 2)}\n` : renderStatus(report));
+    process.exitCode = report.verdict === 'problem' ? 1 : 0;
+  });
+
+program
   .command('reports')
   .description('แสดงรายงานทั้งหมดที่รองรับ')
   .addOption(siteOption('site ที่จะแสดง'))
