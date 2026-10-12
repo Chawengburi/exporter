@@ -15,6 +15,23 @@
 | `windmill/` | ตัวตั้งเวลาให้ HotelTime รันทุกวัน (Docker) — [`windmill/INSTALL.md`](windmill/INSTALL.md) |
 | `docs/` | คู่มือผู้ใช้, สอนใช้ CLI, คู่มือพนักงาน FoodStory (ภาษาไทย) |
 
+## ติดตั้งบน Ubuntu Desktop
+
+ผู้ดูแลระบบติดตั้ง **Node.js 22.18+** และ **Docker (มี docker compose)** เองก่อน แล้วในบัญชีของคนที่จะใช้เครื่อง (ห้ามใส่ sudo):
+
+```bash
+git clone https://github.com/Chawengburi/exporter.git
+cd exporter
+bash deploy/ubuntu/install.sh
+```
+
+สคริปต์ติดตั้ง package + Chromium, ถามรหัสผ่าน HotelTime/FoodStory แล้วเขียน `exporter/.env`, สุ่มรหัสฐานข้อมูล Windmill,
+วางไอคอน "ดึง FoodStory เมื่อวาน" บน Desktop, เปิด Windmill และลองล็อกอิน HotelTime · รันซ้ำได้เสมอ (ไม่แตะ `.env` ที่มีแล้ว)
+
+| โฟลเดอร์ | คืออะไร |
+|---|---|
+| `deploy/ubuntu/` | สคริปต์ติดตั้ง (`install.sh`) และตัวทดสอบใน Docker |
+
 ## สิ่งที่ไม่อยู่ใน repo นี้ (ตั้งใจ)
 
 - `exporter/.env`, `windmill/.env` — รหัสผ่าน/ค่าตั้ง สร้างจาก `.env.example` บนเครื่องที่ติดตั้ง **ห้าม commit**
