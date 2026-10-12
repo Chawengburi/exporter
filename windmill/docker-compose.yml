@@ -1,0 +1,228 @@
+version: "3.7"
+
+# ที่มา: https://github.com/windmill-labs/windmill/blob/main/docker-compose.yml (v1.815.0)
+# แก้จากต้นฉบับ 4 จุดสำหรับ trial นี้ (ใบ 01 ของ windmill-trial-pms-export-daily):
+#   1. caddy.ports คือ port เดียวที่ publish ออกจาก container สู่ host เลย (bind ที่ 127.0.0.1
+#      เท่านั้น ไม่เปิดออก LAN) service อื่นทั้งหมดใช้ expose: (คุยกันได้แค่ในเครือข่ายภายใน
+#      docker เดียวกัน ไม่ publish สู่ host เลยสักพอร์ต ไม่ใช่แค่ bind ที่ loopback) · ตัดพอร์ต 25
+#      (SMTP relay, ไม่ใช้งาน) ออกจาก caddy.ports และ Caddyfile/windmill_server.expose ด้วย ·
+#      แทนที่ 80 ด้วย 8000 เพื่อไม่ต้องใช้สิทธิ์ผูกพอร์ต < 1024 บน macOS
+#   2. windmill_worker.replicas — ลดจาก 3 เหลือ 1 เพราะเป็น trial เครื่องเดียวคนเดียว
+#      ยังไม่ต้องการ throughput สูง ปรับกลับได้ทีหลังถ้าจำเป็น
+#   3. db.environment.POSTGRES_PASSWORD อ่านจาก ${POSTGRES_PASSWORD} (ตั้งใน .env) แทนเขียน
+#      "changeme" ซ้ำสองที่ (ที่นี่กับใน DATABASE_URL) — กันไม่ให้สองจุดเพี้ยนกันถ้ามีคนเปลี่ยน
+#      รหัสแค่จุดเดียว
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "${LOG_MAX_SIZE:-20m}"
+    max-file: "${LOG_MAX_FILE:-10}"
+    compress: "true"
+
+services:
+  db:
+    deploy:
+      replicas: 1
+    image: postgres:18
+    shm_size: 1g
+    restart: unless-stopped
+    volumes:
+      - db_data:/var/lib/postgresql
+    expose:
+      - 5432
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  windmill_server:
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+    expose:
+      - 8000
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=server
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
+
+  windmill_worker:
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 2048M
+    restart: unless-stopped
+    privileged: true
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=worker
+      - WORKER_GROUP=default
+      - FAVOR_UNSHARE_PID=true
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - worker_dependency_cache:/tmp/windmill/cache
+      - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
+
+  # ใบ 02 ของ windmill-trial-pms-export-daily — worker group แยกที่มี Node + Playwright +
+  # Chromium ติดตั้งไว้ในตัว (./worker-custom/Dockerfile) สำหรับสคริปต์ที่ต้องเปิดเบราว์เซอร์จริง
+  # (เช่น exporter ในใบ 03) ซึ่ง image เริ่มต้นของ Windmill ไม่มี dependency พวกนี้
+  #
+  # 🔴 หลัง `docker compose up` ต้องเข้า UI ที่ /workers → กลุ่ม "custom" → "Create config" →
+  # เลือก tag "chromium" ให้กลุ่มนี้ฟังด้วยตัวเอง (ครั้งเดียว) — WORKER_GROUP ด้านล่างแค่จัดกลุ่ม
+  # worker ให้ดูง่ายใน UI เท่านั้น ไม่ได้กำหนด job tag ที่กลุ่มนี้จะรับงานจริง ค่านั้นเก็บอยู่ใน
+  # Postgres ของ Windmill เอง (ไม่อยู่ใน git) ถ้า `docker compose down -v` ล้าง volume ต้องตั้งใหม่
+  # สคริปต์ที่จะให้กลุ่มนี้รัน ต้องตั้ง tag ของสคริปต์เป็น "chromium" เองด้วย (ค่าเริ่มต้นตาม
+  # ภาษาที่เลือก เช่น "bash" จะไปเข้ากลุ่ม default แทน)
+  windmill_worker_custom:
+    build:
+      context: ./worker-custom
+      args:
+        WM_IMAGE: ${WM_IMAGE}
+    image: windmill-worker-custom:pms-export-trial
+    pull_policy: never
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 2048M
+    restart: unless-stopped
+    privileged: true
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=worker
+      - WORKER_GROUP=custom
+      - FAVOR_UNSHARE_PID=true
+      # exporter ใช้เวลาท้องถิ่นทั้งชื่อโฟลเดอร์ baseline/backfill, "วันนี้" ของรอบรายวัน และเวลาใน _summary.txt —
+      # ไม่ตั้งจะเป็น UTC (เจอจริง 2026-10-07: รอบ 12:00 เขียน "รันล่าสุด 05:01") และช่วง 00:00–07:00 วันที่จะเลื่อนไปหนึ่งวัน
+      # ⚠️ ค่านี้ไม่ถึงตัวงาน — Windmill ไม่ส่ง env ของ container ต่อให้ job (เจอ 2026-10-08: จบ 18:48 แต่สรุปเขียน 11:48)
+      # exporter จึงคำนวณเวลาไทยเอง (`src/core/thai-time.ts`, ticket 27) ไม่พึ่งค่านี้ · คงไว้ให้คำสั่งอื่นที่รันใน container ตรง ๆ (docker exec)
+      - TZ=Asia/Bangkok
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - worker_dependency_cache:/tmp/windmill/cache
+      - worker_logs:/tmp/windmill/logs
+      # ใบ 03 — mount โฟลเดอร์ exporter จริงจาก host (source + node_modules ที่ npm install
+      # ไว้แล้ว + .env ของจริง) เข้ามาให้ container นี้เรียก CLI แบบ black-box ได้ · PROJECT_ROOT
+      # ของ exporter คำนวณจากตำแหน่งไฟล์ (`import.meta.url`) ไม่ใช่ cwd จึงหา .env เจอถูกที่
+      # ไม่ว่า mount path จะเป็นอะไร ไม่ต้องแก้โค้ด exporter เลย (sites/hoteltime/config.ts)
+      # เดิมชื่อ `pms-export` — rename เป็น `exporter` 2026-09-28 (ADR-0004, ticket 13 ของ
+      # exporter-multi-site) · ชื่อ image tag ด้านบน (`:pms-export-trial`) คงไว้โดยตั้งใจ
+      # เปลี่ยนแล้วต้อง build ใหม่ทั้งที่ไม่มีอะไรในอิมเมจเปลี่ยนเลย
+      #
+      # 🔴 เดิม mount ทั้งโฟลเดอร์แบบ rw เฉย ๆ — ทั้งที่มีแค่ `data/` (เดิม `downloads/`) กับ `recon/captures/`
+      # เท่านั้นที่ exporter เขียนจริง (`sites/hoteltime/config.ts` — dataDir/captureDir) ส่วนที่เหลือ
+      # (`src/`, `.env`, node_modules ฯลฯ) ไม่ควรเขียนได้เลยจาก container ที่ privileged: true
+      # และมี credential จริงของ HotelTime อยู่ด้วย — แก้ตามที่ `/code-review` (Standards axis)
+      # ท้วง: mount หลักเป็น `:ro` แล้วซ้อน mount เฉพาะสองโฟลเดอร์ที่เขียนจริงเป็น `:rw` ทับ
+      - ../exporter:/workspace/exporter:ro
+      # คลังผลลัพธ์ (ADR-0005, 2026-10-07) — รอบรายวันเขียนลง data/hoteltime/daily/<เดือน>/<วัน>/ ตรง ๆ
+      # แทน downloads/ + ขั้นก๊อปไป downloads-archive/ เดิม (สองตัวนั้นเลิก mount แล้ว ของเก่ายังอยู่บน host)
+      - ../exporter/data:/workspace/exporter/data:rw
+      - ../exporter/recon/captures:/workspace/exporter/recon/captures:rw
+      # mount `data/` ครอบทุกชนิดรอบ (daily/baseline/backfill) อยู่แล้ว — ถ้าวันหนึ่งจะตั้ง --baseline บน
+      # Windmill ก็เขียนได้เลย ไม่ต้องเพิ่ม mount (การแทนไฟล์ทำด้วย rename ภายในโฟลเดอร์รอบ ไม่ rename จุด mount)
+    logging: *default-logging
+
+  windmill_worker_native:
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 2048M
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=worker
+      - WORKER_GROUP=native
+      - NATIVE_MODE=true
+      - SLEEP_QUEUE=200
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
+
+  windmill_indexer:
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 0
+    restart: unless-stopped
+    expose:
+      - 8002
+    environment:
+      - PORT=8002
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=indexer
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - windmill_index:/tmp/windmill/search
+      - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
+
+  windmill_extra:
+    image: ghcr.io/windmill-labs/windmill-extra:latest
+    pull_policy: always
+    restart: unless-stopped
+    expose:
+      - 3001
+      - 3002
+      - 3003
+    environment:
+      - ENABLE_LSP=true
+      - ENABLE_MULTIPLAYER=false
+      - ENABLE_DEBUGGER=true
+      - DEBUGGER_PORT=3003
+      - ENABLE_NSJAIL=false
+      - REQUIRE_SIGNED_DEBUG_REQUESTS=true
+      - WINDMILL_BASE_URL=http://windmill_server:8000
+    volumes:
+      - lsp_cache:/pyls/.cache
+    logging: *default-logging
+
+  caddy:
+    image: ghcr.io/windmill-labs/caddy-l4:2.11.4-1
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    ports:
+      - "127.0.0.1:8000:80"
+    environment:
+      - BASE_URL=":80"
+    logging: *default-logging
+
+volumes:
+  db_data: null
+  worker_dependency_cache: null
+  worker_logs: null
+  worker_memory: null
+  windmill_index: null
+  lsp_cache: null
+  caddy_data: null

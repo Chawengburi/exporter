@@ -1,0 +1,18 @@
+import { CONTROL_DISMISS_INTERSTITIAL, CONTROL_EXCEL_BUTTON, CONTROL_SHOW_N_ROWS } from '../interactions.ts';
+import type { Report } from './_types.ts';
+
+/**
+ * "การสั่งกลุ่มตัวเลือกตามวัน" — #27 ในสเปกต้นทาง, toolbar A, `/th/option_by_date`
+ * โครงไฟล์เหมือน `salebysumdate` (แถว 0 = ชื่อ, แถว 1 = header, แถวสรุป "Total")
+ */
+export const optionByDate: Report = {
+  id: 'option_by_date',
+  label: 'การสั่งกลุ่มตัวเลือกตามวัน',
+  path: '/th/option_by_date',
+  // toolbar A → ปุ่มข้อความ "Excel"
+  exportButtonText: 'Excel',
+  allowedControls: [CONTROL_DISMISS_INTERSTITIAL, CONTROL_SHOW_N_ROWS, CONTROL_EXCEL_BUTTON],
+  // ยืนยันจากไฟล์จริง 2026-09-27 (unzip ตรง ๆ) — ต่างจากนี้แปลว่ารายงานเปลี่ยนโครง ต้องสำรวจใหม่
+  expectedColumns: ['วันที่', 'กลุ่ม', 'หมวดสินค้า', 'ชื่อสินค้า', 'ชื่อตัวเลือก', 'จำนวนการขาย', 'สาขา'],
+  headerRowIndex: 1,
+};

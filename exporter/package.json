@@ -1,0 +1,29 @@
+{
+  "name": "exporter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ดึงรายงานจากเว็บที่ไม่มี API (HotelTime, FoodStory) ด้วย Playwright แล้วเซฟลงดิสก์ — สคริปต์ deterministic ไม่มี AI ในลูปการรัน",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "bin": {
+    "exporter": "src/index.ts"
+  },
+  "scripts": {
+    "exporter": "node src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "commander": "^15.0.0",
+    "dotenv": "^17.2.3",
+    "fflate": "^0.8.3",
+    "playwright": "^1.60.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "typescript": "^5.9.3"
+  }
+}

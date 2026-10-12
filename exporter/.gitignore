@@ -1,0 +1,45 @@
+# 🔴 ห้ามลบบรรทัดนี้ — ไฟล์นี้ต้องมีก่อนสร้าง .env เสมอ
+# เคยมี .dev.vars หลุดขึ้น git ในเวิร์กสเปซนี้มาแล้ว (auth-center, แก้ 2026-08-17)
+.env
+.env.local
+
+# ไฟล์ export จริง — มีชื่อผู้เข้าพัก = ข้อมูลส่วนบุคคล ห้าม commit
+# เก็บเฉพาะ .gitkeep ไว้ให้โฟลเดอร์มีอยู่จริงหลัง clone
+# คลังผลลัพธ์ (ADR-0005) — ข้อมูลจริงของธุรกิจ มีชื่อแขก ห้าม commit
+data/*
+!data/.gitkeep
+downloads/*
+!downloads/.gitkeep
+
+# snapshot รายวันของ downloads/ — safety net ชั่วคราวจาก windmill/INSTALL.md § 5 (2026-09-22)
+# มีข้อมูลส่วนบุคคลเหมือนกัน ห้าม commit เช่นเดียวกับ downloads/
+downloads-archive/*
+!downloads-archive/.gitkeep
+
+# ผลของรอบที่ไม่ใช่ --daily — back-fill/--from/--to/--last-days โฟลเดอร์ละรอบ, --baseline ที่เดียว
+# แยกจาก downloads/ กันรอบ 12:00 ของ Windmill เขียนทับ · ข้อมูลส่วนบุคคลเหมือนกัน ห้าม commit
+downloads-backfill/*
+!downloads-backfill/.gitkeep
+downloads-baseline/*
+!downloads-baseline/.gitkeep
+# โฟลเดอร์พัก/สำรองระหว่างสลับ baseline (sites/hoteltime/baseline.ts) — ปกติหายไปเองหลังจบรอบ
+downloads-baseline.staging/
+downloads-baseline.old/
+
+# ของที่เก็บระหว่างสำรวจ — screenshot/snapshot อาจติดข้อมูลลูกค้ามาด้วย
+recon/captures/*
+!recon/captures/.gitkeep
+
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# session ที่ login ค้างไว้ (storageState ของ Playwright) — เทียบเท่า credential ห้าม commit
+# ใช้ตอน FoodStory เพราะ login ผ่านฟอร์มธรรมดาไม่ได้ (บังคับ reCAPTCHA ทุกครั้ง — ต้องมีคนแก้เอง
+# ครั้งแรกแล้วเซฟ session ไว้ใช้ซ้ำ ดู .scratch/exporter-multi-site/issues/02-...)
+.auth/
+
+# สคริปต์ throwaway ระหว่าง dev (เช่น .tmp-fs-persistent-launch.ts — browser ค้างไว้ให้แก้ captcha ครั้งเดียว
+# แล้วส่งงานเข้าไปรันซ้ำได้ ดู ADR-0001) และไฟล์ trigger/result ที่มันสร้าง — ไม่ใช่โค้ด production
+.tmp-*

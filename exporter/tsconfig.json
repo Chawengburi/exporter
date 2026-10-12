@@ -1,0 +1,28 @@
+{
+  // ไม่มี build step โดยเจตนา — Node 22.18+ รัน .ts ตรง ๆ ด้วย native type stripping
+  // tsc มีไว้ typecheck อย่างเดียว (`npm run typecheck`) จึงตั้ง noEmit + allowImportingTsExtensions
+  // ผลที่ตามมา: import ภายในโปรเจกต์ต้องลงท้าย .ts เสมอ เพราะ Node ต้องการนามสกุลจริง
+  // และห้ามใช้ enum / namespace / parameter property ซึ่ง type stripping ไม่รองรับ
+  "compilerOptions": {
+    "target": "ES2022",
+    // DOM จำเป็นเพราะโค้ดใน page.evaluate() รันในเบราว์เซอร์และใช้ document/HTMLElement
+    // (โค้ดฝั่ง Node ในโปรเจกต์นี้ไม่ได้แตะ global เหล่านั้นเลย)
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

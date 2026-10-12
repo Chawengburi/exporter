@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="260" viewBox="0 0 520 260">
+  <rect width="520" height="260" rx="12" fill="#4a6fa5"/>
+  <text x="20" y="34" fill="#fff" font-size="15" font-family="Sukhumvit Set, Thonburi, Tahoma, sans-serif" opacity=".85">หน้าจอ Desktop (ภาพจำลอง)</text>
+  <g transform="translate(200 60)">
+    <rect x="22" y="0" width="76" height="92" rx="6" fill="#f4f4f4" stroke="#ccc"/>
+    <rect x="22" y="0" width="76" height="22" rx="6" fill="#2b2b2b"/>
+    <text x="60" y="64" text-anchor="middle" font-size="26" font-family="Menlo, Monaco, monospace" fill="#2b2b2b">&gt;_</text>
+    <text x="60" y="118" text-anchor="middle" fill="#fff" font-size="14" font-family="Sukhumvit Set, Thonburi, Tahoma, sans-serif">ดึง FoodStory</text>
+    <text x="60" y="136" text-anchor="middle" fill="#fff" font-size="14" font-family="Sukhumvit Set, Thonburi, Tahoma, sans-serif">เมื่อวาน.command</text>
+  </g>
+  <g fill="#ffd54a" font-family="Sukhumvit Set, Thonburi, Tahoma, sans-serif" font-size="16" font-weight="bold">
+    <path d="M330 110 l40 -20 l-8 14 l40 0 l0 12 l-40 0 l8 14 z"/>
+    <text x="420" y="117">ดับเบิลคลิก</text>
+  </g>
+</svg>
