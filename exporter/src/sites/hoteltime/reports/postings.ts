@@ -27,6 +27,7 @@ export const postings: Report = {
   path: 'reports/PostingsReport.aspx',
   allowedControls: ALLOWED_CONTROLS,
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
   // วัดจริง 2026-10-07: export ไม่ถูกตัดที่ 2000 (ส.ค. 2026 ได้ 3,730 แถวในไฟล์เดียว) จึงไม่ต้องก้อนเล็กกว่ารายเดือนแบบที่ ticket
   // คาดไว้ · ยังเปิดชั้นตรวจเพดานไว้ เดือนที่ได้ 2000 พอดีแค่ถูกผ่าครึ่งดึงซ้ำหนึ่งรอบ ไม่เสียหาย
@@ -36,7 +37,6 @@ export const postings: Report = {
   filterNote: 'กรองด้วยเวลาที่ทำรายการ (Operation time) — หน้าเว็บใช้ช่วง [From 00:00, To+1 00:00)',
   searchButton: SHOW,
   // Item/Reservation from/to เป็น "DD/MM" ไม่มีปี (เจอตอนรันจริง 2026-10-07) — แปลงไม่ได้ เก็บข้อความเดิม
-  dateColumns: ['Operation time'],
   boundaryToleranceDays: 0,
   expectedColumns: [
     'Account', 'Account owner', 'Room number', 'Item name', 'Item from', 'Item to', 'Reservation from',

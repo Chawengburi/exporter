@@ -19,6 +19,7 @@ export const depositJournal: Report = {
   path: 'invoices/AdvanaceLinksJournal.aspx',
   allowedControls: ALLOWED_CONTROLS,
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
   chunk: { kind: 'monthly', reason: 'สูงสุด 1,208 แถว/เดือน (baseline 2026-10-08) — รายเดือนห่างเพดาน 2000' },
   // 🔴 ไม่เคยเห็นหน้านี้คืน 2000 แถวพอดี — ช่วง 90 วันรอบแรกทำให้ปุ่ม export หายไปเลย ด่านเพดานจึงอาจไม่ทำงานกับหน้านี้ เดือนที่ใหญ่มาก
@@ -27,7 +28,6 @@ export const depositJournal: Report = {
   dateColumn: 'Date and time',
   filterNote: 'กรองด้วยเวลาที่ผูกเงินมัดจำเข้ากับใบแจ้งหนี้ (Date and time)',
   searchButton: FIND,
-  dateColumns: ['Date and time'],
   boundaryToleranceDays: 0,
   // คอลัมน์สุดท้ายไม่มีชื่อในไฟล์จริง
   expectedColumns: [

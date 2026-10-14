@@ -7,7 +7,7 @@
 #   --skip-windmill    ไม่เปิด Windmill (Docker)
 #   --no-login-check   ไม่ลองล็อกอิน HotelTime ตอนจบ
 #
-# รันซ้ำได้: .env ที่มีอยู่แล้วไม่ถูกแตะ (แก้เองด้วย nano) · ไม่ลบ node_modules ที่ติดตั้งครบแล้ว (Windmill mount โฟลเดอร์นี้อยู่ —
+# รันซ้ำได้: ค่าใน .env ที่มีอยู่แล้วไม่ถูกแตะ (แก้เองด้วย nano) — แค่เติมวันเริ่มใช้งาน/URL ของ Discord ถ้ายังไม่มี (ใบ 10) · ไม่ลบ node_modules ที่ติดตั้งครบแล้ว (Windmill mount โฟลเดอร์นี้อยู่ —
 # ลบระหว่างรอบเที่ยงจะทำให้รอบนั้นพัง) · ไม่เรียก apt ซ้ำถ้า Chromium เปิดได้แล้ว · ไม่ติดตั้ง Node.js/Docker ให้ — ผู้ดูแลระบบ
 # ติดตั้งเอง (ตกลง 2026-10-12) สคริปต์แค่เช็คและบอกวิธี · ข้อความเป็นภาษาไทยทั้งหมด เพราะเครื่องปลายทางไม่มี AI ช่วยอ่าน error
 set -euo pipefail
@@ -151,6 +151,47 @@ else
     ' "$EXPORTER/.env.example" | write_secret_file "$EXPORTER/.env" \
     || stop "เขียน exporter/.env ไม่สำเร็จ" "เช็คว่า exporter/.env.example อ่านได้และมีครบทุกช่อง"
   ok "เขียน exporter/.env แล้ว (อ่านได้เฉพาะบัญชีนี้)"
+fi
+keep_private "$EXPORTER/.env"
+
+# ── 4b. วันเริ่มใช้งาน + Discord (ใบ 10 ของ exporter-daily-per-day-raw) — เติมเฉพาะที่ยังไม่มี ไม่ทับค่าเดิม (เครื่องที่ติดตั้งไว้ก่อนรันซ้ำก็ได้) ──
+step "ตั้งวันเริ่มใช้งาน และการแจ้งเตือน Discord (exporter/.env)"
+env_has() { grep -qE "^$1=.+" "$EXPORTER/.env"; }
+env_key() { grep -qE "^$1=" "$EXPORTER/.env"; } # มีบรรทัดของคีย์นี้ (ค่าว่างก็นับ — ตั้งใจเว้นไว้)
+append_env() { # append_env <บรรทัด> — printf เป็น builtin (ค่าไม่โผล่ใน ps) · ไฟล์ไม่จบด้วยขึ้นบรรทัดใหม่ต้องเติมก่อน ไม่งั้นต่อท้ายบรรทัดเดิม
+  [ -w "$EXPORTER/.env" ] || stop "เขียน exporter/.env ไม่ได้ (ไฟล์เป็นของบัญชีอื่น?)" "ให้ผู้ดูแลรัน: sudo chown $USER $EXPORTER/.env แล้วรันใหม่"
+  [ -z "$(tail -c1 "$EXPORTER/.env")" ] || printf '\n' >>"$EXPORTER/.env"
+  printf '%s\n' "$1" >>"$EXPORTER/.env"
+}
+if env_key EXPORTER_GO_LIVE; then
+  GO_LIVE="$(sed -n 's/^EXPORTER_GO_LIVE=//p' "$EXPORTER/.env" | tail -1)"
+  if [ -n "$GO_LIVE" ]; then ok "วันเริ่มใช้งาน $GO_LIVE (มีอยู่แล้ว ไม่แตะ)"
+  else warn "EXPORTER_GO_LIVE ว่างอยู่ (ตั้งใจเว้นไว้?) ไม่แตะ — ระบบดึงแค่เมื่อวาน ไม่เติมวันที่ขาด"; fi
+else
+  GO_LIVE="$(TZ=Asia/Bangkok date +%F)"
+  append_env "EXPORTER_GO_LIVE=$GO_LIVE"
+  ok "ตั้งวันเริ่มใช้งานเป็นวันนี้ $GO_LIVE — ตั้งแต่วันนี้ วันไหนขาด ระบบเติมให้เอง (เปลี่ยนได้ที่ EXPORTER_GO_LIVE ใน exporter/.env)"
+fi
+WEBHOOK_TODO="ตั้งการแจ้งเตือน Discord: nano exporter/.env แล้วเพิ่มบรรทัด DISCORD_WEBHOOK_URL=<URL ของ webhook>"
+if env_has DISCORD_WEBHOOK_URL; then
+  ok "มี URL ของ Discord webhook แล้ว ไม่แตะ"
+else
+  # URL ของ webhook = ความลับ (ใครมีก็โพสต์เข้าห้องได้) — ไม่แสดงบนจอระหว่างพิมพ์และไม่พิมพ์กลับ
+  WEBHOOK=""
+  IFS= read -r -s -p "   URL ของ Discord webhook (วางแล้วกด Enter — ไม่แสดงบนจอ · กด Enter เฉย ๆ = ข้ามไปก่อน): " WEBHOOK || true
+  echo
+  WEBHOOK="$(printf '%s' "$WEBHOOK" | tr -d '[:space:]')"
+  if [ -z "$WEBHOOK" ]; then
+    warn "ข้ามไปก่อน — ยังไม่มีสรุปรายวัน/แจ้งเตือนทาง Discord"
+    PENDING+=("$WEBHOOK_TODO")
+  elif printf '%s' "$WEBHOOK" | grep -qE '^https://((ptb|canary)\.)?(discord|discordapp)\.com/api/(v[0-9]+/)?webhooks/[0-9]+/[A-Za-z0-9_-]+$'; then
+    append_env "DISCORD_WEBHOOK_URL=$WEBHOOK"
+    ok "บันทึก URL ของ Discord webhook แล้ว (ไม่แสดงบนจอ)"
+  else
+    warn "ไม่ใช่ URL webhook ของ Discord (ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/) — ไม่บันทึก"
+    PENDING+=("$WEBHOOK_TODO")
+  fi
+  WEBHOOK=""
 fi
 keep_private "$EXPORTER/.env"
 

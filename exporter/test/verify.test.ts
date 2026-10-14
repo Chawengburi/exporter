@@ -4,9 +4,9 @@ import { parseDMY, type DateRange } from '../src/core/order.ts';
 import { verifyMerged, type ChunkVerdict } from '../src/core/verify.ts';
 
 const R = (a: string, b: string): DateRange => ({ from: parseDMY(a), to: parseDMY(b) });
-const sheet = { header: ['a'], rows: [['1']] };
+const sheet = { name: 'Sheet1', header: ['a'], rows: [['1']] };
 const V = (a: string, b: string, rows = 1): ChunkVerdict => ({
-  range: R(a, b), filePath: 'x.xlsx', rowCount: rows, sheet,
+  range: R(a, b), filePath: 'x.xlsx', rowCount: rows, sheets: [sheet],
   actualSpan: { from: parseDMY(a), to: parseDMY(b) },
 });
 

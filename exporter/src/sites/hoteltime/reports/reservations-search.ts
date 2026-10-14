@@ -33,12 +33,12 @@ export const reservationsSearch: Report = {
   },
   hasRowCap: true,
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
 
   /** คอลัมน์ created date ของใบนี้ · เก็บเป็นข้อความ DD/MM/YYYY */
   dateColumn: 'Reserved:',
   searchButton: 'ctl00$pc$btnFind',
-  dateColumns: ['Reserved:', 'Arrival', 'Departure'],
   boundaryToleranceDays: 0,
 
   expectedColumns: [

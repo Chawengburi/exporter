@@ -44,6 +44,7 @@ function profiles(spec: ProfilesSpec): Report {
     path: spec.path,
     allowedControls: ALLOWED_CONTROLS,
     dailyOnly: false,
+    family: 'per-day',
     skipDateCoverageCheck: false,
     ...(spec.overlap ? { overlapColumns: { from: 'Reservation from', to: 'Reservation to' } } : {}),
     // ~880 แถว/เดือน (2,640 ใน 90 วัน) — ทั้งช่วงเกิน 2000
@@ -52,7 +53,6 @@ function profiles(spec: ProfilesSpec): Report {
     dateColumn: 'Reservation from',
     filterNote: spec.filterNote,
     searchButton: FIND,
-    dateColumns: ['Reservation from', 'Reservation to'],
     boundaryToleranceDays: 0,
     expectedColumns: spec.expectedColumns,
 

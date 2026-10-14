@@ -20,11 +20,13 @@ export const arrivals: Report = {
   path: 'reports/RoomArrivals.aspx',
   allowedControls: ALLOWED_CONTROLS,
   dailyOnly: true,
+  family: 'picture',
+  period: 'none',
   skipDateCoverageCheck: false,
 
   chunk: {
     kind: 'whole',
-    reason: 'dailyOnly — ช่วงเป็นวันเดียวเสมอ (มาจาก resolveDailyOnlyRange) ไม่มีอะไรให้แบ่งก้อน',
+    reason: 'dailyOnly — ช่วงเป็นวันเดียวเสมอ (ตัววางแผนของรอบรายวันส่งมาวันเดียว) ไม่มีอะไรให้แบ่งก้อน',
   },
   // 🔴 ยังไม่วัดวันที่ยุ่งที่สุด (วันนี้ที่ recon มีแค่ 3 แถว) — ตั้ง false เพราะ query
   // ได้ทีละวันอยู่แล้ว ไม่ใช่เพราะพิสูจน์แล้วว่าไม่มีทางชน 2000 แถวในวันเดียว
@@ -32,7 +34,6 @@ export const arrivals: Report = {
 
   dateColumn: 'Arrival',
   searchButton: 'ctl00$pc$btnFind',
-  dateColumns: ['Arrival', 'Departure'],
   boundaryToleranceDays: 0,
 
   // จากไฟล์ .xlsx ที่ดาวน์โหลดจริง 2026-09-22 (ไม่ใช่จากโครง HTML ของหน้าเว็บ)

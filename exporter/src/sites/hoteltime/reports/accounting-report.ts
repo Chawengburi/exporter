@@ -37,6 +37,7 @@ function accountingReport(spec: { id: string; label: string; exportLink: string;
     allowedControls: ALLOWED,
     exportLink: spec.exportLink,
     dailyOnly: false,
+    family: 'per-day',
     skipDateCoverageCheck: false,
     // baseline 2026-10-08: 45,162 แถวใน 34 ก้อน สูงสุด 3,058 แถวในไฟล์เดียว — export นี้ไม่ถูกตัดที่ 2000
     chunk: { kind: 'monthly', reason: 'สูงสุด ~3,000 แถว/เดือน และ export ไม่ถูกตัดที่ 2000 — รายเดือนพอ' },
@@ -44,7 +45,6 @@ function accountingReport(spec: { id: string; label: string; exportLink: string;
     dateColumn: 'Tax effective date',
     filterNote: 'กรองด้วยวันที่ภาษีมีผล (Tax effective date) — เอกสารทุกชนิด แยกแถวตามอัตรา VAT',
     searchButton: FIND,
-    dateColumns: ['Tax effective date', 'Issue date'],
     boundaryToleranceDays: 0,
     expectedColumns: spec.expectedColumns,
     async applyFilters(page: Page, range: DateRange): Promise<void> {

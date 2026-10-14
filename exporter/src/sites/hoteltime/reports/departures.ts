@@ -20,6 +20,8 @@ export const departures: Report = {
   path: 'reports/RoomDepartures.aspx',
   allowedControls: ALLOWED_CONTROLS,
   dailyOnly: true,
+  family: 'picture',
+  period: 'none',
   skipDateCoverageCheck: false,
 
   chunk: {
@@ -31,7 +33,6 @@ export const departures: Report = {
 
   dateColumn: 'Departure',
   searchButton: 'ctl00$pc$btnFind',
-  dateColumns: ['Arrival', 'Departure'],
   boundaryToleranceDays: 0,
 
   // จากไฟล์ .xlsx ที่ดาวน์โหลดจริง 2026-09-22 (ช่วง 23/09/2026 ซึ่งมีข้อมูล — วันนี้เองว่าง)

@@ -47,6 +47,7 @@ import { inHouseGuests } from './in-house-guests.ts';
 import { reservationsCancelled } from './reservations-cancelled.ts';
 import { reservationsRateCode } from './reservations-ratecode.ts';
 import { reservationsSearch } from './reservations-search.ts';
+import type { PlannedReport } from '../../../core/run-planner.ts';
 import type { Report } from './_types.ts';
 
 /** ทะเบียนรายงานทั้งหมด — เพิ่มรายงานใหม่โดยเพิ่มไฟล์แล้วมาต่อท้ายที่นี่ */
@@ -118,4 +119,10 @@ export function findReport(id: string): Report | undefined {
 
 export function reportIds(): string[] {
   return REPORTS.map((r) => r.id);
+}
+
+/** แคตตาล็อกสำหรับตัววางแผนและ `exporter status` (ตระกูล + งวด) */
+export const toPlanned = (r: Report): PlannedReport => ({ id: r.id, family: r.family, period: r.period });
+export function plannedReports(): PlannedReport[] {
+  return REPORTS.map(toPlanned);
 }

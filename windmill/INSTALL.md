@@ -199,10 +199,15 @@ docker compose exec -T db psql -U postgres -d windmill -c \
 
 ### รอบเก็บตก 15:00 / 18:00 (เพิ่ม 2026-10-07)
 
-รายงานภาพของวันนั้น (arrivals, departures, in-house-guests, housekeeping) ถ้าล้มตอนเที่ยงแล้วไม่ดึงซ้ำในวันเดียวกัน
-จะหายถาวร (ADR-0003) จึงมีรอบเก็บตกที่ **รันเฉพาะใบที่สถานะล่าสุดในโฟลเดอร์ของวันนี้ยังล้ม** — ถ้าไม่มีใบล้ม
-จะจบทันทีโดยไม่เปิดเบราว์เซอร์ (exit 0) · ถ้ายังไม่มีรอบของวันนี้เลย (เช่น เครื่องหลับตอนเที่ยง) จะทำเหมือนรอบ
-รายวันปกติ
+รายงานภาพ (arrivals, departures, in-house-guests, housekeeping ฯลฯ) ถ้าล้มตอนเที่ยงแล้วไม่ถ่ายซ้ำในวันเดียวกัน
+จะหายถาวร (ADR-0003) จึงมีรอบเก็บตก — **คำสั่งเดียวกับรอบเที่ยง** (ADR-0008, 2026-10-14): ทุกรอบทำเฉพาะที่ยังไม่สำเร็จ
+(รายงานตามวันของเมื่อวาน + วันที่ขาดตั้งแต่วันเริ่มใช้งาน ครั้งละ 3 วัน และรายงานภาพของวันนี้) — ถ้าไม่มีงานค้างจะจบทันทีโดยไม่เปิด
+เบราว์เซอร์ (exit 0) · ถ้าเครื่องหลับตอนเที่ยง รอบนี้ก็ทำงานของรอบเที่ยงให้เอง
+
+> 🔴 **script เก็บตกที่ตั้งก่อน 2026-10-14 มี `--retry-failed`** — flag นี้เลิกใช้แล้ว ใส่มา = job ล้มทันที (`--retry-failed เลิกใช้แล้ว`)
+> ทุกรอบ 15:00/18:00 · เช็ค: `docker compose exec -T db psql -U postgres -d windmill -At -c "SELECT DISTINCT ON (path) path, content FROM script
+> WHERE path LIKE '%pms_export%' ORDER BY path, created_at DESC;"` · แก้: เปิด script ในหน้าเว็บ ลบ `--retry-failed` ออก (ให้ตรงกับ
+> `windmill/scripts/pms_export_daily_catchup.sh`) แล้วกด **Deploy** · เครื่องที่ตั้งด้วย `node windmill/setup.mjs` รัน setup ซ้ำก็ได้
 
 1. สร้าง script ใหม่ (Bash, tag `chromium`) path `u/<your-username>/pms_export_daily_catchup`:
 
@@ -210,7 +215,7 @@ docker compose exec -T db psql -U postgres -d windmill -c \
    #!/bin/bash
    set -euo pipefail
    cd /workspace/exporter
-   node src/index.ts export --report all --daily --retry-failed --json
+   node src/index.ts export --report all --daily --json
    ```
 
 2. กด **Deploy** แล้วตั้ง schedule ให้ script นี้: cron `0 0 15,18 * * *` timezone `Asia/Bangkok`
@@ -223,7 +228,7 @@ docker compose exec -T db psql -U postgres -d windmill -c \
    ```
 
 4. กด **Run** script เก็บตกเองหนึ่งครั้งหลังรอบเที่ยงที่ผ่านหมด — ต้องจบเร็ว (ไม่กี่วินาที ไม่เปิดเบราว์เซอร์) และผล
-   JSON เป็น `"code": "nothing_to_retry"`
+   JSON เป็น `"code": "nothing_to_do"`
 
 **รอบเก็บตกกับรอบเที่ยงไม่รันซ้อนกัน:** `windmill_worker_custom` มี `replicas: 1` worker ทำงานทีละ job — ถ้า
 เครื่องหลับข้ามหลายรอบแล้วตื่นมา job ที่ค้างจะเข้าคิวรันต่อกัน ไม่เขียน `_run.json` ของวันเดียวกันพร้อมกัน ·

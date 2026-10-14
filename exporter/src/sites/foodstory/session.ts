@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import type { Config, Credentials } from './config.ts';
 import { installInFlightTracker, settlePageRequests } from './inflight.ts';
+import { browserEnv } from '../../core/browser-env.ts';
 
 export class LoginError extends Error {
   override readonly name = 'LoginError';
@@ -16,6 +17,7 @@ export type Session = {
 
 export async function openSession(cfg: Config): Promise<Session> {
   const browser = await chromium.launch({
+    env: browserEnv(), // ไม่ส่งความลับใน .env ให้ Chromium (core/browser-env.ts)
     headless: cfg.headless,
     ...(cfg.slowMoMs > 0 ? { slowMo: cfg.slowMoMs } : {}),
   });

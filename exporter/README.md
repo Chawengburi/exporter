@@ -3,7 +3,11 @@
 > เดิมชื่อ `pms-export` — rename 2026-09-28 (ADR-0004): คำสั่ง `exporter`, `.env` prefix ของ HotelTime
 > เปลี่ยนจาก `PMS_*` เป็น `HOTELTIME_*` · เอกสาร/ticket ก่อนวันนั้นยังเรียกชื่อเดิม
 
-ดึงรายงานจาก **HotelTime PMS** ด้วย Playwright แล้วเซฟลงดิสก์
+> **โมเดลรอบรายวัน (2026-10-14, `.scratch/exporter-daily-per-day-raw/`):** เก็บแค่ **ไฟล์ดิบ** (ADR-0007) · **รายงานตามวัน**
+> ดึงไฟล์ละ **วันของข้อมูล** · **รายงานภาพ** ถ่าย ณ เวลาที่รัน (ADR-0008) · เติมวันที่ขาดเองตั้งแต่ **วันเริ่มใช้งาน** (ADR-0009) · แจ้งผลทาง
+> Discord · ศัพท์ทั้งหมดอยู่ใน [`CONTEXT.md`](../CONTEXT.md)
+
+ดึงรายงานจาก **HotelTime PMS** (ระบบโรงแรม) และ **FoodStory** (ระบบร้านอาหาร) ด้วย Playwright แล้วเก็บไฟล์ดิบลงดิสก์
 
 สคริปต์ deterministic — **ไม่มี AI อยู่ในลูปการรัน** ใช้ AI แค่ตอนสำรวจเส้นทางครั้งแรก
 และตอนซ่อมเมื่อเว็บเปลี่ยนหน้าตา ที่มาของสถาปัตยกรรมนี้อยู่ใน artifact สองใบ:
@@ -18,9 +22,11 @@
 | `exporter login` — ล็อกอินอัตโนมัติ | ✅ ทดสอบกับ credential จริงแล้ว สำเร็จ 2026-09-08 |
 | Phase A — แผนที่เมนู | ✅ ได้ครบแล้ว ดู [`recon/MENU.md`](./recon/MENU.md) |
 | Phase A — สำรวจ filter/export ครบ 3 รายงานแรก | ✅ เสร็จ ดู [`recon/NOTES.md`](./recon/NOTES.md) |
-| `exporter export` — ดึงไฟล์ + รวมเป็น CSV รายปี | ✅ รันจริงครบ 8 รายงานแล้ว (2026-09-22) |
+| `exporter export` — ดึงไฟล์ดิบ + ตรวจ + `_manifest.json` | ✅ HotelTime 48 รายงาน · FoodStory 49 รายงาน |
+| รอบรายวันแบบไฟล์ละวันของข้อมูล + เติมวันที่ขาดเอง + ภาพปิดงวด + baseline | ✅ 2026-10-14 (ใบ 01–09 ของ `exporter-daily-per-day-raw`) |
+| `exporter status` + แจ้งเตือน Discord | ✅ 2026-10-14 (ใบ 07–08) |
 | ชั้นตรวจไฟล์ (`sites/hoteltime/verify.ts` + `core/verify.ts`) | ✅ เสร็จ — จับบั๊กจริงไปแล้ว 1 ตัว |
-| รองรับหลาย site (`src/sites/<site>/`) | ✅ HotelTime + FoodStory (48/48 รายงาน, ticket 12 — ต้องมีคนแก้ reCAPTCHA ทุกรอบ รันบน Windmill ไม่ได้) · rename เป็น `exporter` แล้ว 2026-09-28 (ADR-0004) |
+| รองรับหลาย site (`src/sites/<site>/`) | ✅ HotelTime 48 รายงาน + FoodStory 49 รายงาน (FoodStory ต้องมีคนแก้ reCAPTCHA ทุกรอบ รันบน Windmill ไม่ได้) · rename เป็น `exporter` แล้ว 2026-09-28 (ADR-0004) |
 | ขาอัปโหลดเข้า uploader | ⛔ **นอกขอบเขตรอบนี้โดยเจตนา** |
 
 ## ติดตั้ง
@@ -37,88 +43,71 @@ npm link                            # ทำให้เรียก `exporter` 
 
 ## คำสั่ง
 
-หลัง `npm link` เรียก `exporter` ได้จากทุกโฟลเดอร์ · ไฟล์ผลลัพธ์อยู่ใต้ `exporter/` เสมอไม่ว่าจะรันจากที่ไหน:
+หลัง `npm link` เรียก `exporter` ได้จากทุกโฟลเดอร์ · ไฟล์ผลลัพธ์อยู่ใต้ `exporter/data/` เสมอไม่ว่าจะรันจากที่ไหน · เวลาทั้งหมดเป็น
+**เวลาไทย** ("วันนี้", ชื่อโฟลเดอร์, ชื่อไฟล์) ไม่ว่าเครื่องตั้ง TZ อะไร (`src/core/thai-time.ts`)
 
-- HotelTime `--daily` (รอบของ Windmill) → `exporter/data/hoteltime/daily/<YYYY-MM>/<YYYY-MM-DD>/`
-  (คลังผลลัพธ์ ADR-0005) — หนึ่งโฟลเดอร์ต่อวัน **วันที่คือวันสุดท้ายที่ข้อมูลครอบคลุม** ไม่ใช่วันที่รัน ·
-  ชื่อไฟล์ขึ้นต้นด้วยช่วงข้อมูลจริง เช่น `2026-10-05_2026-10-07__reservations-search.csv`,
-  `2026-10-07__arrivals.csv` · ไฟล์ดิบ + manifest อยู่ใน `_raw/<report>/` · ทุกโฟลเดอร์มี
-  `_summary.txt` (สรุปภาษาไทยว่าใบไหนผ่าน/ล้ม กี่แถว) และ `_run.json` (สำหรับสคริปต์) ·
-  `data/hoteltime/daily/latest` ชี้วันล่าสุดที่ผ่านอย่างน้อยหนึ่งใบ · รันซ้ำวันเดียวกันแทนไฟล์ของ
-  รายงานที่รันใหม่ ใบอื่นคงเดิม และไม่มีการลบไฟล์ของวันอื่น
-- เวลาทั้งหมดของ exporter เป็น**เวลาไทย**เสมอ ("วันนี้", ชื่อโฟลเดอร์, เวลาใน `_summary.txt`) ไม่ว่าเครื่องตั้ง TZ อะไร —
-  job บน Windmill เป็น UTC (ticket 27, `src/core/thai-time.ts`) · เวลาใน `_run.json` เป็น ISO UTC ตามปกติของเครื่อง
-- ความหมายของ "รายวัน" ของ HotelTime: รายงาน ledger (`reservations-*`, `arrival-period`, `post-master*`, `manual-postings`, `postings`, `invoices-*`, `deposit-ledger`, `gift-certificate-ledger`, `city-tax`, `*-profiles`, `manager-items`, `accounting-report*`, `deposit-journal`) ดึงย้อน 3 วัน
-  ถึงวันนี้ ส่วนรายงานภาพของวันนั้น (`arrivals`, `departures`, `in-house-guests`, `housekeeping`,
-  `reservations-by-arrival-date`, `housekeeping-basic`, `housekeeping-all-in-one`, `rooms-status-overview`, `rooms-ooo`,
-  `rooms-available`) ดึงวันนี้วันเดียว (ADR-0003) · หน้าสถิติ (`reservation-stats-*`, `combined-forecast`, `occupancy-*`) เก็บเป็น
-  ภาพของวันที่ดึง ช่วงที่ดูตั้งตามวันที่รัน (ปีนี้ / เดือนนี้ / เดือนหน้า / ย้อน 12 เดือน — ดู `reports/statistics.ts`) ชื่อไฟล์บอกช่วงนั้น
-  (`2026-11-01_2026-11-30__reservation-stats-term.csv`) ส่วนโฟลเดอร์เป็นวันที่ดึง · ใบแจ้งหนี้ค้างชำระ
-  (`uncharged-invoices`, `uncharged-invoices-by-customer`, `deposit-to-use`, `unpaid-invoices-by-date`) เก็บเป็นรายการค้างทั้งหมด ณ วันที่ดึง
-  · ตัวเลขรวม (`manager-summary`, `trial-balance`, `nationality-revenue`, `occupancy-by-nationality*`) เก็บเป็น "เดือนนี้ถึงวันนี้" ·
-  `manager-day-detail` เก็บรายได้ของเมื่อวาน
-- exit code: `0` = ผ่านหมด · `2` = ผ่านบางใบ (ไฟล์ของใบที่ผ่านอยู่ครบ) · `1` = ไม่ได้อะไรเลยหรือตั้งค่าผิด
-- รอบเก็บตก: `exporter export --report all --daily --retry-failed` รันซ้ำเฉพาะใบที่สถานะล่าสุดในโฟลเดอร์ของวันนี้
-  ยังล้ม (ไม่มีใบล้ม = จบทันทีไม่เปิดเบราว์เซอร์ · ยังไม่มีรอบของวันนี้ = รันเหมือนรอบรายวันปกติ) — Windmill ตั้งไว้ 15:00
-  และ 18:00 (`windmill/INSTALL.md` § 6) เพราะรายงานภาพของวันนั้นที่พลาดวันไหนก็หายถาวร
-- ลองใหม่อัตโนมัติ (`core/retry.ts`): รายงานที่ล้มเพราะ timeout / network / เบราว์เซอร์ถูกปิด ลองใหม่ไม่เกิน 2 ครั้ง
-  รอ 30 แล้ว 60 วินาที · HotelTime เปิด session + ล็อกอินใหม่ทุกครั้ง · FoodStory ลองบน page เดิม (ล็อกอินใหม่ต้องกด
-  captcha) · **ไม่ลองใหม่** กับชนเพดานแถว, verify ไม่ผ่าน, ล็อกอินไม่ผ่าน (อาจเป็นรหัสผิด ลองซ้ำเสี่ยงบัญชีถูกล็อก) ·
-  จำนวนครั้งที่ลองอยู่ใน `_summary.txt` / `_run.json`
-- HotelTime back-fill, `--from`/`--to`, `--last-days` → `exporter/data/hoteltime/backfill/<YYYY-MM-DD_HHMMSS>/`
-  โฟลเดอร์ละรอบ ไม่ทับกันเอง
-- HotelTime `--baseline` → `exporter/data/hoteltime/baseline/<YYYY-MM-DD>/` ของวันที่รัน · **ทุกใบเก็บไว้**
-  (ADR-0005) ใบใหม่เป็นใบอ้างอิงตามความหมายของ ADR-0002 · ใบที่ล้มไม่ทำให้ทิ้งทั้งรอบ: baseline ปัจจุบันของ
-  แต่ละรายงานคือ**โฟลเดอร์ล่าสุดที่รายงานนั้นผ่าน** (`currentBaselineFor()` ใน `core/run-record.ts`) ·
-  `data/hoteltime/baseline/latest` ชี้โฟลเดอร์ล่าสุดที่ผ่านอย่างน้อยหนึ่งใบ
-- baseline/back-fill ครอบหลายปีจึงแยก CSV ละปี ชื่อขึ้นต้นด้วยส่วนของปีนั้นที่อยู่ในช่วงที่ขอ เช่น
-  `2024-01-01_2024-12-31__reservations-ratecode.csv`, `2026-01-01_2026-10-07__reservations-ratecode.csv`
-- FoodStory รายวัน `--daily` → `exporter/data/foodstory/daily/<YYYY-MM>/<เมื่อวาน>/` — ดึง**เมื่อวาน** (เวลาไทย) วันเดียว
-  (วันที่ปิดยอดแล้ว ย้ายไปรันเที่ยงคืนก็ยังถูก · ไม่ไล่เก็บวันที่พลาด รอบรายเดือนครอบคลุมให้ — ADR-0006, ticket 10) ·
-  `daily/latest` · ไฟล์ `<เมื่อวาน>__<กลุ่ม>__<id>.xlsx` · ข้ามการเช็คไขว้ยอดขาย (salebymonthsum เป็นยอดทั้งเดือน เทียบกับวันเดียว
-  ไม่ได้ — เหตุผลอยู่ใน `crossCheckSkipped` ของ `_manifest.json`) · รายงานที่ไม่มีตัวกรองวันที่ (สต็อก พนักงาน ฯลฯ) คือภาพ ณ ตอนรัน
-  · พนักงานรันด้วยการดับเบิลคลิก `exporter/launchers/foodstory-daily.command` (macOS/Ubuntu — วางบน Desktop ด้วย
-  `bash exporter/launchers/install-desktop-launcher.sh`: macOS = symlink, Ubuntu = ไฟล์ .desktop — หา node เอง, เช็ค `.env`/
-  `node_modules`, สรุปภาษาไทยตอนจบ; ticket 11) คู่มือ: [`docs/FOODSTORY-DAILY-STAFF-GUIDE.md`](../docs/FOODSTORY-DAILY-STAFF-GUIDE.md)
-- FoodStory รายเดือน → `exporter/data/foodstory/monthly/<YYYY-MM>/` สำหรับรอบแรกของเดือนนั้น · ดึงเดือนเดิมซ้ำได้
-  `monthly/<YYYY-MM>__<YYYY-MM-DD>/` (วันที่ดึง) แทนการเขียนทับ (ADR-0005 — ยอดที่ร้านแก้ย้อนหลังไม่ทับของเดิม) · ดึงซ้ำ
-  **วันเดียวกัน** (เวลาไทย) ใช้โฟลเดอร์ของวันนั้นต่อ รวมถึง `<YYYY-MM>/` ถ้ารอบแรกของมันเป็นวันนี้ — ผลรวมกันใน `_run.json`/
-  `_manifest.json` และไฟล์ของรายงานถูกแทนเฉพาะเมื่อรอบใหม่ผ่าน (ดาวน์โหลดลง `_downloads/<id>/` ก่อน) ·
-  ในโฟลเดอร์มี xlsx `<YYYY-MM>__<กลุ่ม>__<id>.xlsx` + `_manifest.json` (ที่มา + เช็คไขว้ยอดขาย) + `_summary.txt` +
-  `_run.json` · exit code 0/2/1 แบบเดียวกับ HotelTime (truncated นับเป็นล้ม) · `--json` บอกโฟลเดอร์ใน `outDir`
+### รอบรายวัน `--daily` (ทั้งสอง Site — ADR-0008/0009)
+
+- **รายงานตามวัน** (HotelTime 22 · FoodStory 42 — ledger/ยอดของวันเดียว) ขอ Site ทีละ **วันของข้อมูล** ได้ไฟล์ละวัน
+  `<วันของข้อมูล>__<id>.xlsx` (เช่น `2026-10-13__postings.xlsx`) ลง `data/<site>/daily/<YYYY-MM>/<วันของข้อมูล>/` · วันของข้อมูลปกติ =
+  **เมื่อวาน** (ถึงกำหนดตั้งแต่ 07:00 เวลาไทย — รายงานยกเลิกของ HotelTime ตัดวันตาม UTC)
+- **รายงานภาพ** (HotelTime 26 · FoodStory 7 — สถานะห้อง แขก สต็อก ข้อมูลหลัก ยอดสะสม พยากรณ์) ถ่ายวันละครั้ง ณ เวลาที่รัน ชื่อ
+  `<YYYYMMDDTHHMMSS+0700>__<id>.xlsx` ลงโฟลเดอร์ของวันนี้ · ภาพของวันที่ผ่านไปแล้ว**ดึงย้อนไม่ได้**
+- **ภาพปิดงวด**: 7 วันแรกของเดือน/ปีใหม่ ถ่ายยอดสะสมของงวดที่จบ ชื่อ `<ต้นงวด>--<สิ้นงวด>__<id>.xlsx` ลงโฟลเดอร์ของวันสุดท้ายของงวด
+- **เติมวันที่ขาดเอง**: ทุกรอบดึง (รายงาน, วันของข้อมูล) ที่ยังไม่สำเร็จตั้งแต่ **วันเริ่มใช้งาน** (`EXPORTER_GO_LIVE` ใน `.env`) ใหม่สุดก่อน
+  ไม่เกิน 3 วันต่อรอบ (เพดานจาก timeout 15 นาทีของ Windmill) · ไม่ตั้งวันเริ่มใช้งาน = ดึงแค่เมื่อวาน · **ว่าง** (เว็บไม่มีรายการ) นับว่าสำเร็จ ·
+  ไม่มีงาน = จบทันทีไม่เปิดเบราว์เซอร์ — รอบเก็บตก 15:00/18:00 ของ Windmill จึงเป็นคำสั่งเดียวกับรอบเที่ยง
+- FoodStory: login ครั้งเดียว (คนกด reCAPTCHA) แล้วตั้งช่วงวันที่ทีละวันในรอบเดียว · พนักงานกดผ่านไอคอนบน Desktop
+  (`exporter/launchers/foodstory-daily.command` — วางด้วย `bash exporter/launchers/install-desktop-launcher.sh`) คู่มือ:
+  [`docs/FOODSTORY-DAILY-STAFF-GUIDE.md`](../docs/FOODSTORY-DAILY-STAFF-GUIDE.md)
+- หลังจบรอบรายวันทุกครั้งส่ง Discord (ด้านล่าง) · `data/<site>/daily/latest` ชี้โฟลเดอร์ของวันนี้
+- exit code: `0` = ผ่านหมด (หรือไม่มีงาน) · `2` = ผ่านบางใบ · `1` = ไม่ได้อะไรเลยหรือตั้งค่าผิด
+- ลองใหม่อัตโนมัติ (`core/retry.ts`): timeout / network / เบราว์เซอร์ถูกปิด ลองใหม่ไม่เกิน 2 ครั้ง · **ไม่ลองใหม่** กับชนเพดานแถว, verify
+  ไม่ผ่าน, ล็อกอินไม่ผ่าน (ลองซ้ำเสี่ยงบัญชีถูกล็อก)
+
+### ที่เก็บข้อมูล (ADR-0005/0007)
+
+- เก็บแค่ **ไฟล์ดิบ** ตามที่ Site ให้มา (ไม่แปลง ไม่เขียน CSV) — การแปลง/ตัดคอลัมน์/ซ่อนข้อมูลส่วนตัวเป็นของ uploader
+- ทุกโฟลเดอร์มี `_manifest.json` (ต่อไฟล์: รายงาน ตระกูล ช่วงวันของข้อมูล เวลาที่ได้ จำนวนแถว ชื่อชีต ขนาด **sha256** หน้าต้นทาง) ·
+  `_run.json` (สถานะล่าสุดต่อรายงาน — ตัววางแผนกับ `status` อ่านจากนี้) · `_summary.txt` (สรุปภาษาไทย)
+- **ไม่ลบ ไม่ทับ**: ดึงชื่อเดิมซ้ำแล้วไบต์ต่าง → ฉบับเก่าย้ายไป `_superseded/` (บันทึกใน `superseded[]` ของ manifest) · ไบต์เหมือนเดิม → เก็บชุดเดียว
+- ⚠ sha256 ของทั้งไฟล์เปลี่ยนทุกครั้งที่ดาวน์โหลด แม้ข้อมูลเหมือนเดิม (xlsx มีเวลาที่สร้างไฟล์ใน `docProps/core.xml`) — ใช้ตรวจว่าไฟล์ไม่เสีย
+  ไม่ใช่ใช้บอกว่าข้อมูลเปลี่ยน
+
+### คำสั่งอื่น
+
+- `--date YYYY-MM-DD` (HotelTime): ดึงรายงานตามวันของวันนั้นวันเดียวใหม่ ไม่สนสถานะเดิม · ถึงเมื่อวาน · ไม่ถ่ายรายงานภาพ
+- `--baseline` (HotelTime, ใบ 09): ดึงวันของข้อมูลที่เคยดึงแล้วใหม่ ไฟล์ละวันชื่อเดียวกับรอบรายวัน ลง `data/hoteltime/baseline/<วันที่รัน>/`
+  (โฟลเดอร์รายวันไม่ถูกแตะ · `_run.json` ใช้ id `<รายงาน>@<วัน>`) · `--from/--to` หรือไม่ใส่ = `--baseline-interval-days` (30) วันล่าสุดถึงเมื่อวาน ·
+  รายงานภาพไม่มี baseline
+- back-fill `--from`/`--to`/`--last-days` (HotelTime): ก้อนหลายวัน ชื่อช่วง `<from>--<to>__<id>.xlsx` ลง `data/hoteltime/backfill/<เวลาที่รัน>/`
+  · รายงาน dailyOnly (ADR-0003) ถูกข้าม
+- FoodStory รายเดือน (ไม่ใส่ `--daily`): เดือนที่แล้วทั้งเดือน ลง `data/foodstory/monthly/<YYYY-MM>/` · ดึงเดือนเดิมซ้ำวันอื่นได้
+  `monthly/<YYYY-MM>__<วันที่ดึง>/` · เกิน 5,000 แถวผ่าช่วงเป็น `<id>_part<n>.xlsx` (part ต้องต่อกันจึงครบเดือน)
+- `status`: สรุปหน้าเดียวต่อ Site × วันของข้อมูล (มีข้อมูล / ว่าง / ล้ม / ยังไม่ได้ดึง + รายงานภาพ + ภาพปิดงวด + สิ่งที่ต้องทำ) อ่านคลังอย่างเดียว ·
+  `--json` คือโครงสร้างที่ใช้สร้างข้อความ Discord · exit 0 ปกติ/มีสิ่งต้องทำ · 1 มีปัญหา · 2 ใช้ผิด
+- `notify`: ส่ง Discord เอง (`--summary` ส่งสรุปของวันนี้ · `--dry-run` แค่แสดง) — รอบรายวันเรียกเองอยู่แล้ว: สรุปวันละครั้งหลังรอบ
+  HotelTime ที่จบหลัง 18:00 · แจ้งเตือนทันทีเมื่อ status มีปัญหา/ขาดเกินเพดาน/FoodStory ไม่ได้กดมา 2 วัน · ไม่ซ้ำในวันเดียว ·
+  URL อยู่ใน `.env` (`DISCORD_WEBHOOK_URL`) ไม่มี = ข้าม · ส่งไม่ได้ไม่ทำให้รอบล้ม (บันทึกใน `data/_notify/discord.json`)
+- flag ที่เลิกใช้ (ใส่มา = exit 1 พร้อมเหตุผล): `--format`, `--overlap-days`, `--retry-failed`
 
 ```bash
-exporter status                              # สรุปภาษาไทยว่าระบบปกติไหม (อ่านคลังอย่างเดียว · exit 1 = มีเรื่องต้องดู · --json)
-exporter login --check                       # ตรวจว่า credential ใช้ได้จริง
-exporter reports                             # ดูรายงานที่รองรับและกติกาการแบ่งก้อน
+exporter status                              # สรุปภาษาไทยว่าระบบปกติไหม (อ่านคลังอย่างเดียว · --json · --days 14)
+exporter login --check                       # ตรวจว่า credential ของ HotelTime ใช้ได้จริง
+exporter reports                             # ดูรายงานที่รองรับ
 
-# ── ดึงทุกรายงานในคำสั่งเดียว (--report all) ──
-# hoteltime: --daily รันครบ 8 ใบ (ช่วงวันที่ 3 วันล่าสุด + รายงานรายวันของวันนี้) — ตรงกับที่ Windmill รัน
-exporter export --report all --daily
-# hoteltime: ไม่ใส่ flag = back-fill 01/01/2024 → วันนี้ ของรายงานช่วงวันที่ 4 ใบ
-#   (reservations-search/ratecode/cancelled, arrival-period) — รายงานรายวัน 4 ใบ (arrivals,
-#   departures, in-house-guests, housekeeping) ถูกข้าม ขึ้น ⏭ ไม่นับว่าล้ม (ADR-0003)
-#   กติกาเดียวกันกับ --from/--to, --last-days, --baseline
-exporter export --report all
-# foodstory: เดือนที่แล้วทั้งเดือน 49 รายงาน (reservation-report รันใบสุดท้าย) — ต้องมีคนแก้ reCAPTCHA ตอน login
-exporter export --site foodstory --report all --headful
+exporter export --report all --daily                          # HotelTime รอบรายวัน — คำสั่งเดียวกับที่ Windmill รันทั้ง 3 เวลา
+exporter export --site foodstory --report all --daily --headful   # FoodStory รอบรายวัน (คนกด reCAPTCHA) — สิ่งที่ไอคอนบน Desktop รัน
+exporter export --report all --date 2026-10-12                # ดึงวันของข้อมูลวันเดียวใหม่ (HotelTime)
+exporter export --report all --baseline --from 01/10/2026 --to 13/10/2026   # baseline ไฟล์ละวัน (HotelTime)
+exporter export --report reservations-search --from 01/07/2026 --to 08/09/2026   # back-fill
+exporter export --site foodstory --report all --headful       # FoodStory รายเดือน (เดือนที่แล้ว)
+exporter notify --dry-run --summary                           # ดูข้อความ Discord ที่จะส่ง ไม่ส่งจริง
 
-# ดึงย้อนหลังทีละใบ (01/01/2024 → วันนี้) ลง data/hoteltime/backfill/<เวลาที่รัน>/
-exporter export --report reservations-search
+exporter export --report postings --date 2026-10-12 --headful --slow-mo 250   # ดูมันทำงานสด ๆ
+exporter export --report all --daily --json                  # ผลเป็น JSON (--daily บอกโฟลเดอร์เป็น outDirs)
 
-# เลือกว่าจะเก็บผลเป็นอะไร (ค่าเริ่มต้น both)
-exporter export --report reservations-search --format raw      # .xlsx ดิบ + manifest
-exporter export --report reservations-search --format csv      # CSV รายปี ลบไฟล์ดิบ
-
-# จำกัดช่วง
-exporter export --report reservations-search --from 01/07/2026 --to 08/09/2026
-
-# ดูมันทำงานสด ๆ — เปิดหน้าต่างเบราว์เซอร์จริง หน่วงให้ตามทัน
-exporter export --report reservations-search --headful --slow-mo 250
-
-exporter export --report reservations-search --json            # ผลเป็น JSON
-
-npm test                                     # unit test (ไม่แตะเบราว์เซอร์)
+npm test                                     # unit test
 npm run typecheck
 ```
 
@@ -134,30 +123,14 @@ npm run typecheck
 🔴 **ก่อนแก้โค้ดใด ๆ อ่าน [`specs/02`](./specs/02-spec-hoteltime-constraints.md) ก่อน** —
 ข้อจำกัด 6 ข้อของ HotelTime ที่พังแบบเงียบทั้งหมด
 
-## ไฟล์ดิบ vs CSV — อันไหนคือ source of truth
+## ไฟล์ดิบคือ source of truth (ADR-0007)
 
-ไฟล์ `.xlsx` ดิบถูกดาวน์โหลดทุกรอบอยู่แล้วเพราะชั้นตรวจต้องอ่านมัน `--format` จึงคุมแค่ว่า
-จะ **เก็บอะไรไว้** หลังตรวจเสร็จ
+exporter ส่งต่อแค่ไฟล์ดิบตามที่ Site ให้มา — ไบต์ตรงจากต้นทาง ไม่ผ่านการแปลงของเรา · ชั้นตรวจยังอ่านไฟล์ทุกไฟล์ก่อนวาง (ทุกชีต — นับแถว,
+เพดานแถว, ช่วงวันที่ทุกชีตที่มีคอลัมน์วันที่) ไฟล์ที่ไม่ผ่านไม่ถูกนับเป็น "มีข้อมูล" · `_manifest.json` บอกว่าไฟล์มาจากหน้าไหน กรองด้วยคอลัมน์อะไร
+ครอบวันไหน ได้เมื่อไหร่ กี่แถว และ sha256 · ข้อควรรู้สำหรับคนเปิดไฟล์เอง: xlsx ของ HotelTime มี `styles.xml` ผิดสเปก (`openpyxl` อ่านตรง ๆ ไม่ได้ —
+ตัวแปลงของ uploader ซ่อมให้แล้ว) และวันที่เป็น Excel serial
 
-| | ไฟล์ดิบ `.xlsx` | CSV |
-|---|---|---|
-| ที่อยู่ (`--daily`) | `data/hoteltime/daily/<เดือน>/<วัน>/_raw/<report>/` | `data/hoteltime/daily/<เดือน>/<วัน>/<ช่วงข้อมูล>__<report>.csv` (ไฟล์เดียวต่อรายงาน) |
-| ที่อยู่ (back-fill ฯลฯ) | `data/hoteltime/backfill/<เวลา>/_raw/<report>/` | `data/hoteltime/backfill/<เวลา>/<ช่วงของปี>__<report>.csv` |
-| ที่อยู่ (`--baseline`) | `data/hoteltime/baseline/<วัน>/_raw/<report>/` | `data/hoteltime/baseline/<วัน>/<ช่วงของปี>__<report>.csv` |
-| ผ่านการแปลงของเราไหม | **ไม่เลย** — ไบต์ตรงจาก HotelTime | อ่าน → รวมก้อน → แปลงวันที่ → เขียนใหม่ |
-| จำนวนไฟล์ | หนึ่งไฟล์ต่อหนึ่งก้อน (รายเดือนคือ ~33 ไฟล์) | รอบรายวัน: ไฟล์เดียว · รอบอื่น: หนึ่งไฟล์ต่อหนึ่งปี |
-| Excel serial | ยังเป็น `45658` ดิบ ๆ | แปลงเป็น `01/01/2025` แล้ว (มีเวลาด้วยเป็น `01/01/2025 18:59`) |
-| เปิดด้วยไลบรารีทั่วไป | ❌ `openpyxl` อ่านไม่ได้ (styles ผิดสเปก) | ✅ อ่านได้ทุกตัว |
-| เหมาะกับ | **หลักฐาน/ตรวจสอบย้อนหลัง** | ใช้งานจริง · DuckDB/parquet |
-
-**ถ้าจะเก็บเป็น source of truth ให้ใช้ `--format raw` หรือ `both`** — ไฟล์ดิบมาพร้อม
-`manifest.json` ที่บันทึกว่าแต่ละไฟล์มาจากหน้าไหน กรองด้วยช่วงอะไร ดึงเมื่อไหร่ ได้กี่แถว
-ช่วงวันที่จริงในไฟล์ ชื่อไฟล์ที่ HotelTime เสนอมา ขนาด และ **sha256** สำหรับยืนยันว่า
-ไบต์ยังไม่ถูกแก้
-
-⚠️ รันรายงานเดิมซ้ำลงโฟลเดอร์รอบเดิม (เช่น `--daily` สองครั้งในวันเดียว) ไฟล์ดิบถูกดึงลง `_raw/<report>.partial/`
-ก่อน แล้วค่อยแทน `_raw/<report>/` + CSV ของรายงานนั้น**เฉพาะเมื่อผ่านทุกด่าน** — ล้มกลางทางของเดิมอยู่ครบ
-และ manifest ตรงกับไฟล์ที่อยู่จริงเสมอ
+ไฟล์ CSV และ `_raw/` ในโฟลเดอร์ก่อน 2026-10-14 เป็นของรอบรูปแบบเดิม — เก็บไว้ตามเดิม (ไม่ลบ) `status` แสดงเป็นประวัติ
 
 ## ข้อเท็จจริงเกี่ยวกับ HotelTime ที่กำหนดดีไซน์ทั้งหมด
 
@@ -211,8 +184,10 @@ npm run typecheck
 src/
   index.ts                    commander wiring · --site hoteltime | foodstory (ADR-0004)
   core/                       เฉพาะของที่พิสูจน์แล้วว่าไม่ผูกกับ site ไหนเลย
-    order.ts                  ใบสั่ง · ซอยก้อนรายเดือน · ผ่าครึ่งเมื่อชนเพดาน
-    csv.ts                    เขียน CSV ผลลัพธ์
+    order.ts                  ใบสั่ง · ซอยก้อนรายเดือน · ผ่าครึ่งเมื่อชนเพดาน · ช่วงของ back-fill/baseline
+    run-planner.ts            ตัววางแผนรอบ (ฟังก์ชันล้วน): วันไหน/รายงานไหนต้องดึง · เติมวันที่ขาด · ภาพปิดงวด · baseline
+    run-record.ts             _run.json / _summary.txt · placement.ts ชื่อไฟล์ ISO + โฟลเดอร์ · raw-manifest.ts _manifest.json + _superseded/
+    status.ts                 exporter status · discord.ts ข้อความ + ตัวส่ง Discord · browser-env.ts env ของเบราว์เซอร์ไม่มีความลับ
     redact.ts                 กันความลับหลุดลง log
     xlsx.ts                   ตัวอ่านที่ทนไฟล์ผิดสเปกของ HotelTime
     gate.ts                   เกราะ allowlist — เช็คก่อนแตะ control ไหนก็ตาม (pure ไม่ผูก site)
@@ -224,18 +199,20 @@ src/
     sweep-classify.ts         ตัวจำแนกผล sweep (บริสุทธิ์ล้วน แต่ผูกกับ pattern control ของ ASP.NET)
     verify.ts                 ส่วนที่ผูกกับรูปร่าง Report ของ HotelTime (verifyChunk/RowCapError)
     export.ts / login.ts / sweep.ts   คำสั่งจริง — สั่งจาก index.ts
-    reports/                  หนึ่งไฟล์ต่อหนึ่งรายงาน (8 ใบ: ช่วงวันที่ 4 + รายวัน 4 — ADR-0003)
-  sites/foodstory/            FoodStory — config.ts (prefix FOODSTORY_*) · login ต้องมีคนแก้ reCAPTCHA
+    reports/                  หนึ่งไฟล์ต่อหนึ่งรายงาน — 48 ใบ แต่ละใบบอกตระกูล (ตามวัน/ภาพ) และงวด
+  sites/foodstory/            FoodStory — config.ts (prefix FOODSTORY_*) · login ต้องมีคนแก้ reCAPTCHA · daily.ts รอบรายวันใน login เดียว
                               reports/ 47 ใบ + salebychannel.ts + reservation-report.ts = 49 ใบใน --report all
+  notify.ts                   แจ้ง Discord หลังรอบรายวัน / exporter notify (ประกอบ status + discord + บันทึกที่ส่งแล้ว)
 recon/NOTES.md          บันทึกเส้นทาง/filter/กับดักที่เจอตอนสำรวจ — ที่มาของทุกค่าในโค้ด
 recon/menu-sweep.json   ผล sweep ทั้งเว็บล่าสุด (สคริปต์ล้วน ดู ADR-0001)
-data/                   คลังผลลัพธ์ (ADR-0005) — ทุกโฟลเดอร์รอบมี CSV + _raw/ + _summary.txt + _run.json (gitignored)
-  hoteltime/daily/<YYYY-MM>/<YYYY-MM-DD>/   รอบรายวัน (วันสุดท้ายที่ข้อมูลครอบคลุม) + daily/latest
-  hoteltime/baseline/<YYYY-MM-DD>/          --baseline ทุกใบ (วันที่รัน) + baseline/latest
+data/                   คลังผลลัพธ์ (ADR-0005) — ทุกโฟลเดอร์รอบมีไฟล์ดิบ + _manifest.json + _summary.txt + _run.json (gitignored)
+  hoteltime/daily/<YYYY-MM>/<YYYY-MM-DD>/   รอบรายวัน: โฟลเดอร์ = วันของข้อมูล (และรายงานภาพที่ถ่ายวันนั้น) + daily/latest
+  hoteltime/baseline/<YYYY-MM-DD>/          --baseline (วันที่รัน) ไฟล์ละวันของข้อมูล + baseline/latest
   hoteltime/backfill/<YYYY-MM-DD_HHMMSS>/   back-fill / --from/--to / --last-days โฟลเดอร์ละรอบ
-  foodstory/daily/<YYYY-MM>/<YYYY-MM-DD>/   FoodStory --daily (เมื่อวาน) + daily/latest
+  foodstory/daily/<YYYY-MM>/<YYYY-MM-DD>/   FoodStory --daily: โฟลเดอร์ = วันของข้อมูล + daily/latest
   foodstory/monthly/<YYYY-MM>[__<YYYY-MM-DD>]/  FoodStory รายเดือน (ดึงซ้ำได้โฟลเดอร์ที่มีวันที่ดึง) — xlsx + _manifest.json แทน CSV/_raw/
   foodstory/_downloads/                     ที่พักไฟล์ระหว่างดาวน์โหลด (ไฟล์สุดท้ายถูกย้ายเข้าโฟลเดอร์รอบ)
+  _notify/discord.json                      เรื่องที่ส่ง Discord แล้ว / ส่งไม่ได้ (กันส่งซ้ำ)
 downloads*/             ของเดิมก่อนคลังใหม่ — ย้ายเข้า data/ แล้ว (ticket 05) รอเจ้าของระบบลบเอง (gitignored)
 ```
 

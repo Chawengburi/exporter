@@ -5,12 +5,12 @@
   <text x="360" y="20" text-anchor="middle" fill="#bbb" font-size="13" font-family="Sukhumvit Set, Thonburi, Tahoma, sans-serif">Terminal ตอนจบ (ภาพจำลอง — ตัวอย่างผลแบบต่าง ๆ)</text>
   <g font-size="15" font-family="Sukhumvit Set, Thonburi, Tahoma, sans-serif">
     <text x="24" y="62" fill="#e6e6e6">════════════════════════════════════</text>
-    <text x="40" y="90" fill="#7ee787" font-weight="bold">✅ เสร็จเรียบร้อย — ได้รายงานของเมื่อวานครบ 49/49 รายงาน</text>
+    <text x="40" y="90" fill="#7ee787" font-weight="bold">✅ เสร็จเรียบร้อย — ได้รายงานครบ 49/49 รายงาน</text>
     <text x="64" y="114" fill="#e6e6e6">ไม่ต้องทำอะไรต่อ ปิดหน้าต่างนี้ได้เลย</text>
     <text x="40" y="160" fill="#f2cc60" font-weight="bold">⚠️ ได้บางส่วน — ได้ 46 จาก 49 รายงาน · ไม่ผ่าน 3 รายงาน</text>
     <text x="64" y="184" fill="#e6e6e6">1. ดับเบิลคลิกไฟล์เดิมอีกครั้ง แล้วกด captcha ใหม่ — รายงานที่ได้แล้วจะไม่หาย</text>
     <text x="64" y="208" fill="#e6e6e6">2. ถ้ารอบที่สองยังขึ้นข้อความนี้ ถ่ายรูปหน้าจอนี้ส่งให้ผู้ดูแลระบบ</text>
-    <text x="40" y="254" fill="#ff7b72" font-weight="bold">❌ ไม่สำเร็จ — ยังไม่ได้รายงานของเมื่อวาน</text>
+    <text x="40" y="254" fill="#ff7b72" font-weight="bold">❌ ไม่สำเร็จ — ยังไม่ได้รายงาน</text>
     <text x="64" y="278" fill="#e6e6e6">สาเหตุที่พบบ่อย: กด captcha/เข้าสู่ระบบไม่ทันใน 5 นาที หรืออินเทอร์เน็ตหลุด</text>
     <text x="24" y="314" fill="#9cdcfe">กดปุ่มใดก็ได้เพื่อปิดหน้าต่างนี้ ...</text>
   </g>

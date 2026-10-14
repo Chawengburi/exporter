@@ -38,12 +38,12 @@ export const reservationsRateCode: Report = {
   },
   hasRowCap: false,
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
 
   /** 🔴 คอลัมน์นี้เก็บวันที่เป็น Excel serial (45658 = 2025-01-01) ไม่ใช่ข้อความ */
   dateColumn: 'Created',
   searchButton: 'ctl00$pc$btnShow',
-  dateColumns: ['Arrival', 'Departure', 'Created'],
   boundaryToleranceDays: 0,
 
   expectedColumns: [

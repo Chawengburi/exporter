@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { utcDate } from '../src/core/order.ts';
 import { runFolder } from '../src/core/placement.ts';
 import { recordRun } from '../src/core/run-record.ts';
-import { thaiToday } from '../src/core/thai-time.ts';
+import { thaiIsoString, thaiToday } from '../src/core/thai-time.ts';
 
 // ticket 27 — Windmill รัน job เป็น UTC (ไม่ส่ง TZ ของ container ต่อ) · เวลาทุกจุดต้องเป็นเวลาไทยโดยไม่ขึ้นกับ TZ ของเครื่อง
 // เคสเลือกช่วง 00:00–07:00 เวลาไทย ที่วันไทยกับวัน UTC ต่างกัน
@@ -32,4 +32,9 @@ test('รอบที่จบ 11:48 UTC สรุปเขียน "รัน�
   });
   const summary = await readFile(path.join(folder, '_summary.txt'), 'utf8');
   assert.match(summary, /รันล่าสุด 2026-10-08 18:48 /);
+});
+
+test('thaiIsoString: เวลาไทยแบบ ISO เต็มพร้อม offset +07:00 (เวลาที่ถ่ายใน manifest) — ข้ามเที่ยงคืนตามเวลาไทย', () => {
+  assert.equal(thaiIsoString(new Date('2026-10-13T05:00:00Z')), '2026-10-13T12:00:00+07:00');
+  assert.equal(thaiIsoString(new Date('2026-10-12T17:00:05Z')), '2026-10-13T00:00:05+07:00');
 });

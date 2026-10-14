@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { Command, Option } from 'commander';
-import { ALL_REPORTS, runExport, type OutputFormat } from './sites/hoteltime/export.ts';
+import { ALL_REPORTS, runExport } from './sites/hoteltime/export.ts';
 import { runLoginCheck } from './sites/hoteltime/login.ts';
 import { runSweep } from './sites/hoteltime/sweep.ts';
-import { DEFAULT_BASELINE_INTERVAL_DAYS, DEFAULT_DAILY_OVERLAP_DAYS } from './core/order.ts';
+import { DEFAULT_BASELINE_INTERVAL_DAYS } from './core/order.ts';
 import { reportIds } from './sites/hoteltime/reports/index.ts';
 import { ALL_REPORTS as FOODSTORY_ALL_REPORTS, runFoodStoryExport } from './sites/foodstory/export.ts';
 import { runFoodStoryLoginCheck } from './sites/foodstory/login.ts';
@@ -13,7 +13,7 @@ import { reportIds as foodstoryReportIds } from './sites/foodstory/reports/index
  * รายชื่อ site ที่มีจริงตอนนี้ — `foodstory` เพิ่มเข้ามาที่ ticket 12 (batch review + ต่อเข้า
  * registry) `--site` ยังเป็น flag แบบเส้นเดียวตรง ๆ ไม่ได้สร้าง multi-site dispatch abstraction
  * เต็มรูปแบบ (ADR-0004) — แค่ if/else ตาม `--site` ในแต่ละ command เพราะ 2 site ยังมี shape ของ
- * option ต่างกันจริง (FoodStory มีรายเดือน + `--daily` = เมื่อวาน แต่ไม่มี baseline/format/เก็บตก — ADR-0006)
+ * option ต่างกันจริง (FoodStory มีรายเดือน + `--daily` ตามโมเดลใหม่ แต่ไม่มี baseline/format/`--date` — ADR-0006, ใบ 06)
  */
 const KNOWN_SITES = ['hoteltime', 'foodstory'] as const;
 
@@ -46,7 +46,7 @@ program
 
 program
   .command('export')
-  .description('ดึงรายงานแล้วเขียนเป็น CSV รายปี (hoteltime) หรือ .xlsx รายเดือน (foodstory)')
+  .description('ดึงรายงานแล้วเก็บไฟล์ดิบตามที่ Site ให้มา (.xlsx) พร้อมที่มาใน _manifest.json')
   .addOption(siteOption('site ที่จะดึง'))
   .requiredOption(
     '-r, --report <id|all>',
@@ -60,37 +60,51 @@ program
   .option('--last-days <n>', 'ดึงย้อนหลัง N วันจากวันนี้ รวมวันนี้ (n >= 1) — แทนการระบุ --from/--to')
   .option(
     '--daily',
-    `รอบรายวัน — hoteltime: ดึงเฉพาะขอบหน้า (ค่าเริ่มต้นเหลื่อม ${DEFAULT_DAILY_OVERLAP_DAYS} วัน) · foodstory: เมื่อวานวันเดียว · ใช้คู่กับ --from/--to/--last-days/--baseline ไม่ได้`,
+    'รอบรายวัน — hoteltime: รายงานตามวันดึงเมื่อวานไฟล์ละวัน + ถ่ายรายงานภาพของวันนี้ ทำเฉพาะที่ยังไม่สำเร็จ (รันซ้ำได้ทั้งวัน) · ' +
+      'foodstory: เหมือนกันใน login เดียว (กด captcha ครั้งเดียว) · ใช้คู่กับ --from/--to/--last-days/--baseline ไม่ได้',
     false,
   )
-  .option('--overlap-days <n>', `จำนวนวันเหลื่อมของ --daily (ค่าเริ่มต้น ${DEFAULT_DAILY_OVERLAP_DAYS})`)
   .option(
-    '--retry-failed',
-    'รอบเก็บตก (ใช้คู่กับ --daily): รันซ้ำเฉพาะใบที่สถานะล่าสุดในโฟลเดอร์ของวันนี้ยังล้ม — ไม่มีใบล้มก็จบทันทีโดยไม่เปิดเบราว์เซอร์',
-    false,
+    '--date <YYYY-MM-DD>',
+    'hoteltime: ดึงรายงานตามวันของวันของข้อมูลนั้นวันเดียวใหม่ (ฉบับเก่าไม่หาย) · ไม่ถ่ายรายงานภาพ · ใช้คู่กับ --daily/--from/--to/--last-days/--baseline ไม่ได้',
   )
   .option(
     '--baseline',
-    'โหมด baseline — ดึงทั้งช่วงใหม่หมดเหมือน back-fill ใช้คู่กับ --from/--to/--last-days/--daily ไม่ได้',
+    'hoteltime: ดึงรายงานตามวันของวันที่เคยดึงแล้วใหม่ ไฟล์ละวันของข้อมูล (ชื่อเดียวกับรอบรายวัน) ลง baseline/<วันที่รัน>/ · ไม่ใส่ --from/--to = ' +
+      'ช่วงเริ่มต้นถึงเมื่อวาน (--baseline-interval-days วัน) · รายงานภาพไม่มี baseline · ใช้คู่กับ --last-days/--daily ไม่ได้',
     false,
   )
   .option(
     '--baseline-interval-days <n>',
-    `ระยะที่ baseline รอบนี้ตั้งใจครอบคลุม (ค่าเริ่มต้น ${DEFAULT_BASELINE_INTERVAL_DAYS} — ยังไม่ยืนยันด้วยข้อมูลจริง)`,
+    `ระยะที่ baseline รอบนี้ตั้งใจครอบคลุม และจำนวนวันของช่วงเริ่มต้น (ค่าเริ่มต้น ${DEFAULT_BASELINE_INTERVAL_DAYS} — ยังไม่ยืนยันด้วยข้อมูลจริง)`,
   )
-  .option(
-    '-f, --format <raw|csv|both>',
-    'raw = เก็บ .xlsx ดิบ + manifest · csv = CSV รายปี · both = ทั้งคู่',
-    'both',
-  )
+  // เลิกใช้แล้ว — ยังรับไว้แบบซ่อนเพื่อบอกเหตุผลให้คนที่พิมพ์ตามคู่มือเก่า แทน "unknown option" เฉย ๆ
+  .addOption(new Option('-f, --format <x>').hideHelp())
+  .addOption(new Option('--overlap-days <n>').hideHelp())
+  .addOption(new Option('--retry-failed').hideHelp())
   .option('--headful', 'เปิดหน้าต่างเบราว์เซอร์ให้เห็นมันทำงาน', false)
   .option('--slow-mo <ms>', 'หน่วงทุก action กี่มิลลิวินาที ให้คนดูทัน (ใช้คู่กับ --headful)')
   .option('--json', 'พิมพ์ผลเป็น JSON', false)
   .action(async (opts: {
     site: string; report: string; from?: string; to?: string; lastDays?: string;
-    daily: boolean; overlapDays?: string; retryFailed: boolean; baseline: boolean; baselineIntervalDays?: string;
-    format: string; headful: boolean; slowMo?: string; json: boolean;
+    daily: boolean; date?: string; overlapDays?: string; retryFailed?: boolean; baseline: boolean; baselineIntervalDays?: string;
+    format?: string; headful: boolean; slowMo?: string; json: boolean;
   }) => {
+    if (opts.format !== undefined) {
+      console.error(
+        '--format เลิกใช้แล้ว — exporter เก็บแค่ไฟล์ดิบตามที่ Site ให้มา (.xlsx) พร้อม _manifest.json ไม่เขียน CSV อีก (ADR-0007) · เอา --format ออก',
+      );
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.overlapDays !== undefined || opts.retryFailed) {
+      console.error(
+        `${opts.overlapDays !== undefined ? '--overlap-days' : '--retry-failed'} เลิกใช้แล้ว — --daily ดึงเมื่อวานไฟล์ละวันและทำเฉพาะ` +
+          'ที่ยังไม่สำเร็จเองทุกครั้ง (ADR-0008) ไม่มีช่วงเหลื่อมและไม่ต้องสั่งเก็บตกแยก · เอา flag นี้ออก',
+      );
+      process.exitCode = 1;
+      return;
+    }
     const slowMo = opts.slowMo === undefined ? undefined : Number(opts.slowMo);
     if (slowMo !== undefined && (!Number.isFinite(slowMo) || slowMo < 0)) {
       console.error(`--slow-mo ต้องเป็นตัวเลข >= 0 — ได้มา ${JSON.stringify(opts.slowMo)}`);
@@ -99,20 +113,19 @@ program
     }
 
     if (opts.site === 'foodstory') {
-      // FoodStory มีรอบรายเดือน (ค่าเริ่มต้น / --from --to) กับรอบรายวัน --daily = เมื่อวาน (ticket 10) — ไม่มี baseline/format/
+      // FoodStory มีรอบรายเดือน (ค่าเริ่มต้น / --from --to) กับรอบรายวัน --daily (ใบ 06: เมื่อวาน + รอบเก็บตก + รายงานภาพ) — ไม่มี baseline/format/
       // เก็บตก · ปฏิเสธตรง ๆ แทนที่จะเงียบ ๆ เพิกเฉย flag ที่ผู้ใช้ตั้งใจส่งมา
-      if (opts.retryFailed || opts.baseline || opts.lastDays !== undefined || opts.overlapDays !== undefined
-        || opts.baselineIntervalDays !== undefined || opts.format !== 'both') {
+      if (opts.baseline || opts.lastDays !== undefined || opts.baselineIntervalDays !== undefined || opts.date !== undefined) {
         console.error(
-          '--retry-failed/--baseline/--last-days/--overlap-days/--baseline-interval-days/--format ' +
-            'ใช้กับ --site foodstory ไม่ได้ (มีแค่รอบรายเดือน กับ --daily = เมื่อวาน · ใช้ --from/--to ' +
+          '--baseline/--last-days/--baseline-interval-days/--date ' +
+            'ใช้กับ --site foodstory ไม่ได้ (มีแค่รอบรายเดือน กับ --daily · ใช้ --from/--to ' +
             'แทนถ้าจะข้ามเดือนที่แล้ว)',
         );
         process.exitCode = 1;
         return;
       }
       if (opts.daily && (opts.from !== undefined || opts.to !== undefined)) {
-        console.error('--daily ของ foodstory ดึงเมื่อวานวันเดียวเสมอ — ใช้คู่กับ --from/--to ไม่ได้ (ใช้ --from/--to อย่างเดียวแทน)');
+        console.error('--daily ของ foodstory เลือกวันเอง (เมื่อวาน + วันที่ยังขาด) — ใช้คู่กับ --from/--to ไม่ได้ (ใช้ --from/--to อย่างเดียวแทน)');
         process.exitCode = 1;
         return;
       }
@@ -125,23 +138,13 @@ program
         json: opts.json,
         daily: opts.daily,
       });
+      if (opts.daily) await notifyAfterDaily('foodstory-daily', opts.json);
       return;
     }
 
-    if (opts.retryFailed && !opts.daily) {
-      console.error('--retry-failed ใช้ได้กับ --daily เท่านั้น (รอบเก็บตกของโฟลเดอร์วันนี้)');
-      process.exitCode = 1;
-      return;
-    }
-    if (opts.format !== 'raw' && opts.format !== 'csv' && opts.format !== 'both') {
-      console.error(`--format ต้องเป็น raw, csv หรือ both — ได้มา ${JSON.stringify(opts.format)}`);
-      process.exitCode = 1;
-      return;
-    }
     // ตัวเลขไม่ถูกต้อง (ไม่ใช่จำนวนเต็มบวก, ใช้ปนกับโหมดอื่น) ถูกปฏิเสธใน resolveRunPlan()
     // ที่เดียว — ไม่ซ้ำ validation ที่นี่ เพื่อให้กฎเรื่องช่วงวันที่/โหมดอยู่ที่จุดเดียว
     const lastDays = opts.lastDays === undefined ? undefined : Number(opts.lastDays);
-    const overlapDays = opts.overlapDays === undefined ? undefined : Number(opts.overlapDays);
     const baselineIntervalDays =
       opts.baselineIntervalDays === undefined ? undefined : Number(opts.baselineIntervalDays);
     process.exitCode = await runExport({
@@ -150,16 +153,26 @@ program
       to: opts.to,
       lastDays,
       daily: opts.daily,
-      retryFailed: opts.retryFailed,
-      overlapDays,
+      date: opts.date,
       baseline: opts.baseline,
       baselineIntervalDays,
-      format: opts.format as OutputFormat,
       headful: opts.headful,
       slowMoMs: slowMo,
       json: opts.json,
     });
+    // --date (สั่งเองวันเดียว) ไม่แจ้ง — คนสั่งเห็นผลบนจออยู่แล้ว
+    if (opts.daily && opts.date === undefined) await notifyAfterDaily('hoteltime-daily', opts.json);
   });
+
+/**
+ * แจ้งผลผ่าน Discord หลังรอบรายวัน (ใบ 08) — ไม่เปลี่ยน exit code ของรอบไม่ว่าส่งได้หรือไม่ · โหมด --json พิมพ์ลง stderr (stdout เป็น JSON ของรอบ)
+ */
+async function notifyAfterDaily(trigger: 'hoteltime-daily' | 'foodstory-daily', json: boolean): Promise<void> {
+  const { describeNotify, notifyDiscord } = await import('./notify.ts');
+  const line = describeNotify(await notifyDiscord({ trigger }));
+  if (json) console.error(line);
+  else console.log(line);
+}
 
 program
   .command('sweep')
@@ -219,6 +232,7 @@ program
   .option('--at <time>', 'ประเมินเหมือนเป็นเวลานี้ (ตรวจย้อนหลัง/ทดสอบ) — ไม่ใส่ timezone = เวลาไทย เช่น 2026-10-12T20:00')
   .action(async (opts: { json: boolean; days: string; data?: string; at?: string }) => {
     const { buildStatus, defaultDataDir, readStoreSnapshot, renderStatus } = await import('./core/status.ts');
+    const { statusSetup } = await import('./status-setup.ts');
     const { existsSync } = await import('node:fs');
     const usage = (message: string) => {
       console.error(message);
@@ -232,9 +246,24 @@ program
     if (Number.isNaN(at.getTime())) return usage('--at อ่านไม่ออก — ใช้แบบ 2026-10-12T20:00 (เวลาไทย) หรือ 2026-10-12T13:00:00Z');
     const dataDir = opts.data ?? defaultDataDir();
     if (!existsSync(dataDir)) return usage(`ไม่พบโฟลเดอร์คลัง ${dataDir} — ใส่ --data ให้ถูก หรือรันจากโฟลเดอร์ exporter ที่ติดตั้งแล้ว`);
-    const report = buildStatus(await readStoreSnapshot(dataDir), at, { windowDays: days });
+    // ค่าตั้งอ่านจาก exporter/.env ของโค้ดชุดนี้ (ไม่ใช่ของ --data) — อ่านแค่วันเริ่มใช้งานกับว่ามี URL webhook ไหม
+    const report = buildStatus(await readStoreSnapshot(dataDir), at, statusSetup(), { windowDays: days });
     process.stdout.write(opts.json ? `${JSON.stringify(report, null, 2)}\n` : renderStatus(report));
     process.exitCode = report.verdict === 'problem' ? 1 : 0;
+  });
+
+program
+  .command('notify')
+  .description('แจ้งผลผ่าน Discord (ใบ 08) — ส่งเรื่องที่ต้องดูที่ยังไม่เคยส่ง (+ สรุปของวันนี้ถ้าใส่ --summary) · รอบ export --daily เรียกเองอยู่แล้ว')
+  .option('--summary', 'ส่งสรุปของวันนี้ด้วย (วันละครั้ง — ส่งแล้วไม่ส่งซ้ำ)', false)
+  .option('--dry-run', 'พิมพ์ข้อความที่จะส่ง ไม่ส่งจริงและไม่บันทึก', false)
+  .option('--data <dir>', 'โฟลเดอร์คลัง (ค่าเริ่มต้น exporter/data)')
+  .action(async (opts: { summary: boolean; dryRun: boolean; data?: string }) => {
+    const { describeNotify, notifyDiscord } = await import('./notify.ts');
+    const result = await notifyDiscord({ trigger: 'manual', summary: opts.summary, dryRun: opts.dryRun, ...(opts.data ? { dataDir: opts.data } : {}) });
+    if (result.status === 'dry-run') for (const m of result.messages) console.log(`── ${m.keys.join(', ')}\n${m.content}\n`);
+    console.log(describeNotify(result));
+    process.exitCode = result.status === 'failed' ? 1 : 0;
   });
 
 program

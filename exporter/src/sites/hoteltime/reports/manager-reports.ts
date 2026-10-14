@@ -56,6 +56,8 @@ export const managerSummary: Report = {
   allowedControls: MANAGER_ALLOWED,
   exportLink: 'pc_btnExportXLS',
   dailyOnly: true,
+  family: 'picture',
+  period: 'month',
   skipDateCoverageCheck: true, // ยอดรวมต่อ revenue centre ไม่มีคอลัมน์วันที่
   chunk: { kind: 'whole', reason: 'ยอดรวมเดือนนี้ถึงวันนี้ — ค้นทีเดียว' },
   hasRowCap: false,
@@ -63,7 +65,6 @@ export const managerSummary: Report = {
   filterNote: 'รายได้รวมต่อ revenue centre เดือนนี้ถึงวันนี้ (ค่าตั้งต้นของหน้า)',
   dataWindow: monthToDate,
   searchButton: FIND,
-  dateColumns: [],
   boundaryToleranceDays: 0,
   expectedColumns: [
     'Name', 'Total excl. VAT', 'VAT:', 'Including VAT', 'Currency', 'Converted to THB (excl.VAT)', 'Converted to USD (excl.VAT)',
@@ -83,6 +84,7 @@ export const managerItems: Report = {
   allowedControls: MANAGER_ALLOWED,
   exportLink: 'pc_btnExportXLSItems',
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
   // baseline 2026-10-08: 313,495 แถวใน 34 ก้อน สูงสุด 21,212 แถวในไฟล์เดียว — export นี้ไม่ถูกตัดที่ 2000 (ไม่มีก้อนไหนได้ 2000 พอดี)
   chunk: { kind: 'monthly', reason: 'สูงสุด ~21,000 แถว/เดือน และ export ไม่ถูกตัดที่ 2000 — รายเดือนพอ' },
@@ -90,7 +92,6 @@ export const managerItems: Report = {
   dateColumn: 'Date',
   filterNote: 'รายการรายได้ กรองด้วยวันที่ของรายการ (Date)',
   searchButton: FIND,
-  dateColumns: ['Date'],
   boundaryToleranceDays: 0,
   expectedColumns: [
     'ID', 'Name', 'Date', 'Decription', 'Amount', 'VAT charge', 'Total excl. VAT (THB)', 'VAT: (THB)', 'Total excl. VAT (USD)', 'VAT: (USD)',
@@ -106,31 +107,26 @@ const DD_ID = 'manager-day-detail';
 const DD_DATE = 'ctl00$pc$calDate';
 const DD_SHOW = 'ctl00$pc$btnShow';
 const DD_ALLOWED = [DD_DATE, ...COMMON_SELECTS.map(([n]) => n), DD_SHOW];
-const DAY_MS = 86_400_000;
-const yesterday = (day: Date): DateRange => {
-  const d = new Date(day.getTime() - DAY_MS);
-  return { from: d, to: d };
-};
-
 export const managerDayDetail: Report = {
   id: DD_ID,
-  label: 'Manager reports — day detail (yesterday)',
+  label: 'Manager reports — day detail',
   path: 'reports/RastrDayDetail.aspx',
   allowedControls: DD_ALLOWED,
   dailyOnly: true,
+  family: 'per-day',
   skipDateCoverageCheck: true, // รายได้ต่อรายการของวันเดียว ไม่มีคอลัมน์วันที่
-  chunk: { kind: 'whole', reason: 'รายได้ของเมื่อวานวันเดียว' },
+  chunk: { kind: 'whole', reason: 'รายได้ของวันของข้อมูลวันเดียว' },
   hasRowCap: true,
   dateColumn: 'Revenue centre',
-  filterNote: 'รายได้รายการของเมื่อวาน (วันที่ปิดยอดแล้ว — ค่าตั้งต้นของหน้า)',
-  dataWindow: yesterday,
+  // รายงานตามวัน (ADR-0008): ช่วงที่ขอคือวันของข้อมูลวันเดียว — รอบรายวันส่งเมื่อวาน (วันที่ปิดยอดแล้ว) มาเอง · ยัง dailyOnly
+  // เพราะตัวกรองเป็นวันเดียว (setSingleDate) ดึงทีละหลายวันในรอบ back-fill/baseline ไม่ได้
+  filterNote: 'รายได้รายการของวันของข้อมูลวันเดียว (ปิดยอดแล้ว)',
   searchButton: DD_SHOW,
-  dateColumns: [],
   boundaryToleranceDays: 0,
   expectedColumns: ['Revenue centre', 'Item', 'Including VAT', 'Total excl. VAT', 'Currency', 'Room'],
   async applyFilters(page: Page, range: DateRange): Promise<void> {
     for (const [name, label] of COMMON_SELECTS) await setSelect(page, name, label, DD_ALLOWED, DD_ID);
-    await setSingleDate(page, DD_DATE, formatDMY(yesterday(range.to).from), DD_ALLOWED, DD_ID);
+    await setSingleDate(page, DD_DATE, formatDMY(range.to), DD_ALLOWED, DD_ID);
   },
   async hasResults(page: Page): Promise<boolean> {
     const rows = await gridRowCount(page, '[id$="dtgItems"]');

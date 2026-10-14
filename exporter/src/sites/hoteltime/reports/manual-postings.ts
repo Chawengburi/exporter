@@ -20,6 +20,7 @@ export const manualPostings: Report = {
   path: 'reports/RetailReport.aspx',
   allowedControls: ALLOWED_CONTROLS,
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
   // วัดจริง 2,061 แถวใน 90 วัน (~700/เดือน) — ก้อนรายเดือนห่างเพดาน แต่ทั้งช่วงตั้งแต่ 2024 เกิน 2000 แน่
   chunk: { kind: 'monthly', reason: '~700 แถว/เดือน — ทั้งช่วงตั้งแต่ 2024 เกินเพดาน 2000' },
@@ -27,7 +28,6 @@ export const manualPostings: Report = {
   dateColumn: 'Date from',
   filterNote: 'กรองด้วยวันที่ลงรายการ (Date from)',
   searchButton: FIND,
-  dateColumns: ['Date from'],
   boundaryToleranceDays: 0,
   // คอลัมน์ที่ 2 ไม่มีชื่อในไฟล์จริง
   expectedColumns: [

@@ -57,6 +57,7 @@ test('เดือนนี้ถึงวันนี้ (ticket 25) — วั
   assert.equal(windowOf(trialBalance, OCT_7), '2026-10-01..2026-10-07');
   assert.equal(windowOf(trialBalance, utcDate(2026, 10, 1)), '2026-10-01..2026-10-01');
   assert.equal(windowOf(managerSummary, OCT_7), '2026-10-01..2026-10-07');
-  // manager day detail = เมื่อวาน (ข้ามเดือน/ปีได้)
-  assert.equal(windowOf(managerDayDetail, utcDate(2027, 1, 1)), '2026-12-31..2026-12-31');
+  // manager day detail เป็นรายงานตามวัน (ADR-0008) — ช่วงที่ขอคือวันของข้อมูลเอง ตัววางแผนส่งเมื่อวานมา ไม่ต้องเลื่อนวันในนิยามแล้ว
+  assert.equal(managerDayDetail.dataWindow, undefined);
+  assert.equal(managerDayDetail.family, 'per-day');
 });

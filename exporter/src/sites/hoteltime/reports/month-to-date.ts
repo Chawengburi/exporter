@@ -35,6 +35,8 @@ function monthToDateReport(spec: MtdSpec): Report {
     path: spec.path,
     allowedControls: allowed,
     dailyOnly: true,
+    family: 'picture',
+    period: 'month',
     skipDateCoverageCheck: true, // ตัวเลขรวม ไม่มีคอลัมน์วันที่
     chunk: { kind: 'whole', reason: 'ตัวเลขรวมของเดือนนี้ถึงวันนี้ — ค้นทีเดียว' },
     hasRowCap: false, // ตัวเลขรวม สูงสุดราว 80 แถว
@@ -42,7 +44,6 @@ function monthToDateReport(spec: MtdSpec): Report {
     filterNote: spec.filterNote,
     dataWindow: monthToDate,
     searchButton: spec.searchButton,
-    dateColumns: [],
     boundaryToleranceDays: 0,
     expectedColumns: spec.expectedColumns,
     async applyFilters(page: Page, range: DateRange): Promise<void> {

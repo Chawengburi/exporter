@@ -9,8 +9,8 @@ import { unzipSync } from 'fflate';
  * parse stylesheet จะปฏิเสธทั้งไฟล์ — openpyxl โยน
  * `ValueError: Unable to read workbook: could not read stylesheet` (ทดสอบ 2026-09-08)
  *
- * ตัวนี้จึงอ่านเฉพาะสองไฟล์ที่ต้องใช้จริง (`sharedStrings.xml` + worksheet) และ
- * **ไม่แตะ styles.xml เลย** ซึ่งแปลว่าเราไม่สนใจการจัดรูปแบบ — เราต้องการแค่ค่า
+ * ตัวนี้จึงอ่านเฉพาะไฟล์ที่ต้องใช้จริง (`workbook.xml` + rels เพื่อรู้ว่ามีชีตอะไรตามลำดับไหน, `sharedStrings.xml`
+ * และ worksheet ทุกชีต) และ **ไม่แตะ styles.xml เลย** ซึ่งแปลว่าเราไม่สนใจการจัดรูปแบบ — เราต้องการแค่ค่า
  *
  * 🔴 กับดักที่สอง: เซลล์ว่างถูก "ตัดออก" จาก XML ไม่ได้เขียนเป็นแท็กว่าง
  * แถว header มี 22 ช่องแต่แถวข้อมูลมีแค่ ~15 ช่อง การไล่อ่านตามลำดับที่เจอ
@@ -70,7 +70,7 @@ function parseSharedStrings(xml: string): string[] {
  * แปลง XML ของชีตเป็นแถวดิบทั้งหมด จัดตำแหน่งคอลัมน์ตรงแล้ว — **ไม่ตัดสินว่าแถวไหนคือ header**
  * เพราะนั่นเป็นเรื่องเฉพาะ site (HotelTime: แถวแรกคือ header เสมอ · FoodStory: แถวแรกเป็นชื่อ
  * รายงาน แถวสองถึงเป็น header จริง — ดู `sites/foodstory/xlsx.ts`) ไฟล์นี้จึงคืนแค่แถวดิบ
- * ให้ผู้เรียกตัดสินเอง (`readSheet()` ด้านล่างคือ interpretation แบบ HotelTime)
+ * ให้ผู้เรียกตัดสินเอง (`readSheets()` ด้านล่างคือ interpretation แบบ HotelTime)
  *
  * ความกว้างคำนวณจาก**คอลัมน์สุดท้ายที่เจอทั้งชีต** ไม่ใช่แค่แถวแรก — กันกรณีมีแถวนำ (เช่น
  * ชื่อรายงานของ FoodStory) ที่แคบกว่าแถวข้อมูลจริงมาก จนตัดข้อมูลทิ้งถ้าอิงความกว้างจากแถวแรก
@@ -112,8 +112,6 @@ function parseRows(xml: string, shared: readonly string[]): readonly (readonly s
     rawRows.push(cells);
   }
 
-  if (rawRows.length === 0) throw new XlsxError('ไม่พบแถวใดเลยในชีต');
-
   // ห้าม Math.max(...ทุกเซลล์) — ชีตระดับ baseline มีเซลล์เป็นแสน เกินจำนวน argument ที่ stack รับได้
   let maxCol = 0;
   for (const cells of rawRows) for (const col of cells.keys()) if (col > maxCol) maxCol = col;
@@ -121,8 +119,43 @@ function parseRows(xml: string, shared: readonly string[]): readonly (readonly s
   return rawRows.map((cells) => Array.from({ length: width }, (_, i) => cells.get(i) ?? ''));
 }
 
-/** อ่านทุกแถวดิบของชีตแรกในไฟล์ xlsx — ไม่ตัดสินว่าแถวไหนคือ header (ดู `parseRows`) */
-export function readRawRows(filePath: string): readonly (readonly string[])[] {
+/** หนึ่งชีตของ workbook — ชื่อตามที่ผู้ใช้เห็นในแท็บ และแถวดิบ (ไม่ตัดสินว่าแถวไหนคือ header) */
+export type RawSheet = {
+  readonly name: string;
+  readonly rows: readonly (readonly string[])[];
+};
+
+/** ค่า attribute หนึ่งตัวของแท็ก (ลำดับ attribute ในไฟล์จริงไม่แน่นอน จึงไม่จับเป็น regex ก้อนเดียว) */
+function attr(tag: string, name: string): string | undefined {
+  const m = new RegExp(`\\s${name.replace(':', '\\:')}="([^"]*)"`).exec(tag);
+  return m ? decodeXml(m[1]!) : undefined;
+}
+
+/**
+ * อ่าน**ทุกชีต**ของไฟล์ xlsx ตามลำดับแท็บใน `xl/workbook.xml` — ไม่ตัดสินว่าแถวไหนคือ header
+ *
+ * 🔴 เดิมอ่านแค่ชีตแรก: `occupancy-by-nationality-stay-reason` ของ HotelTime มีหนึ่งชีตต่อกลุ่มเหตุผลการเข้าพัก และ
+ * `outputtax` ของ FoodStory มีชีต "Full Tax Invoice" ต่อท้าย — ชีตที่เหลือไม่เคยถูกตรวจ (ticket 01 ของ
+ * exporter-daily-per-day-raw) · ลำดับและชื่อมาจาก workbook.xml + rels ไม่เดาจากชื่อไฟล์ใน zip (`sheet10.xml`
+ * เรียงตามตัวอักษรก่อน `sheet2.xml`)
+ */
+export function readWorkbook(filePath: string): readonly RawSheet[] {
+  const pkg = openPackage(filePath);
+  const sharedRaw = pkg.read('xl/sharedStrings.xml');
+  const shared = sharedRaw ? parseSharedStrings(sharedRaw) : [];
+  return pkg.sheets.map(({ name, xml }) => ({ name, rows: parseRows(xml(), shared) }));
+}
+
+/** ชื่อทุกชีตตามลำดับแท็บ โดยไม่ parse แถว — สำหรับบันทึกใน manifest */
+export function readSheetNames(filePath: string): readonly string[] {
+  return openPackage(filePath).sheets.map((s) => s.name);
+}
+
+/** แตก zip แล้วหาชีตตามลำดับใน `xl/workbook.xml` + rels · XML ของชีตอ่านตอนเรียก `xml()` เท่านั้น */
+function openPackage(filePath: string): {
+  readonly read: (name: string) => string | undefined;
+  readonly sheets: readonly { readonly name: string; readonly xml: () => string }[];
+} {
   let files: Record<string, Uint8Array>;
   try {
     files = unzipSync(readFileSync(filePath));
@@ -135,23 +168,51 @@ export function readRawRows(filePath: string): readonly (readonly string[])[] {
   }
 
   const dec = new TextDecoder('utf-8');
-  const sheetName = Object.keys(files)
-    .filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
-    .sort()[0];
-  if (!sheetName) {
-    throw new XlsxError(`ไม่พบ worksheet ในไฟล์: ${filePath}\n  ไฟล์ที่มี: ${Object.keys(files).join(', ')}`);
+  const read = (name: string): string | undefined => {
+    const raw = files[name];
+    return raw ? dec.decode(raw) : undefined;
+  };
+
+  const workbook = read('xl/workbook.xml');
+  const rels = read('xl/_rels/workbook.xml.rels');
+  if (workbook === undefined || rels === undefined) {
+    throw new XlsxError(
+      `ไม่พบ xl/workbook.xml หรือ rels ของมันในไฟล์: ${filePath} — บอกไม่ได้ว่ามีชีตอะไรบ้าง\n` +
+        `  ไฟล์ที่มี: ${Object.keys(files).join(', ')}`,
+    );
   }
 
-  const sharedRaw = files['xl/sharedStrings.xml'];
-  const shared = sharedRaw ? parseSharedStrings(dec.decode(sharedRaw)) : [];
+  const targets = new Map<string, string>();
+  for (const m of rels.matchAll(/<Relationship\s[^>]*>/g)) {
+    const id = attr(m[0], 'Id');
+    const target = attr(m[0], 'Target');
+    if (id !== undefined && target !== undefined) targets.set(id, target);
+  }
 
-  return parseRows(dec.decode(files[sheetName]!), shared);
+  const sheets: { name: string; xml: () => string }[] = [];
+  for (const m of workbook.matchAll(/<sheet\s[^>]*>/g)) {
+    const name = attr(m[0], 'name') ?? '';
+    const target = targets.get(attr(m[0], 'r:id') ?? '');
+    // Target เป็น path สัมพัทธ์จาก xl/ (ปกติ) หรือ absolute จากรากของ package (ขึ้นต้น /)
+    const part = target === undefined ? undefined : target.startsWith('/') ? target.slice(1) : `xl/${target}`;
+    if (part === undefined || files[part] === undefined) {
+      throw new XlsxError(`ชีต "${name}" ไม่มีไฟล์ worksheet ตามที่ workbook.xml อ้างถึง (${part ?? 'ไม่มี rels'}) — ${filePath}`);
+    }
+    sheets.push({ name, xml: () => read(part)! });
+  }
+  if (sheets.length === 0) throw new XlsxError(`ไม่พบชีตใดเลยใน workbook.xml: ${filePath}`);
+  return { read, sheets };
 }
 
-/** อ่านชีตแรกของไฟล์ xlsx แบบ HotelTime — แถวแรกคือ header เสมอ ที่เหลือคือแถวข้อมูล */
-export function readSheet(filePath: string): Sheet {
-  const rows = readRawRows(filePath);
-  return { header: rows[0]!, rows: rows.slice(1) };
+/** ชีตแบบ HotelTime ที่รู้ชื่อแท็บด้วย */
+export type NamedSheet = Sheet & { readonly name: string };
+
+/**
+ * อ่าน**ทุกชีต**แบบ HotelTime (แถวแรกของแต่ละชีตคือ header) ตามลำดับแท็บ · ชีตที่ไม่มีแถวเลยได้ header และ rows ว่าง
+ * (ไม่ล้มที่นี่ — ผู้เรียกตัดสินว่าทั้งไฟล์ว่างหรือไม่)
+ */
+export function readSheets(filePath: string): readonly NamedSheet[] {
+  return readWorkbook(filePath).map(({ name, rows }) => ({ name, header: rows[0] ?? [], rows: rows.slice(1) }));
 }
 
 /**
@@ -210,22 +271,6 @@ export function parseCellDate(raw: string): Date | null {
   if (/^\d+(\.\d+)?$/.test(s)) return excelSerialToDate(Number(s));
 
   throw new XlsxError(`อ่านค่าเซลล์เป็นวันที่ไม่ได้: ${JSON.stringify(raw)}`);
-}
-
-/**
- * ค่าเซลล์วันที่ในรูปที่เขียนลง CSV — `DD/MM/YYYY` และถ้าเป็น Excel serial ที่มีเศษ (มีเวลา) ต่อท้าย ` HH:MM` ไม่ให้เวลาหายไป
- * (เช่น Operation time ของ Postings, Posted ของ post master history — code review ticket 13) · ว่าง/`---` คืน null
- * · ด่านตรวจช่วงวันที่ยังใช้ `parseCellDate` (ปัดเวลาทิ้ง) เหมือนเดิม
- */
-export function formatCellDate(raw: string): string | null {
-  const d = parseCellDate(raw);
-  if (d === null) return null;
-  const p = (n: number) => String(n).padStart(2, '0');
-  const day = `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
-  const s = raw.trim();
-  if (!/^\d+\.\d+$/.test(s)) return day;
-  const minutes = Math.min(1439, Math.round((Number(s) % 1) * 1440));
-  return minutes === 0 ? day : `${day} ${p(Math.floor(minutes / 60))}:${p(minutes % 60)}`;
 }
 
 export function requireColumn(sheet: Sheet, name: string): number {

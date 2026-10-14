@@ -1,3 +1,7 @@
+import type { ReportFamily } from '../../../core/raw-manifest.ts';
+import type { PlannedReport, ReportPeriod } from '../../../core/run-planner.ts';
+import { ID as RESERVATION_ID } from '../reservation-report.ts';
+import { ID as SALEBYCHANNEL_ID } from '../salebychannel.ts';
 import { addWaste } from './add-waste.ts';
 import { checkStock } from './check-stock.ts';
 import { costbyproduct } from './costbyproduct.ts';
@@ -129,3 +133,43 @@ export function findReport(id: string): Report | undefined {
 export function reportIds(): string[] {
   return REPORTS.map((r) => r.id);
 }
+
+/**
+ * **รายงานภาพ** ของ FoodStory (ADR-0008, ใบ 06) — จำนวนแถวรายวันกับรายเดือนเท่ากัน คือไม่กรองตามวัน (ข้อมูลหลัก/สต็อก ณ ตอนกด) และยอดสะสม
+ * ทั้งปี `salebymonthsum` · ตามตารางเทียบรายงาน 2026-10-13 ซึ่งบางตัวยัง "ต้องยืนยัน" เพราะได้ 0 แถวทั้งสองรอบ (`intermidiate`, `supplier`) ·
+ * ที่เหลือทั้งหมด (รวม salebychannel และ reservation-report ที่ไม่อยู่ใน REPORTS) = **รายงานตามวัน** · นิยามอยู่ที่ระดับแคตตาล็อก ไม่ใช่ใน
+ * Report แต่ละใบ — ตระกูลเป็นการตัดสินจากข้อมูลจริงของทั้งชุด ไม่ใช่คุณสมบัติของหน้า
+ */
+const PICTURE_PERIOD: Readonly<Record<string, ReportPeriod>> = {
+  costbyproduct: 'none', current_stock: 'none', ingredient: 'none', ingredientaddon: 'none', intermidiate: 'none',
+  supplier: 'none', salebymonthsum: 'year',
+};
+
+/**
+ * ตระกูลที่ตารางเทียบรายงาน (2026-10-13) ยังเขียนว่า "ต้องยืนยัน" — ตัดสินจากไฟล์ที่ได้ 0 แถว หรือแถวรายวันกับรายเดือนบอกไม่ชัด ใช้ตระกูลตาม
+ * ตารางไปก่อน (spec: บันทึกว่ายังไม่ยืนยัน) · เปลี่ยนตระกูลเมื่อยืนยันแล้ว = ย้ายเข้า/ออก `PICTURE_PERIOD` แล้วเอาออกจากรายการนี้
+ */
+export const UNCONFIRMED_FAMILY: ReadonlySet<string> = new Set([
+  'outputtax', 'intermidiate', 'order_by_employee', 'payment_by_employee', 'supplier', 'used_stock', 'transfer_stock', 'transfer',
+  'crm', 'promotion', 'promotion_use', 'voucher', 'employee', 'table', RESERVATION_ID,
+]);
+
+/** ทุกรายงานของ FoodStory ตามลำดับที่ดึง — REPORTS + salebychannel + reservation-report (สองตัวหลังไม่ใช่ Report shape) */
+export const ALL_IDS: readonly string[] = [...REPORTS.map((r) => r.id), SALEBYCHANNEL_ID, RESERVATION_ID];
+const KNOWN_IDS = new Set(ALL_IDS);
+
+export function familyOf(id: string): ReportFamily {
+  if (!KNOWN_IDS.has(id)) throw new Error(`ไม่รู้จักรายงาน FoodStory "${id}" — เพิ่มในแคตตาล็อกก่อน`);
+  return id in PICTURE_PERIOD ? 'picture' : 'per-day';
+}
+
+/** งวดของภาพปิดงวด — รายงานตามวันไม่มี (undefined) */
+export function periodOf(id: string): ReportPeriod | undefined {
+  return PICTURE_PERIOD[id];
+}
+
+/** แคตตาล็อกสำหรับตัววางแผนและ `exporter status` (ตระกูล + งวด) */
+export function plannedReports(): PlannedReport[] {
+  return ALL_IDS.map((id) => ({ id, family: familyOf(id), period: periodOf(id) }));
+}
+

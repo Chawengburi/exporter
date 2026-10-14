@@ -1,8 +1,8 @@
-import { readRawRows } from '../../core/xlsx.ts';
+import { readWorkbook } from '../../core/xlsx.ts';
 
 /**
- * ตีความไฟล์ .xlsx ของ FoodStory — รูปร่างต่างจาก HotelTime (ดู core/xlsx.ts สำหรับเหตุผลที่
- * แยก readRawRows ออกจาก readSheet เดิม)
+ * ตีความไฟล์ .xlsx ของ FoodStory — รูปร่างต่างจาก HotelTime (core/xlsx.ts คืนแถวดิบของทุกชีต ไม่ตัดสินว่าแถวไหน
+ * คือ header — ไฟล์นี้ตัดสินแบบ FoodStory)
  *
  * 🔴 ตำแหน่งแถว header **ต่างกันจริงต่อรายงาน** — ยืนยันจากไฟล์จริง 2026-09-23: `salebysumdate`
  * แถว 0 = ชื่อรายงาน (1 คอลัมน์), แถว 1 = header แต่ `outputtax` มีแถว metadata ก่อนหน้าอีกหลาย
@@ -40,12 +40,26 @@ export type ReadFoodStorySheetOptions = {
   readonly dataStartRowIndex?: number;
   /** คำที่ใช้ระบุแถวสรุปท้ายตาราง (เจอได้มากกว่าหนึ่งภาษา) */
   readonly totalRowMarkers?: readonly string[];
+  /**
+   * ชื่อชีตอื่นนอกจากชีตแรกที่รายงานนี้มีอยู่จริงและรู้แล้วว่าคืออะไร (เช่น "Full Tax Invoice" ของ `outputtax`) — ชีตแรกเท่านั้นคือ
+   * ข้อมูลที่เทียบกับ `Showing N` ของหน้าเว็บ · ชีตที่ไม่ได้ประกาศ = ล้มดัง ๆ (ticket 01 ของ exporter-daily-per-day-raw)
+   */
+  readonly knownExtraSheets?: readonly string[];
 };
 
 const DEFAULT_TOTAL_ROW_MARKERS = ['Total', 'รวม'];
 
 export function readFoodStorySheet(filePath: string, opts: ReadFoodStorySheetOptions): FoodStorySheet {
-  const rows = readRawRows(filePath);
+  const sheets = readWorkbook(filePath);
+  const known = new Set(opts.knownExtraSheets ?? []);
+  const unknown = sheets.slice(1).filter((s) => !known.has(s.name));
+  if (unknown.length > 0) {
+    throw new FoodStoryXlsxError(
+      `ไฟล์มีชีตที่นิยามรายงานไม่รู้จัก: ${unknown.map((s) => `"${s.name}"`).join(', ')} ` +
+        `(ทุกชีต: ${sheets.map((s) => s.name).join(', ')}) — ต้องดูว่าคืออะไรแล้วประกาศใน knownExtraSheets ก่อน ไม่ทิ้งเงียบ ๆ: ${filePath}`,
+    );
+  }
+  const rows = sheets[0]!.rows;
   const dataStartRowIndex = opts.dataStartRowIndex ?? opts.headerRowIndex + 1;
   if (rows.length < opts.headerRowIndex + 1) {
     throw new FoodStoryXlsxError(

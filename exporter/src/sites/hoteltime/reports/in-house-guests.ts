@@ -22,6 +22,8 @@ export const inHouseGuests: Report = {
   path: 'reports/RoomGuests.aspx',
   allowedControls: ALLOWED_CONTROLS,
   dailyOnly: true,
+  family: 'picture',
+  period: 'none',
   skipDateCoverageCheck: false,
   overlapColumns: { from: 'Arrival', to: 'Departure' },
 
@@ -34,7 +36,6 @@ export const inHouseGuests: Report = {
   // ไม่ถูกใช้ — ด่านวันที่ใช้ overlapColumns แทน (ดูคอมเมนต์บนสุดของไฟล์) ใส่ไว้ให้ type ผ่าน
   dateColumn: 'Arrival',
   searchButton: 'ctl00$pc$btnFind',
-  dateColumns: ['Arrival', 'Departure'],
   boundaryToleranceDays: 0,
 
   // จากไฟล์ .xlsx ที่ดาวน์โหลดจริง 2026-09-22 — คอลัมน์ที่ 4 และ 10 ไม่มีชื่อในไฟล์จริง

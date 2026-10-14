@@ -35,4 +35,7 @@ export const outputtax: Report = {
   headerRowIndex: 5,
   dataStartRowIndex: 7, // ข้าม row 6 ที่เป็นกล่องลอย ๆ ไม่ใช่ข้อมูล
   totalRowMarkers: ['รวม'],
+  // ไฟล์จริงทุกรอบในคลัง (ตรวจ 2026-10-13) มีชีตที่สอง "Full Tax Invoice" — หัวตารางตรงกับ `fulltaxinvoice.expectedColumns`
+  // คือตารางของรายงาน fulltaxinvoice ที่ดึงแยกอยู่แล้ว จึงไม่นับเข้ายอดของ outputtax (เทียบกับ Showing N ของหน้านี้ไม่ได้)
+  knownExtraSheets: ['Full Tax Invoice'],
 };

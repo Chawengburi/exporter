@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  addDaysISO,
+  parseISODate,
   ROW_CAP,
   assertContiguous,
   formatDMY,
@@ -117,4 +119,13 @@ test('ก้อนที่ผ่าครึ่งแล้วยังต่�
   const all = monthChunks(R('01/01/2025', '28/02/2025'));
   const [a, b] = splitRange(all[0]!)!;
   assertContiguous([a, b, all[1]!], R('01/01/2025', '28/02/2025'));
+});
+
+test('parseISODate / addDaysISO: วันที่ ISO จริงเท่านั้น (ปฏิเสธรูปแบบอื่นและวันที่ไม่มีจริง) · บวกวันข้ามเดือน/ปีได้', () => {
+  assert.equal(formatISO(parseISODate('2026-10-14')!), '2026-10-14');
+  assert.equal(parseISODate('14/10/2026'), null);
+  assert.equal(parseISODate('2026-02-30'), null);
+  assert.equal(parseISODate('tomorrow'), null);
+  assert.equal(addDaysISO('2026-12-31', 1), '2027-01-01');
+  assert.equal(addDaysISO('2026-03-01', -1), '2026-02-28');
 });

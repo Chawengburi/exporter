@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config as loadDotenv } from 'dotenv';
+import { GO_LIVE_ENV, parseGoLive } from '../../core/run-planner.ts';
 
 /** รากของโปรเจกต์ — ไฟล์นี้อยู่ที่ src/sites/foodstory/config.ts จึงถอยขึ้นสามชั้น */
 export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -32,6 +33,8 @@ export type Config = {
   readonly downloadDir: string;
   /** รากของคลังผลลัพธ์ `data/` (ADR-0005) — รอบรายเดือนลง `data/foodstory/monthly/<YYYY-MM>/` (ticket 03) */
   readonly dataDir: string;
+  /** **วันเริ่มใช้งาน** (`EXPORTER_GO_LIVE`, ค่าเดียวกับ HotelTime) — วันของข้อมูลที่ขาดหลังวันนี้ทุกรอบเติมให้เอง (ADR-0009) · null = ไม่ได้ตั้ง */
+  readonly goLive: string | null;
   /** session ที่ login ค้างไว้ (ดู session.ts) — .auth/ ถูก gitignore ทั้งโฟลเดอร์ */
   readonly authStatePath: string;
 };
@@ -65,6 +68,12 @@ function envInt(name: string, fallback: number): number {
   return Math.trunc(n);
 }
 
+function goLiveFromEnv(): string | null {
+  const parsed = parseGoLive(process.env[GO_LIVE_ENV]);
+  if ('error' in parsed) throw new ConfigError(parsed.error);
+  return parsed.goLive;
+}
+
 export function loadConfig(): Config {
   return {
     projectRoot: PROJECT_ROOT,
@@ -79,6 +88,7 @@ export function loadConfig(): Config {
     },
     downloadDir: path.join(PROJECT_ROOT, 'data', 'foodstory', '_downloads'),
     dataDir: path.join(PROJECT_ROOT, 'data'),
+    goLive: goLiveFromEnv(),
     authStatePath: path.join(PROJECT_ROOT, '.auth', 'foodstory.json'),
   };
 }

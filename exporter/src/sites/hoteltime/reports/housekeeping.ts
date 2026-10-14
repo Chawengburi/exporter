@@ -23,6 +23,8 @@ export const housekeeping: Report = {
   path: 'reports/RoomStates.aspx',
   allowedControls: ALLOWED_CONTROLS,
   dailyOnly: true,
+  family: 'picture',
+  period: 'none',
   skipDateCoverageCheck: true,
 
   chunk: {
@@ -33,11 +35,9 @@ export const housekeeping: Report = {
   // ไม่ใช่ตามธุรกรรม จึงไม่มีทางชนเพดาน 2000 เว้นแต่โรงแรมขยายห้องมหาศาล
   hasRowCap: false,
 
-  // ใช้แค่จัดกลุ่มไฟล์ CSV รายปี (writeYearlyCsv กิ่ง dailyOnly ใช้ปีของวันที่ query ตรง ๆ
-  // ไม่แตะคอลัมน์นี้เลยด้วยซ้ำ) — ใส่ 'Arrival' ไว้ให้ type ผ่านเฉย ๆ ไม่มีความหมายอื่น
+  // รายงานนี้ข้ามด่านวันที่ — ใส่ 'Arrival' ไว้ให้ type ผ่านเฉย ๆ ไม่มีความหมายอื่น
   dateColumn: 'Arrival',
   searchButton: 'ctl00$pc$btnFind',
-  dateColumns: ['Arrival', 'Departure'],
   boundaryToleranceDays: 0,
 
   // จากไฟล์ .xlsx ที่ดาวน์โหลดจริง 2026-09-22 — คอลัมน์ 'Departure' ซ้ำ 2 ครั้ง (ตำแหน่ง 8 และ

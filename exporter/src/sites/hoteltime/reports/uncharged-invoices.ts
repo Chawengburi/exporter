@@ -29,6 +29,8 @@ export const unchargedInvoices: Report = {
   path: 'invoices/UnchargedInvoices.aspx?type=taxes',
   allowedControls: T_ALLOWED,
   dailyOnly: true,
+  family: 'picture',
+  period: 'none',
   // ช่วงที่ค้นกว้างกว่า "วันนี้" ที่ชั้นตรวจเทียบ (ค้นตั้งแต่ 2024) — ด่าน "อยู่ในช่วง" ใช้ไม่ได้ · ตัวกรองยังพิสูจน์ได้จากหัวตาราง
   skipDateCoverageCheck: true,
   chunk: { kind: 'whole', reason: 'ภาพของวันที่ดึง — ค้นทั้งช่วงทีเดียว (ค้างชำระ 12 ใบ ณ 2026-10-07)' },
@@ -38,7 +40,6 @@ export const unchargedInvoices: Report = {
   filterNote: `ใบที่ยังค้างชำระทั้งหมด ณ วันที่ดึง (ออกเอกสารตั้งแต่ ${DEFAULT_FROM_DMY}) — ใบที่ชำระครบหายจากรายการ`,
   dataWindow: (day) => ({ from: parseDMY(DEFAULT_FROM_DMY), to: day }),
   searchButton: FIND,
-  dateColumns: ['Issue date', 'Tax effective date', 'Due date', 'Last payment date'],
   boundaryToleranceDays: 0,
   expectedColumns: [
     'Invoice number', 'Customer', 'Issue date', 'Tax effective date', 'Due date', 'No. of days after due date',
@@ -72,13 +73,14 @@ export const unchargedInvoicesByCustomer: Report = {
   path: 'invoices/UnchargedInvoices.aspx?type=subjects',
   allowedControls: [FIND],
   dailyOnly: true,
+  family: 'picture',
+  period: 'none',
   skipDateCoverageCheck: true,
   chunk: { kind: 'whole', reason: 'ภาพของวันที่ดึง ไม่มีตัวกรอง' },
   hasRowCap: false,
   dateColumn: 'Customer',
   filterNote: 'ยอดค้างชำระต่อลูกค้า ณ วันที่ดึง แยกตามอายุหนี้ — ไม่มีตัวกรองวันที่',
   searchButton: FIND,
-  dateColumns: [],
   boundaryToleranceDays: 0,
   expectedColumns: ['Customer', 'Before due date', '0 - 30', '31 - 60', '61 - 90', '91 and more', 'Total to pay'],
 

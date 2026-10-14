@@ -5,9 +5,10 @@
 รู้เหตุผลเชิงลึกว่าทำไมถึงออกแบบแบบนี้ ให้ไปอ่าน `exporter/specs/` แทน (เขียนไว้ละเอียดกว่านี้
 มาก แต่เข้าใจยากกว่า)
 
-**ภาพรวม:** `exporter` คือโปรแกรมที่เข้าเว็บ HotelTime (ระบบจัดการโรงแรม) แทนคน ดึงข้อมูลการจอง
-ออกมาเป็นไฟล์ **Windmill** คือตัวจัดตารางที่สั่งให้ `exporter` รันเองทุกวันโดยไม่ต้องมีคนพิมพ์
-คำสั่ง
+**ภาพรวม:** `exporter` คือโปรแกรมที่เข้าเว็บ HotelTime (ระบบจัดการโรงแรม) และ FoodStory (ระบบร้านอาหาร) แทนคน
+ดึงรายงานออกมาเป็นไฟล์ดิบ **Windmill** คือตัวจัดตารางที่สั่งให้ `exporter` ดึง HotelTime เองทุกวันโดยไม่ต้องมีคนพิมพ์คำสั่ง
+(FoodStory ต้องมีคนกด captcha — พนักงานดับเบิลคลิกไอคอน) · ศัพท์ที่ใช้ (รายงานตามวัน, รายงานภาพ, วันของข้อมูล, วันเริ่มใช้งาน ฯลฯ)
+อยู่ใน [`CONTEXT.md`](../CONTEXT.md)
 
 ---
 
@@ -20,30 +21,16 @@
 | กลุ่ม | อยู่ที่ | หน้าที่ |
 |---|---|---|
 | **คำสั่งหลัก** | `src/index.ts` | จุดเริ่มของโปรแกรม กำหนดว่าพิมพ์ `exporter` ตามด้วยอะไรได้บ้าง |
-| **การกระทำ** | `src/commands/login.ts`, `export.ts`, `sweep.ts` | โค้ดจริงของแต่ละคำสั่ง (ล็อกอิน / ดึงข้อมูล / กวาดเมนู) |
-| **นิยามรายงาน** | `src/reports/*.ts` | **ไฟล์ที่คุณน่าจะต้องแตะถ้าอยากเพิ่มรายงานใหม่** — หนึ่งไฟล์ = หนึ่งรายงานที่ดึงได้ |
-| เครื่องมือกลาง | `src/core/*.ts` | ของที่ทุกรายงานใช้ร่วมกัน (ล็อกอิน, เขียนไฟล์, ตรวจสอบ ฯลฯ) — ปกติไม่ต้องแตะ |
+| **การกระทำ** | `src/sites/<site>/export.ts`, `login.ts` (+ `src/sites/foodstory/daily.ts`) | โค้ดจริงที่คุยกับหน้าเว็บของแต่ละระบบ (ล็อกอิน / ดึงข้อมูล) |
+| **นิยามรายงาน** | `src/sites/<site>/reports/*.ts` | **ไฟล์ที่คุณน่าจะต้องแตะถ้าอยากเพิ่มรายงานใหม่** — หนึ่งไฟล์ = หนึ่งรายงานที่ดึงได้ |
+| เครื่องมือกลาง | `src/core/*.ts` | ของที่ทุกระบบใช้ร่วมกัน (ตัววางแผนรอบ, ที่เก็บข้อมูล, ตรวจไฟล์, สถานะ, Discord ฯลฯ) — ปกติไม่ต้องแตะ |
 
-ตอนนี้มี 3 รายงานที่ดึงได้แล้ว ดูได้ด้วยคำสั่ง:
+ตอนนี้ HotelTime ดึงได้ 48 รายงาน และ FoodStory 49 รายงาน ดูรายชื่อได้ด้วยคำสั่ง:
 
 ```bash
 cd exporter
-node src/index.ts reports
-```
-
-```
-reservations-search
-  Reservation search by  ·  /pms/ReservationListMaster.aspx
-  แบ่งก้อน: รายเดือน — ...
-  คอลัมน์ที่ใช้กรอง: Reserved:
-
-reservations-ratecode
-  Reservation search by RateCode  ·  /pms/reports/ResListRateCode.aspx
-  ...
-
-reservations-cancelled
-  Search cancelled reservations  ·  /pms/ResDeleteList.aspx
-  ...
+node src/index.ts reports                    # HotelTime
+node src/index.ts reports --site foodstory   # FoodStory
 ```
 
 ### วิธีอ่านไฟล์นิยามรายงานหนึ่งใบ (ไม่ต้องรู้ TypeScript ลึก)
@@ -56,6 +43,8 @@ reservations-cancelled
 | `id`, `label`, `path` | ชื่อรายงาน กับ URL ของหน้าเว็บที่ไปดึง |
 | `allowedControls` | **รายการปุ่ม/ช่องกรอกที่อนุญาตให้แตะเท่านั้น** — กันเผื่อสคริปต์เผลอไปกดปุ่มอื่นที่แก้ไขข้อมูลจริงในโรงแรม (เช่นปุ่มคืนสถานะห้อง) ถ้าลองแตะอะไรที่ไม่อยู่ในนี้ โปรแกรมจะหยุดทำงานทันทีแทนที่จะแตะไปเงียบ ๆ |
 | `chunk` | ดึงทีเดียวทั้งปีได้ไหม หรือต้องแบ่งเป็นรายเดือน (เพราะเว็บมีเพดานจำนวนแถวต่อครั้ง) |
+| `family` | **รายงานตามวัน** (`per-day` — ข้อมูลของวันเดียว ดึงไฟล์ละวันของข้อมูล ดึงย้อนได้) หรือ **รายงานภาพ** (`picture` — ภาพ ณ เวลาที่ดึง ดึงย้อนไม่ได้) |
+| `period` | (เฉพาะรายงานภาพ) ยอดสะสมของ `month` / `year` — ต้นงวดถัดไปจะถ่าย **ภาพปิดงวด** ของงวดที่จบให้เอง · `none` = ไม่มีงวด |
 | `dateColumn` | ใช้คอลัมน์ไหนตรวจว่าตัวกรองวันที่ทำงานจริง |
 | `applyFilters(...)` | ฟังก์ชันที่กรอกช่องวันที่แล้วกดปุ่มค้นหา |
 | `hasResults(...)` | เช็คว่าค้นแล้วเจอข้อมูลไหม (ก่อนจะกดปุ่ม export) |
@@ -76,27 +65,38 @@ node src/index.ts login --check
 # ดึงรายงานหนึ่งใบ ช่วงที่กำหนดเอง
 node src/index.ts export --report reservations-search --from 01/01/2026 --to 31/01/2026
 
-# ดึงทุกรายงานพร้อมกัน เฉพาะของใหม่ที่ขอบหน้า (รอบรายวัน) — ครบ 8 ใบ
+# รอบรายวัน (ทั้ง 48 รายงาน) — รายงานตามวันของเมื่อวานไฟล์ละวัน + รายงานภาพของวันนี้ + วันที่ขาดตั้งแต่วันเริ่มใช้งาน (ครั้งละ 3 วัน)
+# ทำเฉพาะที่ยังไม่สำเร็จ ไม่มีงาน = จบทันที — คำสั่งเดียวกับที่ Windmill รันทั้ง 12:00 / 15:00 / 18:00
 node src/index.ts export --report all --daily --json
 
-# ดึงทุกรายงานย้อนหลังทั้งหมด (back-fill / baseline) — ได้รายงานช่วงวันที่ 4 ใบ รายงานรายวัน
-# 4 ใบ (arrivals, departures, in-house-guests, housekeeping) ถูกข้ามเพราะดึงได้เฉพาะ --daily
-# (ADR-0003) — ขึ้นเป็น "ข้าม" ใน skipped ไม่นับว่าล้ม
-node src/index.ts export --report all --baseline --json
+# ดึงวันของข้อมูลวันเดียวใหม่ (เช่น หลังมีปัญหา) — รายงานตามวันทั้ง 22 ตัวของวันนั้น ฉบับเก่าย้ายไป _superseded/
+node src/index.ts export --report all --date 2026-10-12
 
-# FoodStory ทั้ง 49 รายงานของเดือนที่แล้ว (reservation-report รันใบสุดท้าย) — ต้องมีคนแก้ reCAPTCHA ตอน login (รันบน Windmill ไม่ได้)
+# baseline: ดึงวันที่เคยดึงแล้วใหม่ ไฟล์ละวันของข้อมูล (เก็บการแก้ย้อนหลัง) — รายงานภาพถูกข้าม (ดึงย้อนไม่ได้)
+node src/index.ts export --report all --baseline --from 01/10/2026 --to 13/10/2026
+
+# FoodStory รอบรายวัน (เมื่อวาน + วันที่ขาด + รายงานภาพ ใน login เดียว) — ต้องมีคนแก้ reCAPTCHA (สิ่งที่ไอคอนบน Desktop รัน)
+node src/index.ts export --site foodstory --report all --daily --headful
+
+# FoodStory ทั้ง 49 รายงานของเดือนที่แล้ว (รอบรายเดือน) — ต้องมีคนแก้ reCAPTCHA ตอน login (รันบน Windmill ไม่ได้)
 node src/index.ts export --site foodstory --report all --headful
 
+# สรุปว่าระบบปกติไหม (อ่านอย่างเดียว) · ดูข้อความ Discord ที่จะส่ง
+node src/index.ts status
+node src/index.ts notify --dry-run --summary
+
 # ดูให้เห็นว่ามันทำงานยังไง เปิดหน้าต่างเบราว์เซอร์จริง หน่วงให้ตามทัน
-node src/index.ts export --report reservations-search --last-days 3 --headful --slow-mo 300
+node src/index.ts export --report postings --date 2026-10-12 --headful --slow-mo 300
 ```
 
-ผลลัพธ์เป็นไฟล์ CSV ที่ชื่อขึ้นต้นด้วยช่วงข้อมูล (เช่น `2026-10-05_2026-10-07__reservations-search.csv`) บวกไฟล์ดิบ `.xlsx` กับ
-`manifest.json` ใต้ `_raw/<ชื่อรายงาน>/` และสรุปผลใน `_summary.txt` — รอบ `--daily` ลงคลังผลลัพธ์ที่ `exporter/data/hoteltime/daily/<เดือน>/<วัน>/`
-หนึ่งโฟลเดอร์ต่อวัน (ชื่อไฟล์ขึ้นต้นด้วยช่วงข้อมูล ไฟล์ดิบอยู่ใน `_raw/` และมี `_summary.txt` สรุปผล) รอบย้อนหลัง
-(`--from`/`--to`, `--last-days` ด้วย) ลงโฟลเดอร์ของตัวเองที่ `exporter/data/hoteltime/backfill/<YYYY-MM-DD_HHMMSS>/`
-และรอบ `--baseline` ลง `exporter/data/hoteltime/baseline/<วันที่รัน>/` (ทุกใบเก็บไว้ ใบล่าสุดที่ผ่านเป็นใบอ้างอิง)
-บรรทัดสุดท้ายของผลบอกว่าอยู่โฟลเดอร์ไหน
+ผลลัพธ์เป็น **ไฟล์ดิบ** `.xlsx` ตามที่เว็บให้มา (ไม่แปลง ไม่มี CSV — ADR-0007) พร้อม `_manifest.json` (ไฟล์ไหนมาจากหน้าไหน ครอบวันไหน กี่แถว
+sha256) และ `_summary.txt` สรุปผลภาษาไทย:
+
+- รอบ `--daily` / `--date` ลง `exporter/data/hoteltime/daily/<เดือน>/<วันของข้อมูล>/` — รายงานตามวันชื่อ `2026-10-13__postings.xlsx` · รายงานภาพอยู่ใน
+  โฟลเดอร์ของวันที่ถ่าย ชื่อเวลาที่ถ่าย `20261014T120512+0700__arrivals.xlsx` · ภาพปิดงวดชื่อช่วงของงวด `2026-09-01--2026-09-30__trial-balance.xlsx`
+- `--baseline` ลง `exporter/data/hoteltime/baseline/<วันที่รัน>/` ไฟล์ละวันชื่อเดียวกับรอบรายวัน (เทียบกันได้)
+- รอบย้อนหลังเป็นก้อน (`--from`/`--to`, `--last-days`) ลง `exporter/data/hoteltime/backfill/<YYYY-MM-DD_HHMMSS>/` ชื่อ `<from>--<to>__<id>.xlsx`
+- ดึงชื่อเดิมซ้ำแล้วไฟล์ต่าง ฉบับเก่าย้ายไป `_superseded/` — ไม่มีอะไรถูกลบหรือทับ · บรรทัดสุดท้ายของผลบอกว่าอยู่โฟลเดอร์ไหน
 
 ---
 
@@ -127,9 +127,13 @@ cd /workspace/exporter
 node src/index.ts export --report all --daily --json
 ```
 
-ผลของแต่ละวันลงโฟลเดอร์ของวันนั้นใน `exporter/data/hoteltime/daily/` เอง ไม่มีขั้นก๊อปเก็บท้ายสคริปต์แล้ว
-(เลิก 2026-10-07) · exit code `0` = ผ่านหมด, `2` = ผ่านบางใบ, `1` = ไม่ได้อะไรเลย — 2 กับ 1 ทำให้ job ขึ้น
-"Failed" เพื่อให้มีคนเห็น — ดูรายละเอียดที่ `windmill/INSTALL.md` § 5
+สคริปต์รอบเก็บตก (`pms_export_daily_catchup`, 15:00/18:00) **เนื้อหาเดียวกันทุกตัวอักษร** — ตัววางแผนตัดสินเองว่ารอบนี้เหลืออะไรต้องทำ ·
+ห้ามใส่ `--retry-failed` (เลิกใช้แล้ว ใส่มา = job ล้มทันที) · บนเครื่องที่ตั้งด้วย `node windmill/setup.mjs` สคริปต์มาจาก `windmill/scripts/*.sh`
+เอง (รันซ้ำ = deploy เวอร์ชันใหม่) · ตั้งเองในหน้าเว็บ = ต้องแก้เองให้ตรงกับไฟล์ใน repo
+
+ผลลงโฟลเดอร์ของวันของข้อมูลใน `exporter/data/hoteltime/daily/` เอง · exit code `0` = ผ่านหมด (หรือไม่มีงาน), `2` = ผ่านบางใบ,
+`1` = ไม่ได้อะไรเลย — 2 กับ 1 ทำให้ job ขึ้น "Failed" เพื่อให้มีคนเห็น — ดูรายละเอียดที่ `windmill/INSTALL.md` § 5 · จบรอบแล้วส่ง Discord เอง
+(สรุปรายวันหลังรอบ 18:00 + แจ้งเตือน) ถ้ามี `DISCORD_WEBHOOK_URL` ใน `exporter/.env`
 
 ### วิธีดู log / ผลลัพธ์
 
@@ -140,7 +144,7 @@ node src/index.ts export --report all --daily --json
 - **หน้า result JSON อ่านยังไง** — `ok: true` แปลว่าทุกรายงานสำเร็จ, `failed: []` ว่าง = ไม่มี
   ใบไหนล้ม, `totalRows` = จำนวนแถวรวมที่ดึงได้ ถ้า `ok: false` ให้ดูใน `failed[]` แต่ละรายการจะมี
   ข้อความ error บอกว่ารายงานไหนล้มเพราะอะไร (เช่น `LoginError` = ล็อกอินไม่ผ่าน)
-- **ไฟล์ข้อมูลจริง** (CSV/xlsx) ไม่ได้อยู่ใน Windmill — มันเขียนลง `exporter/data/hoteltime/daily/<เดือน>/<วัน>/` บน
+- **ไฟล์ข้อมูลจริง** (xlsx) ไม่ได้อยู่ใน Windmill — มันเขียนลง `exporter/data/hoteltime/daily/<เดือน>/<วันของข้อมูล>/` บน
   เครื่องเหมือนรันมือ เพราะ Windmill แค่ "ยืม" เครื่องเดียวกันรัน `exporter` ให้
 
 ### วิธีตั้ง cron (schedule)
@@ -242,7 +246,7 @@ node src/index.ts export --report <ชื่อรายงานใหม่> -
 
 ## เอกสารอ้างอิงเพิ่มเติม
 
-- [`exporter/README.md`](../exporter/README.md) — ภาพรวมโปรเจกต์, ไฟล์ดิบ vs CSV, ความเสี่ยง
+- [`exporter/README.md`](../exporter/README.md) — ภาพรวมโปรเจกต์, คำสั่งทั้งหมด, ที่เก็บข้อมูล, ความเสี่ยง
 - [`exporter/specs/`](../exporter/specs/README.md) — เหตุผลเชิงลึกของทุกการตัดสินใจ (อ่าน
   01 → 02 → 03 ก่อน)
 - [`windmill/INSTALL.md`](../windmill/INSTALL.md) — ติดตั้ง Windmill ใหม่ตั้งแต่ศูนย์

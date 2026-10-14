@@ -1,46 +1,17 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { writeFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { zipSync } from 'fflate';
+import { makeWorkbook, makeXlsx, sheetXml, tmpPath } from './_xlsx-fixture.ts';
 import {
   columnIndex,
   excelSerialToDate,
   findColumn,
-  formatCellDate,
   parseCellDate,
-  readRawRows,
-  readSheet,
+  readSheets,
+  readSheetNames,
+  readWorkbook,
   requireColumn,
 } from '../src/core/xlsx.ts';
-
-const enc = new TextEncoder();
-const tmp = mkdtempSync(path.join(tmpdir(), 'exporter-xlsx-'));
-
-/**
- * สร้าง xlsx จำลองที่มีกับดักเดียวกับไฟล์จริงของ HotelTime:
- *  - styles.xml ผิดสเปก (ต้องถูกเมิน ไม่ใช่ทำให้ล้ม)
- *  - เซลล์ว่างถูกตัดออกจาก XML ไม่ได้เขียนเป็นแท็กว่าง
- */
-function makeXlsx(name: string, sheetXml: string, opts: { shared?: string[]; styles?: string } = {}): string {
-  const shared = opts.shared ?? [];
-  const files: Record<string, Uint8Array> = {
-    '[Content_Types].xml': enc.encode('<?xml version="1.0"?><Types/>'),
-    'xl/workbook.xml': enc.encode('<?xml version="1.0"?><workbook/>'),
-    'xl/worksheets/sheet1.xml': enc.encode(sheetXml),
-    // styles ที่ผิดสเปทแบบเดียวกับของจริง — ตัวอ่านต้องไม่แตะไฟล์นี้เลย
-    'xl/styles.xml': enc.encode(opts.styles ?? '<styleSheet><alignment vertical="middel"/></styleSheet>'),
-  };
-  if (shared.length > 0) {
-    files['xl/sharedStrings.xml'] = enc.encode(
-      `<sst count="${shared.length}">${shared.map((s) => `<si><t>${s}</t></si>`).join('')}</sst>`,
-    );
-  }
-  const p = path.join(tmp, name);
-  writeFileSync(p, zipSync(files));
-  return p;
-}
 
 test('columnIndex แปลงอ้างอิงเซลล์เป็นดัชนีคอลัมน์', () => {
   assert.equal(columnIndex('A1'), 0);
@@ -60,7 +31,7 @@ test('🔴 เซลล์ว่างที่ถูกตัดออกไม
     </sheetData></worksheet>`,
     { shared: ['ID', 'Reserved:', 'Group name', 'Arrival'] });
 
-  const s = readSheet(p);
+  const s = readSheets(p)[0]!;
   assert.deepEqual([...s.header], ['ID', 'Reserved:', 'Group name', 'Arrival']);
   // ถ้าอ่านตามลำดับที่เจอ จะได้ ['111','444','',''] ซึ่งผิด
   assert.deepEqual([...s.rows[0]!], ['111', '', '', '444']);
@@ -73,7 +44,7 @@ test('styles.xml ที่ผิดสเปกต้องไม่ทำให
       <row r="2"><c r="A2"><v>1</v></c></row>
     </sheetData></worksheet>`,
     { shared: ['Col'], styles: '<styleSheet><alignment vertical="ไม่มีค่านี้ใน enum"/></styleSheet>' });
-  assert.deepEqual([...readSheet(p).header], ['Col']);
+  assert.deepEqual([...readSheets(p)[0]!.header], ['Col']);
 });
 
 test('รองรับ inline string และ entity ที่ถูก escape', () => {
@@ -82,20 +53,17 @@ test('รองรับ inline string และ entity ที่ถูก escap
       <row r="1"><c r="A1" t="inlineStr"><is><t>A &amp; B</t></is></c><c r="B1" t="inlineStr"><is><t>&lt;tag&gt;</t></is></c></row>
       <row r="2"><c r="A2" t="inlineStr"><is><t>ห้อง 101</t></is></c></row>
     </sheetData></worksheet>`);
-  const s = readSheet(p);
+  const s = readSheets(p)[0]!;
   assert.deepEqual([...s.header], ['A & B', '<tag>']);
   assert.deepEqual([...s.rows[0]!], ['ห้อง 101', '']);
 });
 
 test('rich text ที่แตกเป็นหลาย run ถูกต่อกลับเป็นข้อความเดียว', () => {
-  // makeXlsx เขียน <si><t> ชั้นเดียว จึงประกอบ zip เองสำหรับเคส rich text
-  const p = path.join(tmp, 'rich.xlsx');
-  writeFileSync(p, zipSync({
-    'xl/worksheets/sheet1.xml': enc.encode(
-      `<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>`),
-    'xl/sharedStrings.xml': enc.encode(`<sst><si><r><t>Reserv</t></r><r><t>ation</t></r></si></sst>`),
-  }));
-  assert.deepEqual([...readSheet(p).header], ['Reservation']);
+  // makeXlsx เขียน <si><t> ชั้นเดียว จึงส่ง sharedStrings.xml แบบ rich text เองสำหรับเคสนี้
+  const p = makeXlsx('rich.xlsx',
+    `<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>`,
+    { sharedXml: `<sst><si><r><t>Reserv</t></r><r><t>ation</t></r></si></sst>` });
+  assert.deepEqual([...readSheets(p)[0]!.header], ['Reservation']);
 });
 
 test('ชื่อคอลัมน์ซ้ำ — findColumn คืนตัวแรก (ไฟล์จริงมี Reservation number สองที่)', () => {
@@ -104,7 +72,7 @@ test('ชื่อคอลัมน์ซ้ำ — findColumn คืนตั�
       <c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>0</v></c>
     </row><row r="2"><c r="A2"><v>1</v></c></row></sheetData></worksheet>`,
     { shared: ['Reservation number', 'Reserved:'] });
-  const s = readSheet(p);
+  const s = readSheets(p)[0]!;
   assert.equal(findColumn(s, 'Reservation number'), 0);
   assert.equal(requireColumn(s, 'Reserved:'), 1);
 });
@@ -113,16 +81,16 @@ test('requireColumn ล้มพร้อมบอกว่ามีคอลั
   const p = makeXlsx('missing.xlsx',
     `<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row><row r="2"><c r="A2"><v>1</v></c></row></sheetData></worksheet>`,
     { shared: ['Something else'] });
-  assert.throws(() => requireColumn(readSheet(p), 'Reserved:'), /ไม่พบคอลัมน์ "Reserved:"[\s\S]*Something else/);
+  assert.throws(() => requireColumn(readSheets(p)[0]!, 'Reserved:'), /ไม่พบคอลัมน์ "Reserved:"[\s\S]*Something else/);
 });
 
 test('ไฟล์ที่ไม่ใช่ zip ล้มพร้อมข้อความที่บอกวิธีตรวจ', () => {
-  const p = path.join(tmp, 'notzip.xlsx');
+  const p = tmpPath('notzip.xlsx');
   writeFileSync(p, '<html>Sorry, an error occurred</html>');
-  assert.throws(() => readSheet(p), /แตกไฟล์ xlsx ไม่สำเร็จ[\s\S]*magic bytes/);
+  assert.throws(() => readSheets(p)[0]!, /แตกไฟล์ xlsx ไม่สำเร็จ[\s\S]*magic bytes/);
 });
 
-test('🔴 readRawRows ไม่ตัดข้อมูลทิ้งเมื่อแถวแรกแคบกว่าแถวหลัง (รูปแบบไฟล์ของ FoodStory)', () => {
+test('🔴 readWorkbook ไม่ตัดข้อมูลทิ้งเมื่อแถวแรกแคบกว่าแถวหลัง (รูปแบบไฟล์ของ FoodStory)', () => {
   // รูปทรงจำลองแบบเดียวกับที่เจอจริงใน salebysumdate (ดู test/foodstory-xlsx.test.ts สำหรับ
   // ไฟล์จริงที่ยืนยันแล้วครบทั้ง 17 คอลัมน์) — ที่นี่ตั้งใจย่อคอลัมน์ให้อ่านง่าย เพราะจุดที่ต้อง
   // พิสูจน์คือกลไก "แถวแรกแคบกว่าแถวหลังต้องไม่ถูกตัด" ไม่ใช่ความถูกต้องของชื่อคอลัมน์จริง
@@ -145,7 +113,7 @@ test('🔴 readRawRows ไม่ตัดข้อมูลทิ้งเมื
       </row>
     </sheetData></worksheet>`);
 
-  const rows = readRawRows(p);
+  const rows = readWorkbook(p)[0]!.rows;
   assert.equal(rows.length, 4);
   assert.deepEqual([...rows[0]!], ['รายงานสรุปยอดขายแยกตามวัน', '', '']);
   assert.deepEqual([...rows[1]!], ['วันที่', 'ยอดรวม', 'สาขา']);
@@ -153,9 +121,26 @@ test('🔴 readRawRows ไม่ตัดข้อมูลทิ้งเมื
   assert.deepEqual([...rows[3]!], ['Total', '7530', '']);
 });
 
-test('ชีตที่ไม่มีแถวเลยล้มดัง ๆ แทนที่จะคืนค่าว่าง', () => {
+test('🔴 readWorkbook คืนทุกชีตตามลำดับใน workbook พร้อมชื่อชีต (ไม่ใช่แค่ชีตแรก ไม่เดาลำดับจากชื่อไฟล์)', () => {
+  // รูปเดียวกับ occupancy-by-nationality-stay-reason จริง: หนึ่งชีตต่อกลุ่มเหตุผลการเข้าพัก หัวตารางเดียวกัน
+  const p = makeWorkbook('groups.xlsx', [
+    { name: 'No group', file: 'sheet2.xml', xml: sheetXml([['Nationality', 'Nights'], ['Thailand', '3']]) },
+    { name: 'LEI - Leisure', file: 'sheet1.xml', xml: sheetXml([['Nationality', 'Nights'], ['Poland', '5'], ['USA', '2']]) },
+  ]);
+
+  const sheets = readWorkbook(p);
+
+  assert.deepEqual(sheets.map((s) => s.name), ['No group', 'LEI - Leisure']);
+  assert.deepEqual(sheets[0]!.rows.map((r) => [...r]), [['Nationality', 'Nights'], ['Thailand', '3']]);
+  assert.deepEqual(sheets[1]!.rows.map((r) => [...r]), [['Nationality', 'Nights'], ['Poland', '5'], ['USA', '2']]);
+  assert.deepEqual(readSheetNames(p), ['No group', 'LEI - Leisure']);
+});
+
+test('ชีตที่ไม่มีแถวเลยได้ header และแถวว่าง — ตัวอ่านไม่ตัดสินว่าทั้งไฟล์ว่าง (ด่านตรวจของแต่ละ Site ตัดสิน)', () => {
   const p = makeXlsx('empty.xlsx', `<worksheet><sheetData></sheetData></worksheet>`);
-  assert.throws(() => readSheet(p), /ไม่พบแถวใดเลย/);
+  const [s] = readSheets(p);
+  assert.deepEqual([...s!.header], []);
+  assert.equal(s!.rows.length, 0);
 });
 
 test('🔴 Excel serial แปลงเป็นวันที่ถูกต้อง (ใบ RateCode เก็บวันที่แบบนี้)', () => {
@@ -195,7 +180,7 @@ test('ชีตใหญ่ระดับ baseline (หลายหมื่น
     `<row r="${r + 1}">${['A', 'B', 'C', 'D', 'E', 'F'].map((c) => `<c r="${c}${r + 1}" t="inlineStr"><is><t>x</t></is></c>`).join('')}</row>`,
   ).join('');
   const p = makeXlsx('big.xlsx', `<worksheet><sheetData>${rows}</sheetData></worksheet>`);
-  const out = readRawRows(p);
+  const out = readWorkbook(p)[0]!.rows;
   assert.equal(out.length, 30_000);
   assert.equal(out[0]!.length, 6);
 });
@@ -205,13 +190,4 @@ test('parseCellDate รับ DD.MM.YY ของ Housekeeping all-in-one แล�
   assert.equal(parseCellDate('31.12.2025')?.toISOString(), '2025-12-31T00:00:00.000Z');
   assert.equal(parseCellDate('---'), null);
   assert.throws(() => parseCellDate('7/10/26'));
-});
-
-test('formatCellDate: วันที่ล้วนเป็น DD/MM/YYYY · serial ที่มีเวลาเก็บเวลาไว้ด้วย DD/MM/YYYY HH:MM · ว่างคืน null', () => {
-  assert.equal(formatCellDate('01/09/2026'), '01/09/2026');
-  assert.equal(formatCellDate('45658'), '01/01/2025');
-  // 45658 = 01/01/2025 (test ข้างบน) → 46301 = +643 วัน = 06/10/2026 · เศษ .7909722 × 1440 = 1139 นาที = 18:59
-  assert.equal(formatCellDate('46301.7909722222'), '06/10/2026 18:59');
-  assert.equal(formatCellDate('07.10.26'), '07/10/2026');
-  assert.equal(formatCellDate('---'), null);
 });

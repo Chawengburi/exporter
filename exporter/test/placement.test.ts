@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import path from 'node:path';
 import { utcDate } from '../src/core/order.ts';
-import { dailyFolder, dataFileName, latestPointer, foodstoryFileName, monthlyFolder, monthlyRoot, rawDirFor, runFolder } from '../src/core/placement.ts';
+import { dailyFolder, dataFileName, latestPointer, foodstoryFileName, monthlyFolder, monthlyRoot, pictureFileName, runFolder, supersededPath } from '../src/core/placement.ts';
 
 // คลังผลลัพธ์ (ADR-0005): data/<site>/daily/<YYYY-MM>/<YYYY-MM-DD>/ · วันที่ = วันสุดท้ายที่ข้อมูลครอบคลุม
 const ROOT = '/p/data';
@@ -21,18 +22,24 @@ test('ข้อมูลข้ามปีอยู่ในเดือนข�
   assert.equal(dailyFolder(ROOT, 'hoteltime', range), '/p/data/hoteltime/daily/2026-01/2026-01-01');
 });
 
-test('ชื่อไฟล์ข้อมูลวันเดียวขึ้นต้นด้วยวันนั้น', () => {
-  const day = { from: utcDate(2026, 10, 7), to: utcDate(2026, 10, 7) };
-  assert.equal(dataFileName(day, 'arrivals', 'csv'), '2026-10-07__arrivals.csv');
+test('ชื่อไฟล์ของวันของข้อมูลวันเดียว: YYYY-MM-DD__<รายงาน> (ISO)', () => {
+  const day = { from: utcDate(2026, 10, 12), to: utcDate(2026, 10, 12) };
+  assert.equal(dataFileName(day, 'reservations-search', 'xlsx'), '2026-10-12__reservations-search.xlsx');
 });
 
-test('ชื่อไฟล์ข้อมูลหลายวันขึ้นต้นด้วยช่วงจริง', () => {
-  const range = { from: utcDate(2026, 10, 5), to: utcDate(2026, 10, 7) };
-  assert.equal(dataFileName(range, 'reservations-search', 'csv'), '2026-10-05_2026-10-07__reservations-search.csv');
+test('🔴 ชื่อไฟล์หลายวันใช้ตัวคั่นช่วงแบบ ISO 8601 "--" (แทน "/" ที่ใช้ในชื่อไฟล์ไม่ได้) ไม่ใช่ "_"', () => {
+  const range = { from: utcDate(2026, 10, 1), to: utcDate(2026, 10, 31) };
+  assert.equal(dataFileName(range, 'reservations-search', 'xlsx'), '2026-10-01--2026-10-31__reservations-search.xlsx');
 });
 
-test('ไฟล์ดิบของแต่ละรายงานอยู่ใต้ _raw/ ของโฟลเดอร์รอบ', () => {
-  assert.equal(rawDirFor('/p/data/hoteltime/daily/2026-10/2026-10-07', 'arrivals'), '/p/data/hoteltime/daily/2026-10/2026-10-07/_raw/arrivals');
+test('🔴 ชื่อไฟล์รายงานภาพ: เวลาที่ถ่ายแบบ ISO ย่อ YYYYMMDDTHHMMSS+0700 (ไม่มี ":" — เปิดบน Windows ได้)', () => {
+  // 05:00:00Z = เที่ยงวันเวลาไทย
+  assert.equal(pictureFileName(new Date('2026-10-13T05:00:00Z'), 'arrivals', 'xlsx'), '20261013T120000+0700__arrivals.xlsx');
+});
+
+test('🔴 ชื่อไฟล์รายงานภาพตัดวันตามเวลาไทย — 17:00Z คือเที่ยงคืนของวันถัดไปในไทย', () => {
+  assert.equal(pictureFileName(new Date('2026-10-12T17:00:00Z'), 'arrivals', 'xlsx'), '20261013T000000+0700__arrivals.xlsx');
+  assert.equal(pictureFileName(new Date('2026-10-12T16:59:59Z'), 'arrivals', 'xlsx'), '20261012T235959+0700__arrivals.xlsx');
 });
 
 test('ตัวชี้ latest ของรอบรายวันอยู่ที่ data/<site>/daily/latest', () => {
@@ -111,4 +118,11 @@ test('FoodStory รายเดือน: รอบแรกเป็นวั�
   const firstRunLateOnThe7th = new Date('2026-10-07T16:30:00Z'); // 23:30 ของ 7 ต.ค. เวลาไทย (ใน UTC วันเดียวกัน)
   assert.equal(monthlyFolder(ROOT, 'foodstory', '2026-09', at, ['2026-09'], firstRunLateOnThe7th), '/p/data/foodstory/monthly/2026-09__2026-10-08');
   assert.equal(monthlyFolder(ROOT, 'foodstory', '2026-09', at, ['2026-09'], null), '/p/data/foodstory/monthly/2026-09__2026-10-08');
+});
+
+test('🔴 ไฟล์ที่ถูกแทนย้ายไป _superseded/ ขึ้นต้นด้วยเวลาที่ย้าย (ISO ย่อเวลาไทย) ตามด้วยชื่อเดิม — ไม่ลบ ไม่ทับ (ADR-0005)', () => {
+  assert.equal(
+    supersededPath(new Date('2026-10-14T05:00:00Z'), '2026-10-13__reservations-search.xlsx'),
+    path.join('_superseded', '20261014T120000+0700__2026-10-13__reservations-search.xlsx'),
+  );
 });

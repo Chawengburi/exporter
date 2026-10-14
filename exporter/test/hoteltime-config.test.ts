@@ -6,7 +6,7 @@ import { ConfigError, loadConfig, loadCredentials } from '../src/sites/hoteltime
 // config.ts โหลด .env จริงตอน import — เทสต์นี้ตั้งทุกตัวแปรที่เกี่ยวเองแล้วคืนค่าเดิมหลังจบ
 // และตั้ง PMS_* เป็นค่าหลอกไว้เสมอ กัน credential จริงหลุดลง assertion diff ถ้าโค้ดยังอ่าน prefix เก่า
 const KEYS = ['USERNAME', 'PASSWORD', 'BASE_URL', 'LOGIN_PATH', 'HEADLESS', 'TIMEOUT_MS', 'SLOW_MO'];
-const NAMES = KEYS.flatMap((k) => [`HOTELTIME_${k}`, `PMS_${k}`]);
+const NAMES = [...KEYS.flatMap((k) => [`HOTELTIME_${k}`, `PMS_${k}`]), 'EXPORTER_GO_LIVE'];
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -75,4 +75,19 @@ test('URL หลังล็อกอินสำเร็จ = หน้าข�
   assert.equal(isSignedInUrl('https://th07.hoteltime.com/pms/login/login.aspx?ReturnUrl=x', base), false);
   assert.equal(isSignedInUrl('chrome-error://chromewebdata/', base), false);
   assert.equal(isSignedInUrl('https://evil.example/pms/Welcomepage.aspx', base), false);
+});
+
+// ── วันเริ่มใช้งาน (ADR-0009, ใบ 04) — ค่าเดียวใช้ทั้งสอง Site จึงไม่มี prefix ของ Site ──
+
+test('EXPORTER_GO_LIVE: ไม่ตั้ง = null (ไม่เดาวัน) · ตั้งเป็น YYYY-MM-DD = วันนั้น', () => {
+  assert.equal(loadConfig().goLive, null);
+  process.env.EXPORTER_GO_LIVE = '2026-10-20';
+  assert.equal(loadConfig().goLive, '2026-10-20');
+});
+
+test('🔴 EXPORTER_GO_LIVE ที่ไม่ใช่วันที่จริงแบบ YYYY-MM-DD ล้มดัง ๆ — ไม่ปล่อยให้เติมย้อนผิดช่วงเงียบ ๆ', () => {
+  for (const bad of ['20/10/2026', '2026-02-30', 'tomorrow']) {
+    process.env.EXPORTER_GO_LIVE = bad;
+    assert.throws(() => loadConfig(), (err: Error) => err instanceof ConfigError && /EXPORTER_GO_LIVE/.test(err.message));
+  }
 });

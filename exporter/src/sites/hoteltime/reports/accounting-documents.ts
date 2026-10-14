@@ -60,6 +60,7 @@ function invoicesList(spec: ListSpec): Report {
     path: `invoices/InvoicesList.aspx?${spec.query}`,
     allowedControls: allowed,
     dailyOnly: false,
+    family: 'per-day',
     skipDateCoverageCheck: false,
     chunk: { kind: 'monthly', reason: 'ดรอปดาวน์ปีกรองตามปีของวันที่ออกเอกสารและไม่มี "ทั้งหมด" — ก้อนรายเดือนไม่คร่อมปี' },
     // export ไม่ถูกตัดที่ 2000 (ตรวจเบื้องต้นได้ 2,301 แถวในไฟล์เดียว) แต่ไม่ได้พิสูจน์ทุกหน้า จึงให้ชั้นตรวจจับไว้
@@ -67,7 +68,6 @@ function invoicesList(spec: ListSpec): Report {
     dateColumn: 'Issue date',
     filterNote: 'กรองด้วยวันที่ออกเอกสาร (Issue date) ทุกสถานะ — สถานะ/ยอดที่จ่ายเปลี่ยนภายหลัง รอบรายวันมองไม่เห็น baseline เก็บ (ADR-0002)',
     searchButton: SHOW,
-    dateColumns: ['Issue date', 'Tax effective date', 'Due date', 'Remittance date'],
     boundaryToleranceDays: 0,
     expectedColumns: spec.expectedColumns,
 
@@ -144,13 +144,13 @@ export const invoicesReport: Report = {
   path: 'invoices/InvoicesReport.aspx',
   allowedControls: IR_ALLOWED,
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
   chunk: { kind: 'monthly', reason: 'สูงสุด 1,807 แถว/เดือน (baseline 2026-10-07) — ทั้งช่วงเกินเพดาน 2000' },
   hasRowCap: true,
   dateColumn: 'Issue date',
   filterNote: 'กรองด้วยวันที่ออกเอกสาร (Issue date) เอกสารทุกชนิด',
   searchButton: SHOW,
-  dateColumns: ['Issue date', 'Tax effective date'],
   boundaryToleranceDays: 0,
   expectedColumns: ['Invoice number', 'Document type', 'Issue date', 'Tax effective date', 'Customer', 'ID', 'Currency', 'VAT base', 'VAT'],
 

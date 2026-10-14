@@ -6,7 +6,7 @@ import { assertControlAllowed } from '../../core/gate.ts';
 import { formatDMY, formatISO } from '../../core/order.ts';
 import { createRedactor, redactError, type Redactor } from '../../core/redact.ts';
 import { thaiToday } from '../../core/thai-time.ts';
-import { readRawRows } from '../../core/xlsx.ts';
+import { readWorkbook } from '../../core/xlsx.ts';
 import { ConfigError, loadConfig, loadCredentials, type Config, type Credentials } from './config.ts';
 import { login, openSession, type Session } from './session.ts';
 import {
@@ -135,9 +135,10 @@ async function probeOne(
       }
       throw err;
     }
-    const all = readRawRows(dest);
-    const header = all[0] ?? [];
-    const data = all.slice(1).filter((r) => r.some((c) => c.trim() !== ''));
+    // ทุกชีต (แถวแรกของแต่ละชีตคือ header) — หน้าที่แตกหนึ่งชีตต่อกลุ่มต้องนับแถวครบ ไม่ใช่แค่ชีตแรก
+    const sheets = readWorkbook(dest);
+    const header = sheets[0]?.rows[0] ?? [];
+    const data = sheets.flatMap((s) => s.rows.slice(1)).filter((r) => r.some((c) => c.trim() !== ''));
     return {
       ...base, exportLinkCount, formRejected, downloaded: true, rows: data.length,
       dateColumns: findDateColumns(header, data), error: null,

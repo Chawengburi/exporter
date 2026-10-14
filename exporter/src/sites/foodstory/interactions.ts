@@ -20,6 +20,12 @@ export class InteractionError extends Error {
   override readonly name = 'InteractionError';
 }
 
+/**
+ * ตั้งช่วงวันที่แล้วช่องแสดงช่วงไม่ขึ้นตามที่พิมพ์ — เป็นครั้งคราว ไม่รู้สาเหตุ (เจอ 2026-09-28 กลางรอบ ส.ค. · 2026-10-14 ครั้งแรกหลัง login
+ * รันจริงใบ 06 — ทั้งสองครั้งการตั้งช่วงครั้งถัดไปผ่าน) จึงแยก type ให้ผู้เรียกลองตั้งใหม่ได้ · ด่านตรวจช่วงยังอยู่ครบ ไม่ export ผิดช่วง
+ */
+export class DateRangeNotAppliedError extends InteractionError {}
+
 /** primitive ที่ปิด popup โปรโมชั่นต้องประกาศ control นี้ */
 export const CONTROL_DISMISS_INTERSTITIAL = 'dismissInterstitial';
 /** primitive ที่เลือก Show N rows ต้องประกาศ control นี้ */
@@ -323,9 +329,9 @@ export async function setDateRangeByTyping(page: Page, range: DateRange): Promis
   const triggerValueNow =
     (await trigger.inputValue().catch(() => undefined)) ?? (await trigger.textContent().catch(() => undefined));
   if (triggerValueNow !== expectedHeader) {
-    throw new InteractionError(
-      `ตั้งช่วงวันที่แล้วแต่ช่องแสดงช่วงวันที่ไม่ขึ้น "${expectedHeader}" ตามที่คาด (${page.url()})\n` +
-        `  ค่าที่อ่านได้จริง: ${JSON.stringify(triggerValueNow)}\n` +
+    // ค่าที่อ่านได้อยู่บรรทัดแรก — log ต่อรายงาน/ข้อความลองใหม่แสดงแค่บรรทัดแรก (ครั้งก่อน ๆ ค่านี้หายไปจากหลักฐานทุกครั้ง)
+    throw new DateRangeNotAppliedError(
+      `ตั้งช่วงวันที่แล้วแต่ช่องแสดงช่วงวันที่ไม่ขึ้น "${expectedHeader}" ตามที่คาด — อ่านได้ ${JSON.stringify(triggerValueNow)} (${page.url()})\n` +
         `  อาจกรอกผิดช่อง หรือปฏิทินไม่รับค่าที่พิมพ์ไป — ตรวจด้วยตาก่อนเชื่อไฟล์ที่ได้`,
     );
   }

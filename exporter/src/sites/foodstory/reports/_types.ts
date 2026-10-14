@@ -37,4 +37,9 @@ export type Report = {
   readonly dataStartRowIndex?: number;
   /** คำที่ใช้ระบุแถวสรุปท้ายตาราง — ค่า default ('Total','รวม') ใช้ได้กับส่วนใหญ่ ระบุเฉพาะเมื่อต่าง */
   readonly totalRowMarkers?: readonly string[];
+  /**
+   * ชีตอื่นนอกจากชีตแรกที่ไฟล์ของรายงานนี้มีจริงและรู้แล้วว่าคืออะไร — ไม่ประกาศ = ไฟล์ที่มีชีตเกินจะล้มดัง ๆ
+   * (ส่งต่อให้ `readFoodStorySheet()` · ticket 01 ของ exporter-daily-per-day-raw)
+   */
+  readonly knownExtraSheets?: readonly string[];
 };

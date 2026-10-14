@@ -30,6 +30,7 @@ export const postMasters: Report = {
   path: 'paymaster/list.aspx',
   allowedControls: PM_ALLOWED,
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
   // วัดจริง ~55 แถว/เดือน (baseline 1,510 แถวใน 28 เดือน) — ทั้งช่วงตั้งแต่ 2024 ยังไม่ถึง 2000 แต่จะถึงในไม่กี่ปี
   chunk: { kind: 'monthly', reason: '~55 แถว/เดือน — ทั้งช่วงจะเกินเพดาน 2000 ในไม่กี่ปี' },
@@ -37,7 +38,6 @@ export const postMasters: Report = {
   dateColumn: 'Issue date',
   filterNote: 'กรองด้วยวันที่ออกบัญชี (Issue date) ทุกสถานะ — สถานะ/ยอดจ่ายเปลี่ยนภายหลัง baseline เก็บ (ADR-0002)',
   searchButton: PM_SHOW,
-  dateColumns: ['Issue date', 'Items from', 'Items to'],
   boundaryToleranceDays: 0,
   expectedColumns: [
     'Account number', 'Account name', 'Account status', 'Customer', 'Issue date', 'Segment', 'Client type', 'Source',
@@ -74,7 +74,7 @@ const PH_ALLOWED = [PH_RANGE, PH_SERVICE, PH_FIND];
  * "Post master - transaction history" — รายการที่ลงบัญชี post master กรองด้วยเวลาที่ลงรายการ (Posted) = อดีตล้วน
  *
  * ค่าตั้งต้นของหน้าคือ 14 วันล่าสุด — ตั้งทับทุกครั้ง · ตัวกรองบริการตั้งเป็น "ไม่ระบุ" แบบ explicit กันค่าตั้งต้นเปลี่ยน
- * · Date from/to (ช่วงพักของการจอง) ว่างในรายการที่ไม่ผูกการจอง · เวลาใน Posted หายใน CSV (เหลือวันที่) — ไฟล์ดิบมีครบ
+ * · Date from/to (ช่วงพักของการจอง) ว่างในรายการที่ไม่ผูกการจอง · Posted มีเวลาด้วย (ไฟล์ดิบเก็บครบ)
  */
 export const postMasterHistory: Report = {
   id: PH_ID,
@@ -82,6 +82,7 @@ export const postMasterHistory: Report = {
   path: 'paymaster/PostingHistory.aspx',
   allowedControls: PH_ALLOWED,
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
   // วัดจริง 421 แถวใน 90 วัน (~140/เดือน) — ก้อนรายเดือนห่างเพดาน 2000 มาก แต่ทั้งช่วงตั้งแต่ 2024 เกินแน่
   chunk: { kind: 'monthly', reason: '~140 แถว/เดือน — ทั้งช่วงตั้งแต่ 2024 เกินเพดาน 2000' },
@@ -89,7 +90,6 @@ export const postMasterHistory: Report = {
   dateColumn: 'Posted',
   filterNote: 'กรองด้วยเวลาที่ลงรายการ (Posted)',
   searchButton: PH_FIND,
-  dateColumns: ['Posted', 'Date from', 'Date to'],
   boundaryToleranceDays: 0,
   // คอลัมน์ที่ 12 ไม่มีชื่อ และ 'Room typ' สะกดแบบนี้ในไฟล์จริง
   expectedColumns: [

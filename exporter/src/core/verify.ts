@@ -1,5 +1,5 @@
 import { formatDMY, type DateRange } from './order.ts';
-import type { Sheet } from './xlsx.ts';
+import type { NamedSheet } from './xlsx.ts';
 
 /**
  * ชั้นตรวจ — เทียบไฟล์ที่ได้กับ "ใบสั่ง" ที่ runner ถือมาตั้งแต่ก่อนเปิดเบราว์เซอร์
@@ -22,8 +22,10 @@ export class VerifyError extends Error {
 export type ChunkVerdict = {
   readonly range: DateRange;
   readonly filePath: string;
+  /** ผลรวมแถวข้อมูลของทุกชีต */
   readonly rowCount: number;
-  readonly sheet: Sheet;
+  /** ทุกชีตของไฟล์ตามลำดับแท็บ (รวมชีตว่าง) — ไม่ใช่แค่ชีตแรก */
+  readonly sheets: readonly NamedSheet[];
   /** ช่วงวันที่ที่พบจริงในไฟล์ (จากคอลัมน์วันที่ของรายงาน) */
   readonly actualSpan: { readonly from: Date; readonly to: Date };
 };

@@ -5,7 +5,7 @@
   <text x="360" y="20" text-anchor="middle" fill="#bbb" font-size="13" font-family="Sukhumvit Set, Thonburi, Tahoma, sans-serif">Terminal (ภาพจำลอง)</text>
   <g fill="#e6e6e6" font-size="15" font-family="Sukhumvit Set, Thonburi, Tahoma, sans-serif">
     <text x="24" y="62">════════════════════════════════════</text>
-    <text x="40" y="86" font-weight="bold">ดึงรายงาน FoodStory ของเมื่อวาน</text>
+    <text x="40" y="86" font-weight="bold">ดึงรายงาน FoodStory (เมื่อวาน + วันที่ยังขาด + รายงานภาพ)</text>
     <text x="24" y="110">════════════════════════════════════</text>
     <text x="40" y="146">1. จะมีหน้าต่างเบราว์เซอร์เปิดขึ้นมา (อีเมลกับรหัสผ่านกรอกไว้ให้แล้ว)</text>
     <text x="40" y="172">2. ติ๊กช่อง "ฉันไม่ใช่โปรแกรมอัตโนมัติ" ทำตามที่ขึ้นมาจนผ่าน แล้วกดปุ่มเข้าสู่ระบบ — ภายใน 5 นาที</text>

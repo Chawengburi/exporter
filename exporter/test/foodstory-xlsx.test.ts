@@ -1,26 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { test } from 'node:test';
-import { zipSync } from 'fflate';
 import { readFoodStorySheet } from '../src/sites/foodstory/xlsx.ts';
-
-const enc = new TextEncoder();
-const tmp = mkdtempSync(path.join(tmpdir(), 'foodstory-xlsx-'));
-
-function makeXlsx(name: string, sheetXml: string): string {
-  const p = path.join(tmp, name);
-  writeFileSync(
-    p,
-    zipSync({
-      '[Content_Types].xml': enc.encode('<?xml version="1.0"?><Types/>'),
-      'xl/workbook.xml': enc.encode('<?xml version="1.0"?><workbook/>'),
-      'xl/worksheets/sheet1.xml': enc.encode(sheetXml),
-    }),
-  );
-  return p;
-}
+import { makeWorkbook, makeXlsx, sheetXml } from './_xlsx-fixture.ts';
 
 // รูปร่างจริงที่ดาวน์โหลดได้จาก salebysumdate 2026-09-23 (unzip ตรง ๆ ยืนยันแล้ว — ดู ticket 02
 // §Comments) — 17 คอลัมน์จริง แถวข้อมูลมีแค่แถว Total ที่กรอกแค่คอลัมน์ A ("Total") คอลัมน์อื่น
@@ -133,4 +114,26 @@ test('🔴 ไฟล์ที่มีแถวน้อยกว่า headerRo
     `<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>ชื่อรายงาน</t></is></c></row></sheetData></worksheet>`,
   );
   assert.throws(() => readFoodStorySheet(p, { headerRowIndex: 1 }), /คาดว่า header อยู่ที่แถว 1/);
+});
+
+test('🔴 outputtax มีชีต "Full Tax Invoice" ต่อท้าย — ประกาศไว้แล้วอ่านชีตแรกเป็นข้อมูล ไม่ล้ม', () => {
+  // ไฟล์จริงของ outputtax (ทุกรอบที่มีในคลัง 2026-10-13) มี 2 ชีต: "Output Tax" กับ "Full Tax Invoice" ที่หัวตารางตรงกับ
+  // รายงาน fulltaxinvoice — ชีตที่สองเป็นตารางของรายงานอื่นที่ดึงแยกอยู่แล้ว จึงประกาศไว้ในนิยามว่ารู้จัก
+  const p = makeWorkbook('outputtax-two-tabs.xlsx', [
+    { name: 'Output Tax', file: 'sheet1.xml', xml: sheetXml([['รายงานภาษีขาย'], ['เลขที่', 'ยอด'], ['1', '100'], ['รวม', '100']]) },
+    { name: 'Full Tax Invoice', file: 'sheet2.xml', xml: sheetXml([['รายงานใบกำกับเต็มรูป'], ['เลขที่', 'ยอด'], ['รวม', '0']]) },
+  ]);
+
+  const sheet = readFoodStorySheet(p, { headerRowIndex: 1, knownExtraSheets: ['Full Tax Invoice'] });
+
+  assert.deepEqual([...sheet.header], ['เลขที่', 'ยอด']);
+  assert.deepEqual(sheet.rows.map((r) => [...r]), [['1', '100']]);
+});
+
+test('🔴 ชีตที่ไม่ได้ประกาศไว้ในนิยาม — ล้มพร้อมบอกชื่อชีต ไม่ทิ้งเงียบ ๆ', () => {
+  const p = makeWorkbook('unknown-tab.xlsx', [
+    { name: 'Output Tax', file: 'sheet1.xml', xml: sheetXml([['t'], ['เลขที่'], ['1']]) },
+    { name: 'Something New', file: 'sheet2.xml', xml: sheetXml([['x'], ['y']]) },
+  ]);
+  assert.throws(() => readFoodStorySheet(p, { headerRowIndex: 1 }), /Something New/);
 });

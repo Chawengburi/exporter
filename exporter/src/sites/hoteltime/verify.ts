@@ -1,6 +1,6 @@
 import { ROW_CAP, formatDMY, type DateRange } from '../../core/order.ts';
 import { VerifyError, type ChunkVerdict } from '../../core/verify.ts';
-import { parseCellDate, readSheet, requireColumn } from '../../core/xlsx.ts';
+import { parseCellDate, readSheets, requireColumn, type Sheet } from '../../core/xlsx.ts';
 import type { Report } from './reports/_types.ts';
 
 /**
@@ -25,24 +25,44 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
+/**
+ * หัวตารางตรงกับนิยามไหม — รายงานที่คอลัมน์ท้ายเปลี่ยนตามข้อมูล (`trailingColumns`) ตรวจคอลัมน์นำ และต้องมีคอลัมน์ท้ายอย่างน้อยหนึ่งคอลัมน์
+ * (ตารางที่มีแค่คอลัมน์นำไม่ใช่รายงานที่ตั้งใจ — กันหน้าอื่นที่บังเอิญขึ้นต้นเหมือนกันผ่านด่าน)
+ */
+function headerMatches(header: readonly string[], report: Report): boolean {
+  const n = report.expectedColumns.length;
+  return report.trailingColumns === 'data-driven'
+    ? header.length > n && sameList(header.slice(0, n), report.expectedColumns)
+    : sameList(header, report.expectedColumns);
+}
+
 export function verifyChunk(
   report: Report,
   range: DateRange,
   filePath: string,
   reportedRowCount: number | null,
 ): ChunkVerdict {
-  const sheet = readSheet(filePath); // โยน XlsxError เองพร้อมข้อความที่ใช้ได้
+  // ทุกชีต ไม่ใช่แค่ชีตแรก (ticket 01 ของ exporter-daily-per-day-raw) — บางรายงานแตกหนึ่งชีตต่อกลุ่ม เช่น
+  // occupancy-by-nationality-stay-reason · ชีตที่ไม่มีแถวเลยไม่ต้องมีหัวตาราง แต่ทั้งไฟล์ต้องมีอย่างน้อยหนึ่งชีตที่มีแถว
+  const sheets = readSheets(filePath); // โยน XlsxError เองพร้อมข้อความที่ใช้ได้
+  const sheetsWithRows = sheets.filter((s) => s.header.length > 0);
+  if (sheetsWithRows.length === 0) throw new VerifyError(`ไม่พบแถวใดเลยในชีต: ${filePath}`);
 
-  // 1) หัวตารางต้องตรงเป๊ะ — ต่างเมื่อไหร่แปลว่ารายงานเปลี่ยน ต้องสำรวจใหม่ก่อนเชื่อข้อมูล
-  if (!sameList(sheet.header, report.expectedColumns)) {
-    throw new VerifyError(
-      `หัวตารางไม่ตรงกับที่บันทึกไว้สำหรับรายงาน "${report.id}"\n` +
-        `  คาดหวัง (${report.expectedColumns.length}): ${report.expectedColumns.join(' | ')}\n` +
-        `  ได้จริง  (${sheet.header.length}): ${sheet.header.join(' | ')}\n` +
-        `  รายงานน่าจะถูกแก้ที่ฝั่ง HotelTime — ต้องสำรวจใหม่และอัปเดต expectedColumns ก่อนใช้ข้อมูลนี้`,
-    );
+  // 1) หัวตารางต้องตรงเป๊ะทุกชีต — ต่างเมื่อไหร่แปลว่ารายงานเปลี่ยน ต้องสำรวจใหม่ก่อนเชื่อข้อมูล
+  for (const s of sheetsWithRows) {
+    if (!headerMatches(s.header, report)) {
+      throw new VerifyError(
+        `หัวตารางไม่ตรงกับที่บันทึกไว้สำหรับรายงาน "${report.id}"` +
+          (sheets.length > 1 ? ` (ชีต "${s.name}")` : '') +
+          `\n  คาดหวัง (${report.expectedColumns.length}): ${report.expectedColumns.join(' | ')}\n` +
+          `  ได้จริง  (${s.header.length}): ${s.header.join(' | ')}\n` +
+          `  รายงานน่าจะถูกแก้ที่ฝั่ง HotelTime — ต้องสำรวจใหม่และอัปเดต expectedColumns ก่อนใช้ข้อมูลนี้`,
+      );
+    }
   }
 
+  // หัวตารางเท่ากันทุกชีตแล้ว ตำแหน่งคอลัมน์จึงใช้ร่วมกันได้ — ด่านที่เหลือตรวจแถวของทุกชีตรวมกัน
+  const sheet: Sheet = { header: sheetsWithRows[0]!.header, rows: sheetsWithRows.flatMap((s) => s.rows) };
   const rowCount = sheet.rows.length;
 
   // 2) รายงานว่างคือความล้มเหลว ไม่ใช่ผลลัพธ์
@@ -76,7 +96,7 @@ export function verifyChunk(
   // (ห้องว่างไม่มีแขก ช่อง Arrival/Departure จึงว่าง) ไม่ใช่แค่ "ไม่ตรงช่วง" — actualSpan ใช้
   // ช่วงที่สั่งตรง ๆ แทน (ซื่อสัตย์กว่าเดาว่า "ตรวจแล้ว")
   if (report.skipDateCoverageCheck) {
-    return { range, filePath, rowCount, sheet, actualSpan: { from: range.from, to: range.to } };
+    return { range, filePath, rowCount, sheets, actualSpan: { from: range.from, to: range.to } };
   }
 
   // 5ข) รายงานแบบช่วงพักที่คร่อมช่วงที่ขอ — แต่ละแถวต้องแตะช่วงที่สั่ง (ไม่ใช่อยู่ในช่วงพอดี)
@@ -84,7 +104,7 @@ export function verifyChunk(
     const fromIdx = requireColumn(sheet, report.overlapColumns.from);
     const toIdx = requireColumn(sheet, report.overlapColumns.to);
     const pairs = sheet.rows.map((r) => [r[fromIdx] ?? '', r[toIdx] ?? ''] as const);
-    return { range, filePath, rowCount, sheet, actualSpan: checkOverlapCoverage(pairs, range, report.overlapColumns) };
+    return { range, filePath, rowCount, sheets, actualSpan: checkOverlapCoverage(pairs, range, report.overlapColumns) };
   }
 
   // 5) ช่วงวันที่ในไฟล์ต้องอยู่ในก้อนที่สั่ง — ด่านนี้คือตัวที่จับเพดาน 2000 ได้ตอนแรก
@@ -120,7 +140,7 @@ export function verifyChunk(
     );
   }
 
-  return { range, filePath, rowCount, sheet, actualSpan: { from, to } };
+  return { range, filePath, rowCount, sheets, actualSpan: { from, to } };
 }
 
 /**

@@ -26,8 +26,9 @@ cd ~/chawengburi-exporter
 bash deploy/ubuntu/install.sh
 ```
 
-สคริปต์ติดตั้ง package + Chromium, ถามรหัสผ่าน HotelTime/FoodStory แล้วเขียน `exporter/.env`, สุ่มรหัสฐานข้อมูล Windmill,
-วางไอคอน "ดึง FoodStory เมื่อวาน" บน Desktop, เปิดและตั้งค่า Windmill และลองล็อกอิน HotelTime · รันซ้ำได้เสมอ (ไม่แตะ `.env` ที่มีแล้ว)
+สคริปต์ติดตั้ง package + Chromium, ถามรหัสผ่าน HotelTime/FoodStory แล้วเขียน `exporter/.env`, ตั้งวันเริ่มใช้งานเป็นวันที่ติดตั้ง และถาม
+URL ของ Discord webhook (ข้ามได้), สุ่มรหัสฐานข้อมูล Windmill, วางไอคอน "ดึง FoodStory เมื่อวาน" บน Desktop, เปิดและตั้งค่า Windmill และลอง
+ล็อกอิน HotelTime · รันซ้ำได้เสมอ (ไม่แตะค่าที่มีแล้วใน `.env` — เติมแค่ที่ยังไม่มี)
 
 **คู่มือผู้ดูแลระบบ (ติดตั้ง งานประจำ เช็คสถานะ แก้ปัญหา อัปเดต): [`docs/UBUNTU-ADMIN-GUIDE.md`](docs/UBUNTU-ADMIN-GUIDE.md)**
 

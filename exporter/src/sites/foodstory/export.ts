@@ -20,6 +20,7 @@ import {
 } from './interactions.ts';
 import { verifyRowCount } from './verify.ts';
 import { readFoodStorySheet } from './xlsx.ts';
+import { XlsxError, readSheetNames } from '../../core/xlsx.ts';
 import { isTransientOnSamePage, withBrowserRetry, type Attempted } from '../../core/retry.ts';
 import { dailyFolder, latestPointer, foodstoryFileName, monthlyFolder, monthlyRoot } from '../../core/placement.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type StoreKind } from '../../core/run-record.ts';
@@ -38,6 +39,7 @@ import {
   triggerReservationExcelDownloadAndCapture,
 } from './reservation-report.ts';
 import { REPORTS } from './reports/index.ts';
+import { runFoodStoryDaily } from './daily.ts';
 import { FOODSTORY_ROW_CAP } from './reports/salebybilldetail.ts';
 import type { Report } from './reports/_types.ts';
 
@@ -45,9 +47,9 @@ import type { Report } from './reports/_types.ts';
  * runner การรันจริงของ FoodStory (ticket 12) — ต่างจาก HotelTime (`hoteltime/export.ts`) ใน
  * โครงสร้างพื้นฐานเพราะโมเดลของเว็บต่างกันจริง:
  *
- * 1. **รายเดือน + รายวันแบบเมื่อวานวันเดียว ไม่มี baseline** — สเปกต้นทาง §9 สั่งรอบรายเดือน (preset "เดือนที่แล้ว");
- *    ADR-0006 (ticket 10) เพิ่ม `--daily` = เมื่อวาน ไม่ใช่ "รอบรายวันเหลื่อมกัน" แบบ HotelTime · รอบรายเดือนทำหน้าที่เก็บการแก้
- *    ย้อนหลังแทน baseline
+ * 1. **รายเดือน + รายวัน ไม่มี baseline** — สเปกต้นทาง §9 สั่งรอบรายเดือน (preset "เดือนที่แล้ว") · รอบรายเดือนทำหน้าที่เก็บการแก้
+ *    ย้อนหลังแทน baseline · `--daily` ส่งต่อให้ `daily.ts` (โมเดลใหม่ ใบ 06) — ทาง `daily` ที่เหลือในไฟล์นี้ (`foodstoryWindow`, ส่วน
+ *    รายวันของ `runFoodStoryExport`) เป็นของโมเดลเก่า ไม่ถูกเรียกแล้ว รอถอดออก
  * 2. **ช่วงวันที่เป็น session-level ไม่ใช่ per-report** — ตั้งครั้งเดียวก่อนวนลูป (ดู
  *    `reports/_types.ts`) ไม่ใช่ทุกรายงานประกาศ `applyFilters` ของตัวเอง
  * 3. **ไม่ต้องรวมไฟล์เป็น CSV รายปี** — แต่ละไฟล์ที่ดาวน์โหลดมาคือหนึ่งเดือนเต็มอยู่แล้ว (ไม่มี
@@ -97,6 +99,22 @@ export function toReportOutcomes(
   });
 }
 
+/**
+ * เติมชื่อชีตของไฟล์ xlsx ให้ผลรายใบ (manifest ต้องบอกได้ว่าไฟล์มีกี่ชีต — ticket 01 ของ exporter-daily-per-day-raw) · รายงานที่ผ่าครึ่ง
+ * รวมชื่อจากทุกส่วน · ไฟล์ที่ตัวอ่านเปิดไม่ได้ (เช่น reservation-report ที่ยังไม่มีนิยามหัวตาราง) ไม่ทำให้ทั้งรอบล้ม แต่พิมพ์เตือนและไม่ใส่ `sheets`
+ */
+function withSheetNames(r: FoodStoryReportResult): FoodStoryReportResult {
+  const xlsx = r.files.filter((f) => f.endsWith('.xlsx'));
+  if (xlsx.length === 0) return r;
+  try {
+    return { ...r, sheets: [...new Set(xlsx.flatMap((f) => readSheetNames(f)))] };
+  } catch (err) {
+    if (!(err instanceof XlsxError)) throw err;
+    console.warn(`⚠ อ่านชื่อชีตของ "${r.id}" ไม่ได้ — manifest จะไม่มี sheets ของรายงานนี้: ${err.message.split('\n')[0]}`);
+    return r;
+  }
+}
+
 export type FoodStoryReportStatus = 'ok' | 'empty' | 'split' | 'truncated' | 'failed';
 
 export type FoodStoryExportOptions = {
@@ -107,7 +125,7 @@ export type FoodStoryExportOptions = {
   readonly headful: boolean;
   readonly slowMoMs: number | undefined;
   readonly json: boolean;
-  /** รอบรายวัน = เมื่อวานวันเดียว (ticket 10, ADR-0006) — ใช้คู่กับ from/to ไม่ได้ (CLI กันไว้) */
+  /** รอบรายวันตามโมเดลใหม่ (daily.ts, ใบ 06) — ใช้คู่กับ from/to ไม่ได้ (CLI กันไว้) */
   readonly daily: boolean;
 };
 
@@ -120,6 +138,8 @@ export type FoodStoryReportResult = {
   readonly rowCountReported: number | null;
   readonly rowsExported: number | null;
   readonly files: readonly string[];
+  /** ชื่อทุกชีตของไฟล์ xlsx ของรายงานนี้ตามลำดับแท็บ (รวมทุกส่วนของรายงานที่ผ่าครึ่ง) · ไม่มี = ไม่มีไฟล์ xlsx หรืออ่านชื่อชีตไม่ได้ (มีคำเตือนตอนรัน) */
+  readonly sheets?: readonly string[];
   readonly note: string | null;
   /** จำนวนครั้งที่ลอง (core/retry.ts) — ไม่มี = 1 (ใบที่ไม่ได้ผ่านนโยบายลองใหม่) */
   readonly attempts?: number;
@@ -194,7 +214,7 @@ export function periodLabel(range: DateRange): string {
 export type FoodStoryWindow = { readonly kind: Extract<StoreKind, 'daily' | 'monthly'>; readonly range: DateRange; readonly label: string };
 
 /**
- * ช่วงข้อมูลของรอบ — `daily` = **เมื่อวาน** (เวลาไทย) วันเดียว: วันที่ปิดยอดแล้ว ไม่ได้ยอดครึ่งวัน และยังถูกถ้าย้ายไปรันตอน
+ * ช่วงข้อมูลของรอบ — `daily` (โมเดลเก่า ไม่ถูกเรียกแล้ว — ดูหัวไฟล์) = **เมื่อวาน** (เวลาไทย) วันเดียว: วันที่ปิดยอดแล้ว ไม่ได้ยอดครึ่งวัน และยังถูกถ้าย้ายไปรันตอน
  * เที่ยงคืน (ADR-0006, ticket 10) · ไม่ไล่เก็บวันที่พลาด — รอบรายเดือนครอบคลุมให้ · ไม่ใช่ daily: `from`/`to` ที่ขอ หรือ
  * เดือนที่แล้วเต็มเดือน · `today` = วันนี้ตามเวลาไทย (`thaiToday()`)
  */
@@ -301,11 +321,7 @@ async function exportAndVerifyRows(
     const filePath = await triggerExportAndCaptureDownload(
       page, report.allowedControls, report.id, report.exportButtonText, downloadDir, destFileName,
     );
-    const sheet = readFoodStorySheet(filePath, {
-      headerRowIndex: report.headerRowIndex,
-      dataStartRowIndex: report.dataStartRowIndex,
-      totalRowMarkers: report.totalRowMarkers,
-    });
+    const sheet = readFoodStorySheet(filePath, report);
     try {
       verifyRowCount(sheet, expected);
       return { filePath, rows: sheet.rows.length };
@@ -399,7 +415,7 @@ async function previousOutputOf(outDir: string, period: string, group: string, r
  * ตั้งช่วงวันที่ระดับ session ผ่านหน้า `salebysumdate` — หน้าเบาที่พิสูจน์แล้วว่าตั้งได้เสมอ ใช้ทั้งตอน
  * เริ่มรอบ, ตอนคืนช่วงหลักหลังแบ่งช่วง และตอนเจอว่า session เพี้ยนก่อนเริ่มรายงาน
  */
-async function resetSessionDateRange(page: Page, cfg: Config, range: DateRange): Promise<void> {
+export async function resetSessionDateRange(page: Page, cfg: Config, range: DateRange): Promise<void> {
   const salebysumdate = REPORTS.find((r) => r.id === 'salebysumdate');
   if (!salebysumdate) throw new Error('ไม่เจอ salebysumdate ใน REPORTS — ใช้ตั้งช่วงวันที่ระดับ session ไม่ได้');
   await page.goto(`${cfg.baseUrl}${salebysumdate.path}`);
@@ -576,10 +592,12 @@ export async function exportReservationReport(
   range: DateRange,
   stagingDir: string,
   period: string,
+  /** false = อยู่ที่หน้าจองโต๊ะแล้ว (รอบรายวันที่เติมหลายวัน — ข้ามไป manage host ครั้งเดียว ใบ 06) */
+  navigate = true,
 ): Promise<FoodStoryReportResult> {
   const group = groupOf(RESERVATION_ID);
   const path_ = `${RESERVATION_HOST}${RESERVATION_PATH}`;
-  await navigateToReservationReport(page, cfg.baseUrl);
+  if (navigate) await navigateToReservationReport(page, cfg.baseUrl);
   await setReservationDateRange(page, range);
   const outcome = await triggerReservationExcelDownloadAndCapture(page, cfg.downloadDir, `${RESERVATION_ID}__tmp.xlsx`);
   if (outcome.status === 'empty') {
@@ -691,7 +709,7 @@ const SESSION_CLOSE_TIMEOUT_MS = 30_000;
  * output เลยสักไฟล์) — Playwright's `browser.close()` ค้างได้จริงถ้า browser process ไม่ตอบสนอง
  * ใส่ timeout กันไว้ไม่ให้กระบวนการทั้งหมดค้างตายแบบเงียบ ๆ อีก
  */
-async function closeSessionWithTimeout(session: Session): Promise<void> {
+export async function closeSessionWithTimeout(session: Session): Promise<void> {
   await Promise.race([
     session.close(),
     new Promise<void>((resolve) => setTimeout(resolve, SESSION_CLOSE_TIMEOUT_MS)),
@@ -703,6 +721,8 @@ export async function runFoodStoryExport(opts: FoodStoryExportOptions): Promise<
   // ตรงเดียวกับที่ HotelTime กัน password หลุดลง error message ไว้ — เริ่มด้วย no-op เผื่อ
   // loadCredentials() เองพังก่อนที่จะรู้ว่าอะไรต้อง redact (ตาม pattern เดียวกับ
   // hoteltime/export.ts::runExport)
+  // รอบรายวันใช้ตัววางแผน (ADR-0008/0009, ใบ 06) — เติมวันที่ขาดใน login เดียว · รอบรายเดือนคงเดิม
+  if (opts.daily) return runFoodStoryDaily(opts);
   let redact: Redactor = createRedactor([]);
   try {
     const cfg = loadConfig();
@@ -792,11 +812,7 @@ export async function runFoodStoryExport(opts: FoodStoryExportOptions): Promise<
         const result = results[results.length - 1]!;
         if ((report.id === 'salebysumdate' || report.id === 'salebymonthsum') && result.files[0]) {
           try {
-            sheetById.set(report.id, readFoodStorySheet(result.files[0], {
-              headerRowIndex: report.headerRowIndex,
-              dataStartRowIndex: report.dataStartRowIndex,
-              totalRowMarkers: report.totalRowMarkers,
-            }));
+            sheetById.set(report.id, readFoodStorySheet(result.files[0], report));
           } catch (err) {
             // อ่านไฟล์ที่ย้ายเข้าคลังแล้วไม่ได้ = ใช้ไม่ได้ ถือว่าใบนี้ล้ม (ไฟล์ยังอยู่ให้คนตรวจ)
             results[results.length - 1] = { ...result, status: 'failed', note: redactError(err, redact) };
@@ -872,7 +888,7 @@ async function finishRun(
   const merged = mergeManifest(previous, {
     period, branch: cfg.branchName, runStartedUtc: startedAt.toISOString(),
     requestedRange: { from: formatISO(range.from), to: formatISO(range.to) },
-    reports: results, crossCheck, spotCheckWarnings: [], ...(crossCheckSkipped ? { crossCheckSkipped } : {}),
+    reports: results.map(withSheetNames), crossCheck, spotCheckWarnings: [], ...(crossCheckSkipped ? { crossCheckSkipped } : {}),
   });
   const manifest: FoodStoryManifest = { ...merged, spotCheckWarnings: spotCheckCoreReports(merged.reports) };
   const { spotCheckWarnings } = manifest;

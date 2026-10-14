@@ -39,7 +39,7 @@ function localStamp(d: Date): { readonly day: string; readonly time: string } {
  * โฟลเดอร์ของรอบหนึ่ง — ที่เดียวที่ตัดสินว่าชนิดรอบไหนลงที่ไหน
  *
  *  - `daily`    → `<site>/daily/<YYYY-MM>/<YYYY-MM-DD>/` ของวันสุดท้ายที่ข้อมูลครอบคลุม
- *  - `baseline` → `<site>/baseline/<YYYY-MM-DD>/` ของวันที่รัน — ทุกใบเก็บไว้ ใบล่าสุดเป็นใบอ้างอิง (ADR-0002/0005)
+ *  - `baseline` → `<site>/baseline/<YYYY-MM-DD>/` ของวันที่รัน — ไฟล์ละวันของข้อมูล (ใบ 09) ทุกโฟลเดอร์เก็บไว้ ฉบับล่าสุดของ (รายงาน, วัน) เป็นฉบับอ้างอิง (ADR-0002/0005)
  *  - `manual`   → `<site>/backfill/<YYYY-MM-DD_HHMMSS>/` โฟลเดอร์ละรอบ ไม่ทับกันเอง
  *
  * เวลาในชื่อโฟลเดอร์เป็นเวลาไทย ให้ตรงกับนาฬิกาที่คนรันเห็น ไม่ว่าเครื่องตั้ง TZ อะไร (ticket 27)
@@ -86,20 +86,40 @@ export function foodstoryFileName(label: string, group: string, slug: string, ex
   return `${label}__${group}__${slug}.${ext}`;
 }
 
-/** `<ช่วงข้อมูล>__<id>.<ext>` — ไฟล์ที่ถูกก๊อปออกไปส่งต่อยังบอกได้เองว่าเป็นข้อมูลของวันไหน */
+/**
+ * `<ช่วงข้อมูล>__<id>.<ext>` — ไฟล์ที่ถูกก๊อปออกไปส่งต่อยังบอกได้เองว่าเป็นข้อมูลของวันไหน · วันเดียว `YYYY-MM-DD`
+ * หลายวัน `YYYY-MM-DD--YYYY-MM-DD` (ตัวคั่นช่วงที่ ISO 8601 อนุญาตแทน `/` ซึ่งใช้ในชื่อไฟล์ไม่ได้) — ชื่อบนดิสก์เป็นชื่อเดียวกับที่ส่งต่อ
+ */
 export function dataFileName(range: DateRange, reportId: string, ext: string): string {
   const from = formatISO(range.from);
   const to = formatISO(range.to);
-  const span = from === to ? from : `${from}_${to}`;
+  const span = from === to ? from : `${from}--${to}`;
   return `${span}__${reportId}.${ext}`;
+}
+
+/**
+ * รายงานภาพ: `<เวลาที่ถ่าย>__<id>.<ext>` เป็น ISO ย่อเวลาไทย `YYYYMMDDTHHMMSS+0700` — ภาพของรายงานเดียวกันหลายฉบับในวันเดียว
+ * ไม่ทับกัน · ไม่มี `:` เพราะไฟล์อาจถูกดาวน์โหลดไปเปิดบน Windows (ADR-0008)
+ */
+export function pictureFileName(takenAt: Date, reportId: string, ext: string): string {
+  return `${basicStamp(takenAt)}__${reportId}.${ext}`;
+}
+
+/**
+ * ที่ของไฟล์ที่ถูกแทน (path สัมพัทธ์จากโฟลเดอร์รอบ) — ผลใหม่ได้ชื่อเดียวกันแต่ไบต์ต่างกัน ไฟล์เดิมย้ายมาที่นี่ ขึ้นต้นด้วยเวลาที่ย้าย
+ * ไฟล์ที่ export มาจึงไม่ถูกลบหรือทับเลย (ADR-0005)
+ */
+export function supersededPath(movedAt: Date, fileName: string): string {
+  return path.join('_superseded', `${basicStamp(movedAt)}__${fileName}`);
+}
+
+/** เวลาไทยแบบ ISO ย่อ `YYYYMMDDTHHMMSS+0700` — ใช้ในชื่อไฟล์ (ไม่มี `:`) */
+function basicStamp(at: Date): string {
+  const { day, time } = localStamp(at);
+  return `${day.replaceAll('-', '')}T${time}+0700`;
 }
 
 /** ตัวชี้รอบล่าสุดของชนิดรอบหนึ่ง เช่น `data/hoteltime/daily/latest` — ปลายทางใช้แทนการไล่เรียงชื่อโฟลเดอร์ */
 export function latestPointer(root: string, site: SiteId, kind: 'daily' | 'baseline'): string {
   return path.join(kindRoot(root, site, kind), 'latest');
-}
-
-/** ไฟล์ดิบ + manifest ของรายงานหนึ่ง — ขึ้นต้นด้วย `_` ให้แยกกลุ่มจากไฟล์ที่คนเปิดใช้จริง */
-export function rawDirFor(runFolder: string, reportId: string): string {
-  return path.join(runFolder, '_raw', reportId);
 }

@@ -60,6 +60,18 @@ export function formatISO(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** `YYYY-MM-DD` → วันที่ (เที่ยงคืน UTC แบบ `utcDate`) · ไม่ใช่วันที่จริงแบบนี้ (เช่น `2026-02-30`, `14/10/2026`) = null */
+export function parseISODate(s: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(Date.parse(`${s}T00:00:00Z`));
+  return formatISO(d) === s ? d : null;
+}
+
+/** บวก/ลบวันของวันที่ ISO (`YYYY-MM-DD`) — ผู้เรียกรับประกันว่าเป็นวันที่ถูกต้องแล้ว */
+export function addDaysISO(day: string, n: number): string {
+  return formatISO(new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000));
+}
+
 /** ค่าเริ่มต้นของวันเริ่ม เมื่อไม่ได้ระบุ `--from` และไม่ได้ใช้ `--last-days` */
 export const DEFAULT_FROM_DMY = '01/01/2024';
 
@@ -107,16 +119,6 @@ export function resolveDateRange(opts: DateRangeOptions, today: Date): DateRange
 export type RunKind = 'daily' | 'baseline' | 'manual';
 
 /**
- * ค่าเผื่อขอบของ **รอบรายวัน** (จำนวนวันที่ขอย้อนหลังทุกครั้ง ไม่ใช่แค่ "เมื่อวาน")
- *
- * กว้างกว่าค่าเผื่อขอบที่ใช้ตรวจสอบ (`boundaryToleranceDays` สูงสุดที่มีวันนี้คือ 1)
- * ไว้พอสมควรเพื่อกันปัญหาเวลาเหลื่อมของรายงานที่ใช้เวลาท้องถิ่น (เช่น `reservations-cancelled`
- * ที่คอลัมน์ `Cancelled` เป็นเวลาไทยแต่ตัวกรองตัดขอบด้วย UTC) — ไม่ใช่ตัวเลขที่วัดมาละเอียด
- * แค่เผื่อไว้ไม่ให้ต้องมานั่งคำนวณเองทุกรายงาน
- */
-export const DEFAULT_DAILY_OVERLAP_DAYS = 3;
-
-/**
  * ความถี่ **baseline** เริ่มต้น (วัน) — ค่าตั้งต้นจากสเปกตอน grill-with-docs (เดือนละครั้ง)
  * 🔴 ยังไม่ได้ยืนยันด้วยข้อมูลจริง — ตัดสินใจ 2026-09-17 ให้รอวัด drift ให้ครบทั้ง 3 รายงาน
  * ก่อนฟันธง (ดู `recon/drift-measurement-2026-09-17.md`) ค่านี้จึงเป็นค่าชั่วคราว ไม่ใช่ค่าสุดท้าย
@@ -132,8 +134,6 @@ export type RunPlan = {
 
 export type RunPlanOptions = {
   readonly daily?: boolean;
-  /** ใช้ได้เฉพาะกับ daily */
-  readonly overlapDays?: number;
   readonly baseline?: boolean;
   /** ใช้ได้เฉพาะกับ baseline */
   readonly baselineIntervalDays?: number;
@@ -160,29 +160,29 @@ export function resolveRunPlan(opts: RunPlanOptions, today: Date): RunPlan {
     if (opts.baselineIntervalDays !== undefined) {
       throw new OrderError('--baseline-interval-days ใช้ได้เฉพาะกับ --baseline');
     }
-    return { kind: 'daily', range: lastDaysRange(opts.overlapDays ?? DEFAULT_DAILY_OVERLAP_DAYS, today) };
+    // วันที่จริงของรอบรายวันมาจากตัววางแผน (core/run-planner.ts, ADR-0008) — ตรงนี้ตัดสินแค่ชนิดรอบและ flag ที่ขัดกัน
+    return { kind: 'daily', range: lastDaysRange(1, today) };
   }
 
   if (opts.baseline) {
-    if (opts.from !== undefined || opts.to !== undefined || opts.lastDays !== undefined) {
-      throw new OrderError('ใช้ --baseline พร้อมกับ --from/--to/--last-days ไม่ได้');
+    // baseline ดึงวันของข้อมูลใหม่ทีละวัน (ใบ 09, ADR-0008) — วันนี้ยังไม่ครบจึงไม่อยู่ในช่วง · ไม่สั่งช่วง = `baselineIntervalDays` วันล่าสุดถึงเมื่อวาน
+    // (เจ้าของเลือก 2026-10-14 — ช่วงเดิมตั้งแต่ปี 2024 ทีละวันใช้หลายสิบชั่วโมง)
+    if (opts.lastDays !== undefined) throw new OrderError('ใช้ --baseline พร้อมกับ --last-days ไม่ได้ — ใช้ --from/--to หรือไม่ใส่ (ได้ช่วงเริ่มต้น)');
+    if ((opts.from === undefined) !== (opts.to === undefined)) {
+      throw new OrderError('--baseline ต้องใส่ทั้ง --from และ --to หรือไม่ใส่ทั้งคู่ (ได้ช่วงเริ่มต้นถึงเมื่อวาน)');
     }
-    if (opts.overlapDays !== undefined) {
-      throw new OrderError('--overlap-days ใช้ได้เฉพาะกับ --daily');
+    const intervalDays = opts.baselineIntervalDays ?? DEFAULT_BASELINE_INTERVAL_DAYS;
+    const yesterday = addDays(today, -1);
+    const range = opts.from !== undefined && opts.to !== undefined
+      ? { from: parseDMY(opts.from), to: parseDMY(opts.to) }
+      : { from: addDays(today, -intervalDays), to: yesterday };
+    if (range.to.getTime() > yesterday.getTime()) {
+      throw new OrderError(`--baseline ดึงได้ถึงเมื่อวาน (${formatDMY(yesterday)}) — วันนี้ยังไม่ครบ ได้มา --to ${formatDMY(range.to)}`);
     }
-    return {
-      kind: 'baseline',
-      // ช่วงเต็มแบบเดียวกับ back-fill เป๊ะ — เรียก resolveDateRange({}, today) ตัวเดียวกับ
-      // ที่โหมด manual ไม่ระบุ from/to ใช้อยู่แล้ว ไม่เขียนตรรกะ "ไม่มี from/to = เริ่ม
-      // DEFAULT_FROM_DMY" ซ้ำอีกชุด
-      range: resolveDateRange({}, today),
-      baselineIntervalDays: opts.baselineIntervalDays ?? DEFAULT_BASELINE_INTERVAL_DAYS,
-    };
+    if (range.from.getTime() > range.to.getTime()) throw new OrderError('--from ต้องไม่หลัง --to');
+    return { kind: 'baseline', range, baselineIntervalDays: intervalDays };
   }
 
-  if (opts.overlapDays !== undefined) {
-    throw new OrderError('--overlap-days ใช้ได้เฉพาะกับ --daily');
-  }
   if (opts.baselineIntervalDays !== undefined) {
     throw new OrderError('--baseline-interval-days ใช้ได้เฉพาะกับ --baseline');
   }
@@ -196,52 +196,23 @@ export function resolveRunPlan(opts: RunPlanOptions, today: Date): RunPlan {
 export type SkippedReport = { readonly report: string; readonly reason: string };
 
 /**
- * แบ่งรายงานของรอบ `--report all` เป็น "รัน" กับ "ข้าม" — รายงานรายวันอย่างเดียว (dailyOnly,
- * ADR-0003) รันได้แค่รอบ `--daily` รอบอื่น (back-fill, `--from`/`--to`, `--last-days`,
- * `--baseline`) ข้ามพร้อมเหตุผลแทนที่จะปล่อยให้ `resolveDailyOnlyRange` โยนแล้วนับเป็น "ล้ม"
- * (เดิม exit ไม่เป็นศูนย์ทุกครั้งที่ back-fill ทั้งที่ไม่มีอะไรผิดจริง) · สั่งรายงานรายวันใบเดียว
- * ตรง ๆ โดยไม่ใส่ `--daily` ยังโยนดัง ๆ เหมือนเดิม — ตรงนั้นผู้ใช้ขอใบนั้นเองจริง ๆ
- * flag ที่ขัดกันเองโยนจาก `resolveRunPlan` ตามเดิม ไม่กลืนเป็น "ข้าม"
+ * แบ่งรายงานของรอบ `--report all` ที่ไม่ใช่รายวัน (back-fill, `--from`/`--to`, `--last-days`, `--baseline`) เป็น "รัน" กับ "ข้าม" —
+ * รายงาน dailyOnly (ADR-0003, ตัวกรองเป็นวันเดียว) ดึงหลายวันในรอบเดียวไม่ได้ จึงข้ามพร้อมเหตุผลแทนที่จะนับเป็น "ล้ม" · รอบรายวันไม่ผ่าน
+ * ฟังก์ชันนี้ (ตัววางแผนตัดสินเอง — core/run-planner.ts)
  */
 export function partitionForRunAll<R extends { readonly id: string; readonly dailyOnly: boolean }>(
   reports: readonly R[],
-  opts: RunPlanOptions,
-  today: Date,
 ): { readonly run: R[]; readonly skipped: SkippedReport[] } {
-  const isDaily = resolveRunPlan(opts, today).kind === 'daily';
   const run: R[] = [];
   const skipped: SkippedReport[] = [];
   for (const r of reports) {
-    if (r.dailyOnly && !isDaily) {
+    if (r.dailyOnly) {
       skipped.push({ report: r.id, reason: 'รายงานรายวันอย่างเดียว (ADR-0003) — ดึงได้เฉพาะรอบ --daily ไม่มี back-fill' });
     } else {
       run.push(r);
     }
   }
   return { run, skipped };
-}
-
-/**
- * ช่วงของรายงาน **รายวันอย่างเดียว** (`Report.dailyOnly`) — วันนี้วันเดียวเสมอ ไม่มี
- * overlap/back-fill/baseline เพราะกรองด้วยวันปฏิบัติการ (เช่น วันเข้าพัก) ไม่ใช่ created date
- * ที่สะสมเป็น ledger ได้ (ดู `docs/adr/0003-daily-only-reports.md`) — รองรับแค่ `--daily`
- * เท่านั้น ปฏิเสธ flag อื่นดัง ๆ แทนที่จะเพิกเฉยเงียบ ๆ
- */
-export function resolveDailyOnlyRange(opts: RunPlanOptions, today: Date): DateRange {
-  const plan = resolveRunPlan(opts, today); // ใช้ validation เรื่อง flag ขัดแย้งกันชุดเดิม
-  if (plan.kind !== 'daily') {
-    throw new OrderError(
-      'รายงานนี้เป็นรายวันอย่างเดียว (dailyOnly) — ต้องสั่งด้วย --daily เท่านั้น ' +
-        'ไม่รองรับ --from/--to/--last-days/--baseline',
-    );
-  }
-  if (opts.overlapDays !== undefined) {
-    throw new OrderError(
-      'รายงานรายวันอย่างเดียวไม่มี concept เหลื่อมวัน (overlap) เพราะไม่ใช่ created-date ledger ' +
-        'ที่ต้องกันของตกหล่นตรงขอบ — เอา --overlap-days ออก',
-    );
-  }
-  return lastDaysRange(1, today);
 }
 
 export function lastDayOfMonth(year: number, month1: number): number {

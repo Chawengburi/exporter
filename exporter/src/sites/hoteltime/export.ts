@@ -1,28 +1,30 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
 import {
+  OrderError,
   assertContiguous,
   formatDMY,
   formatISO,
   monthChunks,
   partitionForRunAll,
-  resolveDailyOnlyRange,
   resolveRunPlan,
+  parseISODate,
   splitRange,
-  utcDate,
   type DateRange,
   type RunKind,
 } from '../../core/order.ts';
-import { toCsv } from '../../core/csv.ts';
-import { dataFileName, latestPointer, rawDirFor, runFolder } from '../../core/placement.ts';
+import { dailyFolder, dataFileName, latestPointer, pictureFileName, runFolder } from '../../core/placement.ts';
+import { publishRawFiles, recordPublished, type RawFileEntry } from '../../core/raw-manifest.ts';
 import { withBrowserRetry } from '../../core/retry.ts';
-import { thaiToday } from '../../core/thai-time.ts';
-import { exitCodeFor, readRunRecord, recordRun, selectRetryTargets, type ReportOutcome } from '../../core/run-record.ts';
+import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
+import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
+import {
+  PlanError, daysToRead, periodCloseId, planBaselineRun, planDailyRun, planDateRun, planWarnings, storeStateFrom, type WorkPlan,
+} from '../../core/run-planner.ts';
 import { createRedactor, redactError, type Redactor } from '../../core/redact.ts';
 import { verifyMerged, type ChunkVerdict } from '../../core/verify.ts';
-import { formatCellDate, parseCellDate, requireColumn } from '../../core/xlsx.ts';
 import {
   ConfigError,
   loadConfig,
@@ -37,23 +39,8 @@ import {
   clickAndSettle,
   downloadExport,
 } from './webforms.ts';
-import { REPORTS, findReport, reportIds } from './reports/index.ts';
+import { REPORTS, findReport, reportIds, toPlanned } from './reports/index.ts';
 import type { Report } from './reports/_types.ts';
-
-/**
- * รูปแบบผลลัพธ์ที่จะเก็บไว้
- *
- * ไฟล์ `.xlsx` ดิบถูกดาวน์โหลดทุกรอบอยู่แล้วเพราะชั้นตรวจต้องอ่านมัน ตัวเลือกนี้จึงคุมแค่
- * ว่าจะ **เก็บอะไรไว้** หลังตรวจเสร็จ:
- *
- *  - `raw`  = เก็บเฉพาะ .xlsx ดิบจาก HotelTime + manifest ไม่เขียน CSV
- *  - `csv`  = เขียน CSV รายปีแล้วลบไฟล์ดิบทิ้ง
- *  - `both` = เก็บทั้งคู่ (ค่าเริ่มต้น)
- *
- * 🔑 ถ้าจะใช้เป็น source of truth ให้เลือก `raw` หรือ `both` — ไฟล์ดิบคือไบต์ที่ HotelTime
- * ส่งมาโดยไม่ถูกแตะเลย ส่วน CSV ผ่านการอ่าน/รวม/แปลงวันที่ของเราแล้ว
- */
-export type OutputFormat = 'raw' | 'csv' | 'both';
 
 export type ExportOptions = {
   readonly reportId: string;
@@ -63,13 +50,11 @@ export type ExportOptions = {
   readonly lastDays: number | undefined;
   /** โหมดรอบรายวัน — ใช้คู่กับ from/to/lastDays ไม่ได้ (ดู `resolveRunPlan`) */
   readonly daily: boolean;
-  /** รอบเก็บตก — ใช้คู่กับ `daily` เท่านั้น: รันเฉพาะใบที่สถานะล่าสุดในโฟลเดอร์ของวันนี้ยังล้ม */
-  readonly retryFailed: boolean;
-  readonly overlapDays: number | undefined;
+  /** `--date YYYY-MM-DD`: ดึงวันของข้อมูลวันเดียวใหม่ (รายงานตามวันเท่านั้น) — ใช้คู่กับโหมดอื่นไม่ได้ */
+  readonly date: string | undefined;
   /** โหมด baseline — ใช้คู่กับ from/to/lastDays ไม่ได้ (ดู `resolveRunPlan`) */
   readonly baseline: boolean;
   readonly baselineIntervalDays: number | undefined;
-  readonly format: OutputFormat;
   readonly headful: boolean;
   /** หน่วงทุก action (ms) ให้คนดูทันตอน --headful · undefined = ใช้ค่าจาก .env */
   readonly slowMoMs: number | undefined;
@@ -80,8 +65,7 @@ export type ExportOptions = {
  * ค่าพิเศษของ `--report` ที่หมายถึง "ทุกรายงานในทะเบียน เรียงตามลำดับใน REPORTS"
  *
  * ไม่ใช่ id ของรายงานจริง จึงต้องเช็คก่อน `findReport()` เสมอ · แต่ละรายงานยังเปิด session
- * ของตัวเองเหมือนเดิม ไม่ได้ใช้ session ร่วมกัน เพราะการแทน `_raw/<report>/` และการเขียน
- * manifest ต่อรายงานต้องแยกกันอยู่แล้ว การรวม session จะได้ความเร็วแต่แลกกับความเสี่ยง
+ * ของตัวเองเหมือนเดิม ไม่ได้ใช้ session ร่วมกัน เพราะการแทนไฟล์ของรายงานในโฟลเดอร์รอบต้องแยกกันอยู่แล้ว การรวม session จะได้ความเร็วแต่แลกกับความเสี่ยง
  * ที่รายงานหนึ่งพาอีกสองรายงานล้มไปด้วย
  */
 export const ALL_REPORTS = 'all';
@@ -95,11 +79,8 @@ export type ExportPayload = {
   readonly totalRows: number;
   /** ช่วงวันที่ที่พบจริงในข้อมูล · null = ไม่มีแถวเลย */
   readonly actualRange: { readonly from: string; readonly to: string } | null;
-  readonly format: OutputFormat;
-  readonly rawDir: string | null;
-  readonly manifest: string | null;
-  /** `year` มีเฉพาะ CSV รายปี (baseline/back-fill) — รอบรายวันเป็นไฟล์เดียวต่อรายงาน */
-  readonly files: readonly { readonly year?: number; readonly rows: number; readonly path: string; readonly sha256: string }[];
+  /** ไฟล์ดิบที่วางในโฟลเดอร์รอบแล้ว (ADR-0007) พร้อมที่มา — รายการเดียวกับที่บันทึกใน `_manifest.json` */
+  readonly files: readonly RawFileEntry[];
 };
 
 type ChunkOutcome =
@@ -110,8 +91,14 @@ type ChunkOutcome =
       readonly sourceName: string;
       readonly sha256: string;
       readonly bytes: number;
+      /** เวลาที่ได้ไฟล์มา — เวลาที่ถ่ายของรายงานภาพ */
+      readonly fetchedAt: Date;
     }
   | { readonly kind: 'empty'; readonly range: DateRange };
+
+type DataOutcome = Extract<ChunkOutcome, { kind: 'data' }>;
+
+const isData = (o: ChunkOutcome): o is DataOutcome => o.kind === 'data';
 
 function chunkFileName(range: DateRange): string {
   return `${formatISO(range.from)}_${formatISO(range.to)}.xlsx`;
@@ -155,6 +142,7 @@ async function fetchChunk(
   // คือไฟล์เดียวกับที่ HotelTime ส่งมาจริง
   const bytes = await readFile(dest);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const fetchedAt = new Date();
 
   return {
     kind: 'data',
@@ -162,6 +150,7 @@ async function fetchChunk(
     sourceName: suggestedFilename,
     sha256,
     bytes: bytes.byteLength,
+    fetchedAt,
   };
 }
 
@@ -210,135 +199,6 @@ async function fetchAll(
   return done;
 }
 
-/** แปลงคอลัมน์วันที่ทุกตัวให้เป็น DD/MM/YYYY เหมือนกันหมด ก่อนเขียน CSV */
-function normalizeRow(row: readonly string[], dateColIdx: readonly number[]): string[] {
-  const out = [...row];
-  for (const i of dateColIdx) {
-    const v = formatCellDate(out[i] ?? '');
-    if (v !== null) out[i] = v;
-  }
-  return out;
-}
-
-/**
- * เขียน CSV ของรายงานหนึ่ง
- *
- * ชื่อไฟล์ขึ้นต้นด้วยช่วงข้อมูลจริงเสมอ (ADR-0005) · รอบรายวันได้ไฟล์เดียวต่อรายงาน เพราะครอบแค่ 1–3 วัน
- * · รอบอื่น (baseline/back-fill) ครอบหลายปีจึงแยกไฟล์ละปี ช่วงในชื่อคือส่วนของปีนั้นที่อยู่ในช่วงที่ขอ เช่น
- * `2024-01-01_2024-12-31__<id>.csv`, `2026-01-01_2026-10-07__<id>.csv`
- */
-async function writeCsv(
-  report: Report,
-  outcomes: readonly ChunkOutcome[],
-  outDir: string,
-  runKind: RunKind,
-  range: DateRange,
-): Promise<{ file: string; year?: number; rows: number; sha256: string }[]> {
-  const withData = outcomes.filter((o): o is Extract<ChunkOutcome, { kind: 'data' }> => o.kind === 'data');
-  if (withData.length === 0) {
-    // รันซ้ำในโฟลเดอร์เดิมแล้วไม่มีแถว = ผลใหม่คือ "ไม่มีข้อมูล" — ไฟล์ของรอบก่อนต้องไม่ค้างให้ขัดกับ _run.json
-    await replaceReportCsvs(outDir, report.id, []);
-    return [];
-  }
-
-  const first = withData[0]!.verdict.sheet;
-  const header = first.header;
-  const dateColIdx = report.dateColumns.map((c) => requireColumn(first, c));
-
-  const byYear = new Map<number, string[][]>();
-
-  if (report.dailyOnly || report.overlapColumns !== undefined) {
-    // รายงานแบบคร่อมช่วง (city tax, profiles): ก้อนเดือน ม.ค. มีการเข้าพักที่เริ่ม ธ.ค. ด้วย — จัดกลุ่มตามปีของวันเริ่มรายแถวจะได้ชื่อไฟล์
-    // กลับหัว (2025-01-01_2024-12-31) และยอดของ ม.ค. ไปอยู่ไฟล์ปีก่อน (code review ticket 17) จึงจัดตามปีของก้อนแทน
-    // dailyOnly (ADR-0003) มีก้อนเดียวเสมอ ครอบวันเดียว — จัดกลุ่มด้วยปีของวันที่ query ตรง ๆ
-    // ไม่ต้องพึ่งคอลัมน์วันที่รายแถวเลย เพราะบางรายงาน (เช่น Housekeeping) ไม่มีคอลัมน์ที่มีค่า
-    // ครบทุกแถว (ห้องว่างไม่มีแขก ช่อง Arrival/Departure จึงว่าง) — วันเดียวไม่มีทาง "โกหกเนื้อใน"
-    // แบบที่คอมเมนต์เดิมกังวลไว้กับก้อนที่ครอบหลายปี (RateCode ฯลฯ)
-    for (const o of withData) {
-      const year = o.verdict.range.from.getUTCFullYear();
-      const rows = byYear.get(year) ?? [];
-      for (const row of o.verdict.sheet.rows) rows.push(normalizeRow(row, dateColIdx));
-      byYear.set(year, rows);
-    }
-  } else {
-    const groupColIdx = requireColumn(first, report.dateColumn);
-
-    /**
-     * จัดกลุ่มตามปีของ "วันที่ในแถวนั้นเอง" ไม่ใช่ปีที่ก้อนเริ่ม
-     *
-     * จำเป็นเพราะรายงานที่ดึงทั้งช่วงทีเดียว (เช่น RateCode) มีก้อนเดียวที่เริ่มปี 2024
-     * แต่ข้างในมีข้อมูลถึง 2026 — ถ้าจัดกลุ่มจากช่วงของก้อน จะได้ไฟล์ชื่อ 2024
-     * ที่บรรจุข้อมูลสามปี ซึ่งชื่อไฟล์โกหกเนื้อใน
-     */
-    for (const o of [...withData].sort((a, b) => a.verdict.range.from.getTime() - b.verdict.range.from.getTime())) {
-      for (const row of o.verdict.sheet.rows) {
-        const d = parseCellDate(row[groupColIdx] ?? '');
-        if (d === null) {
-          throw new Error(
-            `แถวหนึ่งไม่มีค่าในคอลัมน์ "${report.dateColumn}" จึงจัดปีให้ไม่ได้ — ` +
-              `ชั้นตรวจควรดักไว้ตั้งแต่ verifyChunk แล้ว`,
-          );
-        }
-        const year = d.getUTCFullYear();
-        const rows = byYear.get(year) ?? [];
-        rows.push(normalizeRow(row, dateColIdx));
-        byYear.set(year, rows);
-      }
-    }
-  }
-
-  const years = [...byYear].sort((a, b) => a[0] - b[0]);
-
-  if (runKind === 'daily') {
-    const all = years.flatMap(([, rows]) => rows);
-    const content = toCsv([...header], all);
-    const [file] = await replaceReportCsvs(outDir, report.id, [{ name: dataFileName(range, report.id, 'csv'), content }]);
-    return [{ file: file!, rows: all.length, sha256: sha256Of(content) }];
-  }
-
-  const next = years.map(([year, rows]) => {
-    const span = {
-      from: new Date(Math.max(range.from.getTime(), utcDate(year, 1, 1).getTime())),
-      to: new Date(Math.min(range.to.getTime(), utcDate(year, 12, 31).getTime())),
-    };
-    return { year, rows: rows.length, name: dataFileName(span, report.id, 'csv'), content: toCsv([...header], rows) };
-  });
-  const files = await replaceReportCsvs(outDir, report.id, next);
-  return next.map((n, i) => ({ file: files[i]!, year: n.year, rows: n.rows, sha256: sha256Of(n.content) }));
-}
-
-function sha256Of(content: string): string {
-  return createHash('sha256').update(content, 'utf8').digest('hex');
-}
-
-/**
- * แทน CSV ทั้งชุดของรายงานหนึ่งในโฟลเดอร์รอบด้วยผลใหม่ (`[]` = ผลใหม่ไม่มีแถว) · คืน path ไฟล์ใหม่ตามลำดับ
- *
- * เขียนไฟล์ชั่วคราวแล้ว rename ทับ ไฟล์ของรอบก่อนจึงไม่หายถ้าเขียนไม่สำเร็จ (ADR-0005) · ค่อยลบชื่อเก่า
- * ที่ไม่อยู่ในชุดใหม่ทีหลัง — ชื่ออาจต่างกันถ้าช่วงต่างจากรอบก่อน (เช่น --overlap-days) จึงหาด้วย suffix
- * ของ id · ไฟล์ของรายงานอื่นในโฟลเดอร์เดียวกันไม่ถูกแตะ (id ไม่มี `__`)
- */
-async function replaceReportCsvs(
-  outDir: string,
-  reportId: string,
-  next: readonly { readonly name: string; readonly content: string }[],
-): Promise<string[]> {
-  // เขียน .partial ให้ครบทุกไฟล์ก่อน แล้วค่อย rename ทีเดียว — ปีที่สองเขียนไม่สำเร็จต้องไม่ทิ้งชุดที่แทน
-  // ไปครึ่งเดียว (ปีแรกเป็นของใหม่ ปีหลังเป็นของเก่า) ซึ่ง sha256 ใน _run.json จะไม่ตรงกับไฟล์จริง
-  const files = next.map((n) => path.join(outDir, n.name));
-  try {
-    for (const [i, n] of next.entries()) await writeFile(`${files[i]}.partial`, n.content, 'utf8');
-  } catch (err) {
-    for (const f of files) await rm(`${f}.partial`, { force: true });
-    throw err;
-  }
-  for (const f of files) await rename(`${f}.partial`, f);
-  const keep = new Set(next.map((n) => n.name));
-  for (const name of await readdir(outDir)) {
-    if (name.endsWith(`__${reportId}.csv`) && !keep.has(name)) await rm(path.join(outDir, name));
-  }
-  return files;
-}
 
 /**
  * รายงานที่ตัวกรองไม่ใช่ created date ตรง ๆ — คำอธิบายไว้ที่เดียว ไม่ต้องไล่หาความหมายจาก id
@@ -356,58 +216,115 @@ function filterNoteFor(report: Report): string {
   return NON_CREATED_DATE_FILTER_NOTES[report.id] ?? 'กรองด้วย created date';
 }
 
+/** ช่วงวันของข้อมูลของไฟล์หนึ่ง — รายงานภาพรวมที่ค้นช่วงอื่น (`dataWindow`) ใช้ช่วงข้อมูลจริง ไม่ใช่วันที่ค้น */
+function dataRangeOf(report: Report, chunk: DateRange): DateRange {
+  return report.dataWindow ? report.dataWindow(chunk.from) : chunk;
+}
+
 /**
- * เขียนไฟล์กำกับที่มาไว้ข้าง ๆ ไฟล์ดิบ
- *
- * ทำให้ไฟล์ดิบใช้เป็น source of truth ได้จริง เพราะตอบได้ว่าแต่ละไฟล์มาจากหน้าไหน
- * กรองด้วยช่วงอะไร ดึงเมื่อไหร่ ได้กี่แถว และไบต์ยังเหมือนตอนดาวน์โหลดไหม (sha256)
+ * ชื่อไฟล์ ISO ของไฟล์ดิบหนึ่งไฟล์ — รายงานภาพใช้เวลาที่ถ่าย รายงานตามวันใช้ช่วงวันของข้อมูล (ADR-0008) · **ภาพปิดงวด** ใช้ช่วงของงวด
+ * (`2026-09-01--2026-09-30__<id>.xlsx`) — ไม่ชนกับภาพปกติในโฟลเดอร์เดียวกันซึ่งใช้เวลาที่ถ่าย
  */
-async function writeManifest(
-  report: Report,
-  cfg: Config,
-  requested: DateRange,
-  outcomes: readonly ChunkOutcome[],
-  rawDir: string,
-  runKind: RunKind,
-  baselineIntervalDays: number | undefined,
-): Promise<string> {
-  const manifest = {
+function rawFileName(report: Report, o: DataOutcome, periodClose: boolean): string {
+  return report.family === 'picture' && !periodClose
+    ? pictureFileName(o.fetchedAt, report.id, 'xlsx')
+    : dataFileName(dataRangeOf(report, o.verdict.range), report.id, 'xlsx');
+}
+
+/**
+ * ช่วงวันที่ที่พบจริงในไฟล์ (รวมทุกก้อนที่ให้มา) · null = ไม่มีแถว หรือรายงานที่ข้ามด่านวันที่ (actualSpan = ช่วงที่สั่ง ไม่ใช่ที่วัดได้
+ * — อย่าบันทึกว่าเป็นช่วงที่พบจริง)
+ */
+function measuredRange(report: Report, verdicts: readonly ChunkVerdict[]): { from: string; to: string } | null {
+  if (verdicts.length === 0 || report.skipDateCoverageCheck) return null;
+  return {
+    from: formatISO(new Date(verdicts.reduce((a, v) => Math.min(a, v.actualSpan.from.getTime()), Infinity))),
+    to: formatISO(new Date(verdicts.reduce((a, v) => Math.max(a, v.actualSpan.to.getTime()), -Infinity))),
+  };
+}
+
+/**
+ * รายการ `_manifest.json` ของไฟล์ดิบแต่ละไฟล์ — ทำให้ไฟล์ดิบใช้เป็น source of truth ได้จริง เพราะตอบได้ว่ามาจากหน้าไหน กรองด้วยแกนวันที่อะไร
+ * ครอบวันไหน ได้เมื่อไหร่ กี่แถว กี่ชีต และไบต์ยังเหมือนตอนดาวน์โหลดไหม (sha256)
+ */
+function manifestEntryFor(report: Report, cfg: Config, o: DataOutcome, job: ReportJob): RawFileEntry {
+  const { runKind, baselineIntervalDays, periodClose } = job;
+  const range = dataRangeOf(report, o.verdict.range);
+  return {
+    file: rawFileName(report, o, periodClose),
+    site: 'hoteltime',
     report: report.id,
     label: report.label,
+    family: report.family,
+    runKind,
+    range: { from: formatISO(range.from), to: formatISO(range.to) },
+    actualRange: measuredRange(report, [o.verdict]),
+    takenAt: thaiIsoString(o.fetchedAt),
+    rows: o.verdict.rowCount,
+    sheets: o.verdict.sheets.map((sh) => sh.name),
+    bytes: o.bytes,
+    sha256: o.sha256,
     source: new URL(report.path, `${cfg.baseUrl}/pms/`).toString(),
+    sourceName: o.sourceName,
     filterColumn: report.dateColumn,
     filterNote: filterNoteFor(report),
-    // 🔴 ปลายทาง (เช่น uploader) ใช้ค่านี้ตัดสินว่าไฟล์ไหนแทนที่ไฟล์ไหน โดยไม่ต้องรู้จัก
-    // ตัวตนของแถวเลย — baseline ใบใหม่แทนที่ใบเก่าในระดับไฟล์ (ดู ADR-0002)
-    runKind,
     ...(baselineIntervalDays !== undefined ? { baselineIntervalDays } : {}),
-    requested: { from: formatISO(requested.from), to: formatISO(requested.to) },
-    fetchedAt: new Date().toISOString(),
-    chunkStrategy: report.chunk.kind,
-    chunkReason: report.chunk.reason,
-    totalRows: outcomes.reduce((n, o) => n + (o.kind === 'data' ? o.verdict.rowCount : 0), 0),
-    files: outcomes
-      .filter((o): o is Extract<ChunkOutcome, { kind: 'data' }> => o.kind === 'data')
-      .map((o) => ({
-        file: path.basename(o.verdict.filePath),
-        from: formatISO(o.verdict.range.from),
-        to: formatISO(o.verdict.range.to),
-        rows: o.verdict.rowCount,
-        actualFrom: formatISO(o.verdict.actualSpan.from),
-        actualTo: formatISO(o.verdict.actualSpan.to),
-        sourceName: o.sourceName,
-        bytes: o.bytes,
-        sha256: o.sha256,
-      })),
-    emptyRanges: outcomes
-      .filter((o): o is Extract<ChunkOutcome, { kind: 'empty' }> => o.kind === 'empty')
-      .map((o) => ({ from: formatISO(o.range.from), to: formatISO(o.range.to) })),
+    ...(periodClose ? { periodClose: true } : {}),
   };
-
-  const file = path.join(rawDir, 'manifest.json');
-  await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  return file;
 }
+
+/** งานของรายงานหนึ่งในรอบนี้ — ช่วงที่ขอและชนิดรอบ ตัดสินโดยผู้เรียก (ตัววางแผนของรอบรายวัน หรือ flag ของรอบอื่น) */
+type ReportJob = {
+  readonly range: DateRange;
+  readonly runKind: RunKind;
+  readonly baselineIntervalDays: number | undefined;
+  /** ภาพปิดงวด (ใบ 05): ชื่อไฟล์เป็นช่วงของงวด และบันทึกผลด้วย id `<รายงาน>@period-close` */
+  readonly periodClose: boolean;
+  /** id ที่บันทึกใน `_run.json` แทน id ของรายงาน — baseline (ใบ 09) มีหลายวันของรายงานเดียวในโฟลเดอร์เดียว: `<รายงาน>@<วันของข้อมูล>` */
+  readonly recordId?: string;
+};
+
+/**
+ * งานของ back-fill (`--from`/`--to`, `--last-days` — baseline แยกไปที่ `runBaseline`) · รายงาน dailyOnly (ADR-0003) ดึงหลายวันในรอบเดียวไม่ได้
+ * — สั่งตรง ๆ โดยไม่ใส่ `--daily` ล้มดัง ๆ (`--report all` ข้ามให้ก่อนถึงตรงนี้แล้ว ดู `partitionForRunAll`)
+ */
+function nonDailyJob(report: Report, opts: ExportOptions): ReportJob {
+  if (report.dailyOnly) {
+    throw new ConfigError(
+      `"${report.id}" ดึงได้เฉพาะรอบรายวัน (dailyOnly — ตัวกรองเป็นวันเดียว) — สั่งด้วย --daily ไม่รองรับ --from/--to/--last-days`,
+    );
+  }
+  const plan = resolveRunPlan(opts, thaiToday());
+  return { range: plan.range, runKind: plan.kind, baselineIntervalDays: undefined, periodClose: false };
+}
+
+/** id ที่บันทึกผลใน `_run.json` — ภาพปิดงวดแยกจากภาพปกติของรายงานเดียวกัน (`<รายงาน>@period-close`) */
+function recordIdOf(report: Report, job: ReportJob): string {
+  return job.recordId ?? (job.periodClose ? periodCloseId(report.id) : report.id);
+}
+
+/** งานวันเดียว (วันของข้อมูล / วันสุดท้ายของงวด) — รอบรายวันและ baseline ขอ Site ทีละวันเหมือนกัน */
+function oneDayJob(date: Date, runKind: RunKind, extra: { readonly baselineIntervalDays?: number; readonly periodClose?: boolean } = {}): () => ReportJob {
+  return () => ({ range: { from: date, to: date }, runKind, baselineIntervalDays: extra.baselineIntervalDays, periodClose: extra.periodClose ?? false });
+}
+
+/** ของที่ทุกรายงานในรอบใช้ร่วมกัน */
+type RunContext = {
+  readonly opts: ExportOptions;
+  readonly cfg: Config;
+  readonly creds: Credentials;
+  readonly redact: Redactor;
+};
+
+const REPORT_BY_ID: ReadonlyMap<string, Report> = new Map(REPORTS.map((r) => [r.id, r]));
+
+/** โหลดบัญชีตอนจะเปิดเบราว์เซอร์จริงเท่านั้น (ไม่มีงาน = ไม่แตะ credential) พร้อมตัว redact ของบัญชีนั้น */
+function runContext(opts: ExportOptions, cfg: Config): RunContext {
+  const creds = loadCredentials();
+  return { opts, cfg, creds, redact: createRedactor([creds.password, creds.username]) };
+}
+
+
 
 /**
  * ดึงหนึ่งรายงานให้จบ
@@ -416,53 +333,25 @@ async function writeManifest(
  * ให้ผู้เรียกไปประกอบ เพราะโหมด `--report all` ต้องรวมหลายรายงานเป็นก้อน JSON เดียว
  * ถ้าล้มก็โยน error ออกไปตรง ๆ ผู้เรียกเป็นคนถือ redactor และเป็นคนตัดสินว่าจะหยุดหรือไปต่อ
  */
-async function exportOne(
-  opts: ExportOptions,
-  cfg: Config,
-  creds: Credentials,
-  report: Report,
-  redact: Redactor,
-  outDir: string,
-): Promise<ExportPayload> {
-  const runOpts = {
-    daily: opts.daily,
-    overlapDays: opts.overlapDays,
-    baseline: opts.baseline,
-    baselineIntervalDays: opts.baselineIntervalDays,
-    from: opts.from,
-    to: opts.to,
-    lastDays: opts.lastDays,
-  };
-
-  // รายงาน dailyOnly (ADR-0003) ไม่ผ่าน resolveRunPlan() ตามปกติ — วันนี้วันเดียวเสมอ
-  // ไม่มี overlap/back-fill/baseline เพราะกรองด้วยวันปฏิบัติการ ไม่ใช่ created date
-  let range: DateRange;
-  let runKind: RunKind;
-  let baselineIntervalDays: number | undefined;
-  if (report.dailyOnly) {
-    range = resolveDailyOnlyRange(runOpts, thaiToday());
-    runKind = 'daily';
-    baselineIntervalDays = undefined;
-  } else {
-    const plan = resolveRunPlan(runOpts, thaiToday());
-    range = plan.range;
-    runKind = plan.kind;
-    baselineIntervalDays = plan.baselineIntervalDays;
-  }
+async function exportOne(ctx: RunContext, report: Report, outDir: string, job: ReportJob): Promise<ExportPayload> {
+  const { opts, cfg, creds, redact } = ctx;
+  const { range, runKind, baselineIntervalDays } = job;
 
   // รายงานภาพรวมที่ค้นช่วงอื่น (ticket 26): ชื่อไฟล์และช่วงใน _run.json เป็นช่วงข้อมูลจริง ไม่ใช่วันที่ดึง
-  const dataRange = report.dataWindow ? report.dataWindow(range.from) : range;
+  const dataRange = dataRangeOf(report, range);
   const chunks = report.chunk.kind === 'monthly' ? monthChunks(range) : [range];
   assertContiguous(chunks, range);
 
-  // ล้างของรอบก่อนทิ้งก่อนเสมอ — ไม่งั้นไฟล์ค้างจากรอบที่ล้มกลางทางจะปนกับรอบนี้
-  // แล้ว manifest กับไฟล์ในโฟลเดอร์จะไม่ตรงกัน
-  const rawDir = rawDirFor(outDir, report.id);
-  // ดึงลงที่พักข้าง ๆ ก่อน แล้วค่อยสลับแทนของรอบก่อนเมื่อผ่านทุกด่าน — รันซ้ำแล้วล้มกลางทางต้องไม่ทำให้
+  // ดึงลงที่พักในโฟลเดอร์รอบก่อน แล้วค่อยวางแทนของรอบก่อนเมื่อผ่านทุกด่าน — รันซ้ำแล้วล้มกลางทางต้องไม่ทำให้
   // ไฟล์ดิบที่ดีของรอบก่อนหายไป (ADR-0005) · ที่พักของรอบที่ตายกลางทางถูกล้างตรงนี้ก่อนเริ่มเสมอ
-  const stagingRaw = `${rawDir}.partial`;
-  await rm(stagingRaw, { recursive: true, force: true });
-  await mkdir(stagingRaw, { recursive: true });
+  const stagingRoot = path.join(outDir, '_staging');
+  const staging = path.join(stagingRoot, report.id);
+  await rm(staging, { recursive: true, force: true });
+  await mkdir(staging, { recursive: true });
+  const dropStaging = async () => {
+    await rm(staging, { recursive: true, force: true });
+    await rmdir(stagingRoot).catch(() => undefined); // ลบเฉพาะเมื่อว่างแล้ว
+  };
 
   const log = (l: string) => {
     if (!opts.json) console.log(l);
@@ -475,10 +364,6 @@ async function exportOne(
       `${chalk.dim('แบ่งก้อน')}  ${report.chunk.kind === 'monthly' ? `รายเดือน ${chunks.length} ก้อน` : 'ทั้งช่วงทีเดียว'}`,
     );
     console.log(chalk.dim(`          เหตุผล: ${report.chunk.reason}`));
-    console.log(`${chalk.dim('เก็บผลเป็น')} ${
-      opts.format === 'raw' ? '.xlsx ดิบ + manifest (ไม่เขียน CSV)'
-      : opts.format === 'csv' ? 'CSV รายปี (ลบไฟล์ดิบทิ้ง)'
-      : 'ทั้ง .xlsx ดิบ + manifest และ CSV รายปี'}`);
     console.log();
   }
 
@@ -490,9 +375,9 @@ async function exportOne(
   let outcomes: ChunkOutcome[];
   try {
     await login(session, cfg, creds, redact);
-    outcomes = await fetchAll(session, cfg, report, chunks, stagingRaw, log);
+    outcomes = await fetchAll(session, cfg, report, chunks, staging, log);
   } catch (err) {
-    await rm(stagingRaw, { recursive: true, force: true });
+    await dropStaging();
     throw err;
   } finally {
     await session.close();
@@ -500,47 +385,30 @@ async function exportOne(
 
   const dataChunks = outcomes.filter((o) => o.kind === 'data').length;
   const emptyChunks = outcomes.length - dataChunks;
-  const verdicts = outcomes
-    .filter((o): o is Extract<ChunkOutcome, { kind: 'data' }> => o.kind === 'data')
-    .map((o) => o.verdict);
+  const verdicts = outcomes.filter(isData).map((o) => o.verdict);
 
   const emptyRanges = outcomes
     .filter((o): o is Extract<ChunkOutcome, { kind: 'empty' }> => o.kind === 'empty')
     .map((o) => o.range);
+  const files = outcomes
+    .filter(isData)
+    .map((o) => ({ staged: o.verdict.filePath, entry: manifestEntryFor(report, cfg, o, job) }));
   let merged: ReturnType<typeof verifyMerged>;
-  let files: Awaited<ReturnType<typeof writeCsv>>;
   try {
     merged = verifyMerged(verdicts, emptyRanges, range);
-    // manifest ก่อน CSV — ทุกอย่างที่ล้มได้ต้องเกิดก่อนเริ่มแทนของเดิม ลำดับคือ "ตรวจผ่าน → บันทึกที่มา →
-    // แทน CSV → สลับไฟล์ดิบ"
-    if (opts.format !== 'csv') {
-      await writeManifest(report, cfg, range, outcomes, stagingRaw, runKind, baselineIntervalDays);
+    // ชื่อซ้ำกันในชุดเดียว = สองก้อนจะทับกันเอง (เช่น ภาพสองก้อนในวินาทีเดียวกัน) — ล้มก่อนแตะของเดิม
+    const names = files.map((f) => f.entry.file);
+    if (new Set(names).size !== names.length) {
+      throw new Error(`ชื่อไฟล์ดิบของ "${report.id}" ซ้ำกันในรอบเดียว: ${names.join(', ')}`);
     }
-    // --format raw ไม่เขียน CSV แต่ชุดไฟล์ของรายงานนี้ในโฟลเดอร์ต้องตรงกับ _run.json — CSV ของรอบก่อนจึงถูก
-    // แทนด้วยชุดว่าง (ข้อยกเว้นเดียวของ ADR-0005: ผลใหม่ที่ผ่านแทนไฟล์ของรายงานเดียวกันในโฟลเดอร์เดียวกัน)
-    files = opts.format === 'raw'
-      ? (await replaceReportCsvs(outDir, report.id, []), [])
-      : await writeCsv(report, outcomes, outDir, runKind, dataRange);
-  } catch (err) {
-    await rm(stagingRaw, { recursive: true, force: true });
-    throw err;
+    const movedAt = new Date();
+    const moved = await publishRawFiles(outDir, files, movedAt);
+    // manifest ไปพร้อมไฟล์ของรายงานนี้ทันที ไม่รอจบทั้งรอบ — รอบที่ตายกลางทางไม่ทิ้งไฟล์ที่ไม่มีรายการ
+    await recordPublished(outDir, files.map((f) => f.entry), moved, new Set(await readdir(outDir)), thaiIsoString(movedAt));
+  } finally {
+    await dropStaging();
   }
-  // --format csv ก็เช่นกัน: ไฟล์ดิบของรอบก่อนถูกแทนด้วย "ไม่เก็บไฟล์ดิบ" ตามที่สั่ง
-  await rm(rawDir, { recursive: true, force: true });
-  let manifestPath: string | null = null;
-  if (opts.format === 'csv') {
-    await rm(stagingRaw, { recursive: true, force: true });
-  } else {
-    await rename(stagingRaw, rawDir);
-    manifestPath = path.join(rawDir, 'manifest.json');
-  }
-  // รายงานที่ข้ามด่านวันที่ไม่ได้วัดช่วงจริง (actualSpan = ช่วงที่สั่ง) — อย่าบันทึกว่าเป็นช่วงที่พบจริง
-  const actualRange = verdicts.length === 0 || report.skipDateCoverageCheck
-    ? null
-    : {
-        from: formatISO(new Date(verdicts.reduce((a, v) => Math.min(a, v.actualSpan.from.getTime()), Infinity))),
-        to: formatISO(new Date(verdicts.reduce((a, v) => Math.max(a, v.actualSpan.to.getTime()), -Infinity))),
-      };
+  const actualRange = measuredRange(report, verdicts);
 
   if (!opts.json) {
     console.log();
@@ -548,25 +416,19 @@ async function exportOne(
     console.log(`${chalk.dim('แถวรวม')}          ${merged.totalRows.toLocaleString()}`);
     console.log(`${chalk.dim('ครอบคลุมช่วง')}    ${chalk.green('✔ ปูเต็มไม่มีรู')}  ${chalk.dim(`(${merged.coveredChunks} ก้อน)`)}`);
     console.log();
-    for (const f of files) {
-      console.log(`${chalk.green('✔')} ${path.basename(f.file)}  ${String(f.rows).padStart(6)} แถว`);
-    }
-    if (manifestPath !== null) {
-      console.log(`${chalk.green('✔')} ${path.relative(outDir, rawDir)}/  ${String(dataChunks).padStart(6)} ไฟล์ .xlsx ดิบ + manifest.json`);
+    for (const { entry } of files) {
+      console.log(`${chalk.green('✔')} ${entry.file}  ${String(entry.rows).padStart(6)} แถว  ${chalk.dim('ไฟล์ดิบ')}`);
     }
   }
 
   return {
-    report: report.id,
+    report: recordIdOf(report, job),
     runKind,
     range: { from: formatISO(dataRange.from), to: formatISO(dataRange.to) },
     chunks: { total: outcomes.length, withData: dataChunks, empty: emptyChunks },
     totalRows: merged.totalRows,
     actualRange,
-    format: opts.format,
-    rawDir: opts.format === 'csv' ? null : rawDir,
-    manifest: manifestPath,
-    files: files.map((f) => ({ year: f.year, rows: f.rows, path: f.file, sha256: f.sha256 })),
+    files: files.map((f) => f.entry),
   };
 }
 
@@ -574,7 +436,8 @@ type Failure = { readonly code: 'config' | 'export_failed'; readonly text: strin
 
 /** แปลง error เป็นข้อความที่ redact แล้ว — ConfigError เป็นข้อความของเราเอง ส่วน error อื่นอาจมี stack/credential */
 function failureOf(err: unknown, redact: Redactor): Failure {
-  return err instanceof ConfigError
+  // คำสั่งผิด (flag ขัดกัน / ช่วงวันผิด) — ข้อความของเราเอง ไม่ต้องมี stack
+  return err instanceof ConfigError || err instanceof PlanError || err instanceof OrderError
     ? { code: 'config', text: redact(err.message) }
     : { code: 'export_failed', text: redactError(err, redact) };
 }
@@ -598,119 +461,304 @@ function requireReport(id: string): Report {
   return report;
 }
 
+type ReportResult = {
+  readonly done: ExportPayload[];
+  readonly failed: (Failure & { readonly report: string })[];
+  readonly attempts: Map<string, number>;
+};
+
+/**
+ * รันรายงานตามลำดับ ลงโฟลเดอร์รอบเดียว — แต่ละรายงานเปิด session ใหม่และลองใหม่เฉพาะความผิดพลาดชั่วคราว (core/retry.ts) ·
+ * รายงานหนึ่งล้มไม่พาที่เหลือล้มไปด้วย (การดึงหลายนาที ไม่ควรต้องรันใหม่ทั้งก้อน) · `job` เป็นฟังก์ชัน ให้ error ของการคำนวณงาน
+ * (เช่น รายงาน dailyOnly ที่สั่งผิดโหมด) เกิดในรอบลองของรายงานนั้นและถูกนับเป็นผลของรายงานนั้น ไม่ใช่ล้มทั้งรอบ ·
+ * `numbering` = ลำดับเริ่มของรายงานแรกในชุดนี้และจำนวนทั้งรอบ (รอบรายวันรันหลายโฟลเดอร์ต่อกัน)
+ */
+async function runReports(
+  ctx: RunContext,
+  outDir: string,
+  jobs: readonly { readonly report: Report; readonly job: () => ReportJob; readonly periodClose?: boolean; readonly recordId?: string }[],
+  many: boolean,
+  numbering: { readonly first: number; readonly total: number },
+): Promise<ReportResult> {
+  const { opts, redact } = ctx;
+  const result: ReportResult = { done: [], failed: [], attempts: new Map() };
+  for (const [i, { report, job, periodClose, recordId: fixedId }] of jobs.entries()) {
+    // ตรงกับ recordIdOf ของงานนั้น (job ยังไม่ถูกเรียก — error ต้องเกิดในรอบลอง)
+    const recordId = fixedId ?? (periodClose ? periodCloseId(report.id) : report.id);
+    const n = numbering.first + i;
+    if (many && !opts.json) {
+      if (n > 0) console.log();
+      console.log(chalk.bold(`${chalk.dim(`[${n + 1}/${numbering.total}]`)} ${recordId}`));
+      console.log(chalk.dim('─'.repeat(72)));
+    }
+    const outcome = await withBrowserRetry(() => exportOne(ctx, report, outDir, fixedId ? { ...job(), recordId: fixedId } : job()), {
+      label: report.id,
+      describe: (err) => failureOf(err, redact).text,
+      ...(opts.json ? {} : { log: (line: string) => console.error(chalk.yellow(line)) }),
+    });
+    result.attempts.set(recordId, outcome.attempts);
+    if (outcome.ok) {
+      result.done.push(outcome.value);
+    } else {
+      // ConfigError ของรายงานใบเดียว (เช่น dailyOnly โดยไม่ใส่ --daily) ไม่ใช่ "รอบที่ล้ม" — ไม่ต้องทิ้ง _run.json ไว้ในโฟลเดอร์ที่ยัง
+      // ไม่ได้ดึงอะไรเลย ปล่อยให้ catch ของ runExport รายงานตามเดิม
+      if (!many && outcome.error instanceof ConfigError) throw outcome.error;
+      const f = failureOf(outcome.error, redact);
+      result.failed.push({ report: recordId, ...f });
+      if (many && !opts.json) console.error(`${chalk.red('✘ ไม่สำเร็จ')}  ${recordId}\n${f.text}`);
+    }
+  }
+  return result;
+}
+
+/** ผลรายใบของโฟลเดอร์หนึ่ง → `_run.json` (รูปเดียวกันทุกชนิดรอบ) */
+function outcomesOf(result: ReportResult): ReportOutcome[] {
+  return [
+    ...result.done.map((p): ReportOutcome => ({
+      report: p.report,
+      status: 'ok',
+      rows: p.totalRows,
+      range: p.range,
+      actualRange: p.actualRange,
+      files: p.files.map((f) => ({ file: f.file, rows: f.rows, sha256: f.sha256 })),
+      attempts: result.attempts.get(p.report) ?? 1,
+    })),
+    ...result.failed.map((f): ReportOutcome => ({
+      report: f.report, status: 'failed', error: f.text, attempts: result.attempts.get(f.report) ?? 1,
+    })),
+  ];
+}
+
+
+/**
+ * รอบรายวัน (ADR-0008/0009) — ตัววางแผนตัดสินว่าต้องทำอะไรจาก `_run.json` ของโฟลเดอร์ที่มันขอให้อ่าน (`daysToRead`): **รายงานตามวัน**
+ * ทุกวันของข้อมูลที่ถึงกำหนดแต่ยังไม่สำเร็จ ตั้งแต่วันเริ่มใช้งาน (ไม่เกิน `CATCH_UP_CAP_DAYS` วันต่อรอบ) ลงโฟลเดอร์ของวันนั้น ·
+ * **รายงานภาพ** ถ่ายครั้งเดียวต่อวันลงโฟลเดอร์ของวันนี้ (โฟลเดอร์ของวัน D = วันของข้อมูล D ตาม ADR-0005) · `--date` = ดึงวันเดียวใหม่
+ * ไม่สนสถานะ · รอบ 15:00/18:00 รันคำสั่งเดียวกัน · ไม่มีงาน = จบโดยไม่เปิดเบราว์เซอร์และไม่โหลด credential
+ */
+async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Report[], many: boolean): Promise<number> {
+  const now = new Date();
+  const today = formatISO(thaiToday(now));
+  const folderOf = (date: Date) => dailyFolder(cfg.dataDir, 'hoteltime', { from: date, to: date });
+  const planned = requested.map(toPlanned);
+  const warnings: string[] = [];
+  let plan: WorkPlan;
+  if (opts.date !== undefined) {
+    plan = planDateRun({ now, reports: planned, day: opts.date });
+  } else {
+    const folders = [];
+    for (const day of daysToRead({ now, goLive: cfg.goLive })) {
+      try {
+        const record = await readRunRecord(folderOf(parseISODate(day)!));
+        if (record !== null) folders.push({ day, record });
+      } catch (err) {
+        // _run.json ที่เสียของวันเก่าวันเดียวต้องไม่หยุดทั้งรอบ — ถือว่าวันนั้นยังไม่ได้ดึง (ดึงใหม่ได้ ไฟล์เดิมไม่หาย ADR-0005) แล้วบอกให้รู้
+        warnings.push(`อ่าน _run.json ของวัน ${day} ไม่ได้ (${(err as Error).message.split('\n')[0]}) — ถือว่าวันนั้นยังไม่ได้ดึง`);
+      }
+    }
+    const daily = planDailyRun({ now, reports: planned, state: storeStateFrom(folders, REPORTS), goLive: cfg.goLive });
+    warnings.push(...planWarnings(daily, cfg.goLive, { dateOption: true }));
+    plan = daily;
+  }
+  if (!opts.json) for (const w of warnings) console.error(chalk.yellow(`⚠ ${w}`));
+  const items = [...plan.perDay, ...plan.pictures, ...plan.periodCloses.map((i) => ({ ...i, periodClose: true }))];
+
+  if (items.length === 0) {
+    const text = 'ไม่มีงานค้าง — รายงานตามวันที่ถึงกำหนดและรายงานภาพของวันนี้สำเร็จแล้ว';
+    if (opts.json) {
+      console.log(JSON.stringify(
+        { ok: true, code: 'nothing_to_do', text, warnings, reports: [], failed: [], skipped: [], totalRows: 0, outDirs: [] },
+        null,
+        2,
+      ));
+    } else {
+      console.log(`${chalk.green('✔')} ${text}`);
+    }
+    return 0;
+  }
+
+  const ctx = runContext(opts, cfg);
+  const total: ReportResult = { done: [], failed: [], attempts: new Map() };
+  const outcomes: ReportOutcome[] = [];
+  const outDirs: string[] = [];
+  const itemDays = [...new Set(items.map((i) => i.day))].sort();
+
+  // เรียงตามวัน (เก่าไปใหม่) · ตัวชี้ latest เลื่อนเฉพาะตอนเขียนโฟลเดอร์ของวันนี้ — รอบที่เติมแค่วันเก่าต้องไม่ดึงมันถอยหลัง ·
+  // คำเตือนบันทึกเฉพาะโฟลเดอร์ใหม่สุดของรอบนี้ — ไม่ทิ้งสำเนาเก่าค้างในโฟลเดอร์ของวันที่เติมย้อนหลัง
+  for (const day of itemDays) {
+    const date = parseISODate(day)!;
+    const outDir = folderOf(date);
+    outDirs.push(outDir);
+    if (!opts.json) console.log(`${chalk.dim('ผลรอบนี้')}  ${path.relative(cfg.projectRoot, outDir)}/  ${chalk.dim(`(วัน ${day})`)}\n`);
+    // ทุกงานขอวันเดียว — ภาพปิดงวดขอวันสุดท้ายของงวด ซึ่งรายงานยอดสะสม (dataWindow) แปลงเป็นทั้งงวดเอง
+    const startedAt = new Date();
+    const result = await runReports(
+      ctx, outDir,
+      items.filter((i) => i.day === day).map((i) => {
+        const periodClose = 'periodClose' in i;
+        return { report: REPORT_BY_ID.get(i.report)!, job: oneDayJob(date, 'daily', { periodClose }), periodClose };
+      }),
+      many,
+      { first: total.done.length + total.failed.length, total: items.length },
+    );
+    const folderOutcomes = outcomesOf(result);
+    await recordRun(outDir, {
+      site: 'hoteltime',
+      kind: 'daily',
+      dataThrough: day,
+      startedAt,
+      finishedAt: new Date(),
+      outcomes: folderOutcomes,
+      ...(day === itemDays.at(-1) ? { warnings } : {}),
+      ...(day === today ? { latest: latestPointer(cfg.dataDir, 'hoteltime', 'daily') } : {}),
+    });
+    total.done.push(...result.done);
+    total.failed.push(...result.failed);
+    outcomes.push(...folderOutcomes);
+  }
+
+  return finish(opts, many, total, [], outcomes, { outDirs }, warnings);
+}
+
+/**
+ * **baseline** (ใบ 09, ADR-0008) — ดึงวันของข้อมูลในช่วงใหม่หมด ทีละวัน ไฟล์ละวัน `YYYY-MM-DD__<รายงาน>.xlsx` (ชื่อ/key เดียวกับรอบรายวัน) ลงโฟลเดอร์ของ
+ * รอบนี้ `baseline/<วันที่รัน>/` (เจ้าของเลือก 2026-10-14): ฉบับรายวันกับฉบับ baseline อยู่คนละโฟลเดอร์ ไม่ลบไม่ทับ (ADR-0005) เทียบกันได้เลย · ตัววางแผนและ
+ * status อ่านแค่โฟลเดอร์รายวัน — ผลของ baseline (รวมที่ล้ม) จึงไม่ทำให้รอบรายวันดึงวันนั้นซ้ำ · `_run.json` บันทึกด้วย id `<รายงาน>@<วัน>` ·
+ * รายงานภาพไม่มี baseline: สั่งใบเดียว = ปฏิเสธ · `--report all` = ข้ามพร้อมเหตุผล (แบบ ADR-0003)
+ */
+async function runBaseline(opts: ExportOptions, cfg: Config, requested: readonly Report[]): Promise<number> {
+  const plan = resolveRunPlan(opts, thaiToday()); // flag ที่ขัดกัน / ช่วงถึงวันนี้ โยนจากที่นี่
+  const { items, skipped } = planBaselineRun({ reports: requested.map(toPlanned), from: formatISO(plan.range.from), to: formatISO(plan.range.to) });
+  if (items.length === 0) {
+    throw new ConfigError(`"${requested.map((r) => r.id).join(', ')}" — ${skipped[0]?.reason ?? 'ไม่มีรายงานตามวันให้ทำ baseline'}`);
+  }
+  const startedAt = new Date();
+  const outDir = runFolder(cfg.dataDir, 'hoteltime', 'baseline', plan.range, startedAt);
+  const ctx = runContext(opts, cfg);
+  if (!opts.json) {
+    for (const sk of skipped) console.log(`${chalk.yellow('⏭ ข้าม')}  ${sk.report} — ${sk.reason}`);
+    if (skipped.length > 0) console.log();
+    console.log(`${chalk.dim('ผลรอบนี้')}  ${path.relative(cfg.projectRoot, outDir)}/  ` +
+      chalk.dim(`(baseline ${formatISO(plan.range.from)} ถึง ${formatISO(plan.range.to)} · ไฟล์ละวันของข้อมูล — ฉบับรายวันอยู่ในโฟลเดอร์ daily ไม่ถูกแตะ)`));
+    console.log();
+  }
+  // ไม่ผูกกับวันเริ่มใช้งาน — baseline คือการสั่งดึงวันที่ระบุใหม่โดยตั้งใจ (คนละเรื่องกับรอบเก็บตก)
+  const jobs = items.map((i) => ({
+    report: REPORT_BY_ID.get(i.report)!,
+    job: oneDayJob(parseISODate(i.day)!, 'baseline', { baselineIntervalDays: plan.baselineIntervalDays }),
+    recordId: `${i.report}@${i.day}`,
+  }));
+  const manyJobs = jobs.length > 1;
+  const result = await runReports(ctx, outDir, jobs, manyJobs, { first: 0, total: jobs.length });
+  const outcomes = outcomesOf(result);
+  await recordRun(outDir, {
+    site: 'hoteltime',
+    kind: 'baseline',
+    dataThrough: formatISO(plan.range.to),
+    startedAt,
+    finishedAt: new Date(),
+    outcomes,
+    skipped,
+    latest: latestPointer(cfg.dataDir, 'hoteltime', 'baseline'),
+  });
+  return finish(opts, manyJobs, result, skipped, outcomes, { outDir });
+}
+
+/**
+ * พิมพ์ผลของทั้งรอบ (JSON หรือคนอ่าน) แล้วคืน exit code — 0 ผ่านหมด · 2 ผ่านบางใบ · 1 ไม่ได้อะไรเลย · `where` ลง JSON ตรง ๆ:
+ * รอบรายวันเขียนได้หลายโฟลเดอร์ (`outDirs`) รอบอื่นโฟลเดอร์เดียว (`outDir` ตามเดิม)
+ */
+function finish(
+  opts: ExportOptions,
+  many: boolean,
+  result: ReportResult,
+  skipped: readonly SkippedReport[],
+  outcomes: readonly ReportOutcome[],
+  where: { readonly outDir: string } | { readonly outDirs: readonly string[] },
+  warnings: readonly string[] = [],
+): number {
+  const totalRows = result.done.reduce((n, p) => n + p.totalRows, 0);
+  if (!many && result.failed.length > 0) {
+    printFailure(opts, result.failed[0]!.code, result.failed[0]!.text);
+    return 1;
+  }
+  if (opts.json) {
+    console.log(JSON.stringify(
+      many
+        ? { ok: result.failed.length === 0, code: 'exported_all', reports: result.done, failed: result.failed, skipped, totalRows, warnings, ...where }
+        : { ok: true, code: 'exported', ...result.done[0]!, warnings, ...where },
+      null,
+      2,
+    ));
+  } else if (many) {
+    console.log();
+    console.log(chalk.dim('═'.repeat(72)));
+    console.log(`${chalk.dim('รายงานที่สำเร็จ')}  ${result.done.length}/${result.done.length + result.failed.length}`);
+    console.log(`${chalk.dim('แถวรวมทุกใบ')}    ${totalRows.toLocaleString()}`);
+    for (const p of result.done) {
+      const span = p.range.from === p.range.to ? p.range.from : `${p.range.from}--${p.range.to}`;
+      console.log(`  ${chalk.green('✔')} ${p.report.padEnd(24)} ${String(p.totalRows).padStart(6)} แถว  ${chalk.dim(`(${span})`)}`);
+    }
+    for (const f of result.failed) console.log(`  ${chalk.red('✘')} ${f.report}`);
+    for (const sk of skipped) console.log(`  ${chalk.yellow('⏭')} ${sk.report.padEnd(24)} ${chalk.dim(`ข้าม — ${sk.reason}`)}`);
+  }
+  if (!opts.json && result.done.length > 0) {
+    console.log();
+    for (const d of 'outDir' in where ? [where.outDir] : where.outDirs) {
+      console.log(`${chalk.dim('ไฟล์อยู่ที่')}  ${d}/  ${chalk.dim('(สรุปใน _summary.txt)')}`);
+    }
+    for (const w of warnings) console.log(chalk.yellow(`⚠ ${w}`)); // ซ้ำท้ายรอบ — บรรทัดต้นรอบถูกดันขึ้นไปไกลแล้ว
+  }
+  return exitCodeFor(outcomes);
+}
+
 export async function runExport(opts: ExportOptions): Promise<number> {
   let redact: Redactor = createRedactor([]);
 
   try {
     const cfg = loadConfig();
-
     const many = opts.reportId === ALL_REPORTS;
-    let { run: reports, skipped } = many
-      ? partitionForRunAll(REPORTS, opts, thaiToday())
-      : { run: [requireReport(opts.reportId)], skipped: [] };
 
-    // ตัดสินครั้งเดียวต่อรอบ ทุกรายงานใน --report all ต้องลงโฟลเดอร์เดียวกัน · resolveRunPlan
-    // โยนเรื่อง flag ขัดกันที่นี่ได้เลย (ข้อความเดียวกับที่ exportOne จะโยน)
+    if (opts.date !== undefined) {
+      if (opts.daily || opts.baseline || opts.from !== undefined || opts.to !== undefined || opts.lastDays !== undefined
+        || opts.baselineIntervalDays !== undefined) {
+        throw new ConfigError('--date ใช้คู่กับ --daily/--from/--to/--last-days/--baseline ไม่ได้ — --date ดึงวันของข้อมูลวันเดียวอยู่แล้ว');
+      }
+      return await runDaily(opts, cfg, many ? REPORTS : [requireReport(opts.reportId)], many);
+    }
+    if (opts.daily) {
+      resolveRunPlan(opts, thaiToday()); // flag ที่ขัดกับ --daily โยนจากที่นี่ที่เดียวตามเดิม
+      return await runDaily(opts, cfg, many ? REPORTS : [requireReport(opts.reportId)], many);
+    }
+
+    if (opts.baseline) return await runBaseline(opts, cfg, many ? REPORTS : [requireReport(opts.reportId)]);
+
+    const { run: reports, skipped } = many ? partitionForRunAll(REPORTS) : { run: [requireReport(opts.reportId)], skipped: [] };
+
+    // ตัดสินครั้งเดียวต่อรอบ ทุกรายงานใน --report all ต้องลงโฟลเดอร์เดียวกัน · resolveRunPlan โยนเรื่อง flag ขัดกันที่นี่ได้เลย
     const plan = resolveRunPlan(opts, thaiToday());
     const runKind = plan.kind;
     const startedAt = new Date();
     const outDir = runFolder(cfg.dataDir, 'hoteltime', runKind, plan.range, startedAt);
-    const outLabel = `${path.relative(cfg.projectRoot, outDir)}/`;
-
-    // รอบเก็บตก (ticket 07): รันซ้ำเฉพาะใบที่ยังล้มในโฟลเดอร์ของวันนี้ · ยังไม่มีรอบของวันนี้เลย = ทำเหมือน
-    // รอบรายวันปกติ (เช่น รอบเที่ยงไม่ได้รันเพราะเครื่องหลับ) · ไม่มีใบล้ม = จบตรงนี้ ไม่เปิดเบราว์เซอร์
-    // ก่อนโหลด credential โดยตั้งใจ — รอบ 15:00/18:00 ที่ไม่มีอะไรต้องทำต้องจบเขียวแม้ .env จะมีปัญหา
-    if (opts.retryFailed) {
-      const targets = selectRetryTargets(await readRunRecord(outDir), reports);
-      if (targets.kind === 'nothing') {
-        if (opts.json) {
-          // shape เดียวกับ exported_all — ผู้อ่านที่วน failed[] / reports[] ไม่ต้องมีกรณีพิเศษ
-          console.log(JSON.stringify({
-            ok: true, code: 'nothing_to_retry', text: targets.message,
-            reports: [], failed: [], skipped: [], totalRows: 0, format: opts.format, outDir,
-          }, null, 2));
-        } else {
-          console.log(`${chalk.green('✔')} ${targets.message}  ${chalk.dim(outLabel)}`);
-        }
-        return 0;
-      }
-      if (targets.kind === 'retry') {
-        reports = [...targets.reports];
-        skipped = [];
-        if (!opts.json) console.log(`${chalk.dim('เก็บตก')}    ${reports.map((r) => r.id).join(', ')}\n`);
-      }
-    }
 
     const creds = loadCredentials();
     redact = createRedactor([creds.password, creds.username]);
+    const ctx: RunContext = { opts, cfg, creds, redact };
     if (many && !opts.json) {
       for (const sk of skipped) console.log(`${chalk.yellow('⏭ ข้าม')}  ${sk.report} — ${sk.reason}`);
       if (skipped.length > 0) console.log();
     }
     if (!opts.json) {
-      const note = runKind === 'baseline'
-        ? '(โฟลเดอร์ของวันนี้ — baseline ใบเก่าเก็บไว้ ใบที่ผ่านล่าสุดเป็นใบอ้างอิงรายใบ)'
-        : runKind === 'daily'
-          ? '(โฟลเดอร์ของวันสุดท้ายที่ข้อมูลครอบคลุม)'
-          : '(โฟลเดอร์ของรอบนี้ แยกจากรอบรายวัน)';
-      console.log(`${chalk.dim('ผลรอบนี้')}  ${outLabel}  ${chalk.dim(note)}`);
+      console.log(`${chalk.dim('ผลรอบนี้')}  ${path.relative(cfg.projectRoot, outDir)}/  ${chalk.dim('(โฟลเดอร์ของรอบนี้ แยกจากรอบรายวัน)')}`);
       console.log();
     }
 
-    const done: ExportPayload[] = [];
-    const failed: (Failure & { readonly report: string })[] = [];
-    const attempts = new Map<string, number>();
-
-    for (const [i, report] of reports.entries()) {
-      if (many && !opts.json) {
-        if (i > 0) console.log();
-        console.log(chalk.bold(`${chalk.dim(`[${i + 1}/${reports.length}]`)} ${report.id}`));
-        console.log(chalk.dim('─'.repeat(72)));
-      }
-      // แต่ละครั้งที่ลองเปิด session ใหม่และล็อกอินใหม่ (exportOne ทำเองทั้งหมด) · ลองใหม่เฉพาะความผิดพลาด
-      // ชั่วคราว — ชนเพดานแถว/verify ไม่ผ่าน/รหัสผิด คืนความล้มเหลวทันที (ดู core/retry.ts)
-      const outcome = await withBrowserRetry(() => exportOne(opts, cfg, creds, report, redact, outDir), {
-        label: report.id,
-        describe: (err) => failureOf(err, redact).text,
-        ...(opts.json ? {} : { log: (line: string) => console.error(chalk.yellow(line)) }),
-      });
-      attempts.set(report.id, outcome.attempts);
-      if (outcome.ok) {
-        done.push(outcome.value);
-      } else {
-        // รายงานหนึ่งล้มไม่ควรพาที่เหลือล้มไปด้วย — การดึงย้อนหลังใช้เวลาหลายนาที
-        // ถ้าใบที่สองสะดุดแล้วทิ้งใบที่สามไปเลย คนใช้ต้องรันใหม่ทั้งก้อนโดยไม่จำเป็น
-        // ConfigError ของรายงานใบเดียว (เช่น dailyOnly โดยไม่ใส่ --daily) ไม่ใช่ "รอบที่ล้ม" — ไม่ต้อง
-        // ทิ้ง _run.json ไว้ในโฟลเดอร์ที่ยังไม่ได้ดึงอะไรเลย ปล่อยให้ catch ข้างล่างรายงานตามเดิม
-        if (!many && outcome.error instanceof ConfigError) throw outcome.error;
-        const f = failureOf(outcome.error, redact);
-        failed.push({ report: report.id, ...f });
-        if (many && !opts.json) console.error(`${chalk.red('✘ ไม่สำเร็จ')}  ${report.id}\n${f.text}`);
-      }
-    }
-
-    const totalRows = done.reduce((n, p) => n + p.totalRows, 0);
-
-
-    const outcomes: ReportOutcome[] = [
-      ...done.map((p): ReportOutcome => ({
-        report: p.report,
-        status: 'ok',
-        rows: p.totalRows,
-        range: p.range,
-        actualRange: p.actualRange,
-        files: p.files.map((f) => ({ file: path.relative(outDir, f.path), rows: f.rows, sha256: f.sha256 })),
-        attempts: attempts.get(p.report) ?? 1,
-      })),
-      ...failed.map((f): ReportOutcome => ({
-        report: f.report,
-        status: 'failed',
-        error: f.text,
-        attempts: attempts.get(f.report) ?? 1,
-      })),
-    ];
-    // ทุกชนิดรอบบันทึกผลรายใบ — baseline ที่บางใบล้ม ใบที่ผ่านใช้ได้ทันที ใบที่ล้มใช้ baseline ก่อนหน้า
-    // ไปก่อน ตามกฎ currentBaselineFor() ใน run-record
+    const result = await runReports(
+      ctx, outDir, reports.map((report) => ({ report, job: () => nonDailyJob(report, opts) })), many,
+      { first: 0, total: reports.length },
+    );
+    const outcomes = outcomesOf(result);
+    // back-fill / --from --to / --last-days (baseline แยกไปที่ runBaseline) — บันทึกผลรายใบแบบเดียวกับทุกชนิดรอบ
     await recordRun(outDir, {
       site: 'hoteltime',
       kind: runKind,
@@ -719,56 +767,8 @@ export async function runExport(opts: ExportOptions): Promise<number> {
       finishedAt: new Date(),
       outcomes,
       skipped,
-      ...(runKind !== 'manual' ? { latest: latestPointer(cfg.dataDir, 'hoteltime', runKind) } : {}),
     });
-
-    if (!many && failed.length > 0) {
-      printFailure(opts, failed[0]!.code, failed[0]!.text);
-      return 1;
-    }
-
-    if (opts.json) {
-      console.log(JSON.stringify(
-        many
-          ? {
-              ok: failed.length === 0,
-              code: 'exported_all',
-              reports: done,
-              failed,
-              skipped,
-              totalRows,
-              format: opts.format,
-              outDir,
-            }
-          : { ok: true, code: 'exported', ...done[0]!, outDir },
-        null,
-        2,
-      ));
-    } else if (many) {
-      console.log();
-      console.log(chalk.dim('═'.repeat(72)));
-      console.log(`${chalk.dim('รายงานที่สำเร็จ')}  ${done.length}/${reports.length}`);
-      console.log(`${chalk.dim('แถวรวมทุกใบ')}    ${totalRows.toLocaleString()}`);
-      for (const p of done) {
-        console.log(`  ${chalk.green('✔')} ${p.report.padEnd(24)} ${String(p.totalRows).padStart(6)} แถว  ${chalk.dim(`(${p.chunks.withData} ก้อน · ว่าง ${p.chunks.empty})`)}`);
-      }
-      for (const f of failed) {
-        console.log(`  ${chalk.red('✘')} ${f.report}`);
-      }
-      for (const sk of skipped) {
-        console.log(`  ${chalk.yellow('⏭')} ${sk.report.padEnd(24)} ${chalk.dim('ข้าม — ดึงได้เฉพาะ --daily')}`);
-      }
-    }
-    if (!opts.json && done.length > 0) {
-      console.log();
-      if (runKind === 'baseline' && failed.length > 0) {
-        console.log(`${chalk.yellow('⚠ baseline ของใบที่ล้มยังเป็นของรอบก่อน')}  ${chalk.dim('ใบที่ผ่านเป็นใบอ้างอิงใหม่แล้ว')}`);
-      }
-      console.log(`${chalk.dim('ไฟล์อยู่ที่')}  ${outLabel}  ${chalk.dim('(สรุปใน _summary.txt)')}`);
-    }
-
-    // 0 = ผ่านหมด · 2 = ผ่านบางใบ · 1 = ไม่ได้อะไรเลย
-    return exitCodeFor(outcomes);
+    return finish(opts, many, result, skipped, outcomes, { outDir });
   } catch (err) {
     const f = failureOf(err, redact);
     printFailure(opts, f.code, f.text);

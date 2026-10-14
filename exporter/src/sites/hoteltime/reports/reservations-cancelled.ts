@@ -32,12 +32,12 @@ export const reservationsCancelled: Report = {
   },
   hasRowCap: false,
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
 
   /** วันที่ยกเลิก — ตัวที่ใช้กรองแทน created date */
   dateColumn: 'Cancelled',
   searchButton: 'ctl00$pc$btnFind',
-  dateColumns: ['Arrival', 'Departure', 'Cancelled'],
   // 🔴 ค่าใน `Cancelled` เป็นเวลาท้องถิ่น (UTC+7) แต่ตัวกรองตัดขอบด้วย UTC
   // ช่วง 01/05–31/05 จึงคืนค่าถึง 01/06 06:59 เวลาไทยได้โดยชอบธรรม
   // (วัดจริง 2026-09-08: พ.ค. 2026 มีค่าสูงสุด 01/06/2026 01:40)

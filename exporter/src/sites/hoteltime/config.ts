@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config as loadDotenv } from 'dotenv';
+import { GO_LIVE_ENV, parseGoLive } from '../../core/run-planner.ts';
 
 /**
  * รากของโปรเจกต์ — ไฟล์นี้อยู่ที่ src/sites/hoteltime/config.ts จึงถอยขึ้นสามชั้น
@@ -40,6 +41,11 @@ export type Config = {
   /** รากของคลังผลลัพธ์ `data/` (ADR-0005) — โฟลเดอร์ของแต่ละรอบตัดสินที่ `runFolder()` ใน core/placement.ts */
   readonly dataDir: string;
   readonly captureDir: string;
+  /**
+   * **วันเริ่มใช้งาน** (ISO, `EXPORTER_GO_LIVE`) — วันของข้อมูลที่ขาดหลังวันนี้ทุกรอบเติมให้เอง (ADR-0009) · null = ยังไม่ได้ตั้ง:
+   * ดึงแค่เมื่อวาน ไม่เดาวันย้อนหลัง · ค่าเดียวใช้ทั้งสอง Site จึงไม่มี prefix ของ Site · ตัวติดตั้งบน Ubuntu ตั้งเป็นวันที่ติดตั้ง
+   */
+  readonly goLive: string | null;
 };
 
 export type Credentials = {
@@ -71,6 +77,12 @@ function envInt(name: string, fallback: number): number {
   return Math.trunc(n);
 }
 
+function goLiveFromEnv(): string | null {
+  const parsed = parseGoLive(process.env[GO_LIVE_ENV]);
+  if ('error' in parsed) throw new ConfigError(parsed.error);
+  return parsed.goLive;
+}
+
 export function loadConfig(): Config {
   const baseUrl = envStr('HOTELTIME_BASE_URL', DEFAULT_BASE_URL).replace(/\/+$/, '');
   const loginPath = envStr('HOTELTIME_LOGIN_PATH', DEFAULT_LOGIN_PATH);
@@ -85,6 +97,7 @@ export function loadConfig(): Config {
     slowMoMs: envInt('HOTELTIME_SLOW_MO', 0),
     dataDir: path.join(PROJECT_ROOT, 'data'),
     captureDir: path.join(PROJECT_ROOT, 'recon', 'captures'),
+    goLive: goLiveFromEnv(),
   };
 }
 

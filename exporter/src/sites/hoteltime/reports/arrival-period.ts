@@ -30,6 +30,7 @@ export const arrivalPeriod: Report = {
   path: 'reports/GuestArrivalsTerm.aspx',
   allowedControls: ALLOWED_CONTROLS,
   dailyOnly: false,
+  family: 'per-day',
   skipDateCoverageCheck: false,
 
   chunk: {
@@ -43,9 +44,6 @@ export const arrivalPeriod: Report = {
 
   dateColumn: 'Arrival',
   searchButton: 'ctl00$pc$btnFind',
-  // Arrival/Departure เก็บเป็น Excel serial ในไฟล์จริง (เช่น "46292") ไม่ใช่ข้อความ DD/MM/YYYY
-  // เหมือน reservations-ratecode.ts — ต้องอยู่ใน dateColumns เพื่อให้ normalizeRow แปลงให้
-  dateColumns: ['Arrival', 'Departure'],
   boundaryToleranceDays: 0,
 
   // จากไฟล์ .xlsx ที่ดาวน์โหลดจริง 2026-09-22 — คอลัมน์ที่ 5 ไม่มีชื่อในไฟล์จริง (icon column)

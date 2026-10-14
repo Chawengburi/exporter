@@ -1,12 +1,13 @@
 #!/bin/bash
 # ดับเบิลคลิกจาก Desktop (macOS: Finder · Ubuntu: ไอคอน .desktop) → ดึงรายงาน FoodStory ของ "เมื่อวาน" ทั้งหมด (ticket 11, ADR-0006)
+# พร้อมเติมวันที่ยังไม่ได้กดและถ่ายรายงานภาพของวันนี้ใน login เดียว (ใบ 06 ของ exporter-daily-per-day-raw, ADR-0008/0009)
 #
 # พนักงานกด reCAPTCHA ครั้งเดียว ที่เหลือรันเองจนจบ แล้วสรุปเป็นภาษาไทย · วางบน Desktop เป็น alias/symlink ได้ — สคริปต์ตาม
 # symlink กลับมาหาโฟลเดอร์ exporter เอง ไม่ผูกกับ path ของเครื่องไหน · คู่มือ: docs/FOODSTORY-DAILY-STAFF-GUIDE.md
 #
 # ไม่พึ่ง PATH ของ Terminal: เปิดจาก Finder แล้ว PATH อาจไม่มี node (เช่น ติดตั้งผ่าน nvm) — หา node >= 22.18 เองตามลำดับ
-# · สรุปตอนจบอ่านจาก `_run.json` ที่รอบนี้เขียน (รวมผลทั้งโฟลเดอร์ของเมื่อวาน) ไม่แกะข้อความที่ exporter พิมพ์ — รันซ้ำแล้วโฟลเดอร์ครบ
-#   ก็ขึ้นว่าครบ แม้รอบนี้จะล้มบางใบ (ไฟล์ที่ผ่านของรอบก่อนยังอยู่)
+# · สรุปตอนจบอ่านจาก `_run.json` ทุกโฟลเดอร์ที่รอบนี้เขียน (เฉพาะรายงานที่รอบนี้รัน) ไม่แกะข้อความที่ exporter พิมพ์ — รันซ้ำแล้ว
+#   โฟลเดอร์ครบก็ขึ้นว่าครบ แม้รอบนี้จะล้มบางใบ (ไฟล์ที่ผ่านของรอบก่อนยังอยู่) · ไม่มีงานค้าง = exporter จบ 0 โดยไม่ login ไม่เขียน `_run.json`
 set -u
 
 pause_and_exit() {
@@ -58,7 +59,7 @@ if [ -z "$NODE" ]; then
 fi
 
 echo "════════════════════════════════════════════════════════"
-echo "  ดึงรายงาน FoodStory ของเมื่อวาน"
+echo "  ดึงรายงาน FoodStory (เมื่อวาน + วันที่ยังขาด + รายงานภาพ)"
 echo "════════════════════════════════════════════════════════"
 
 [ -n "$NODE" ] || stop_with "ไม่พบโปรแกรม Node.js (ต้องเป็นรุ่น 22.18 ขึ้นไป) บนเครื่องนี้" \
@@ -92,47 +93,93 @@ trap 'release_lock; rm -f "$MARK"' EXIT
 echo
 echo "  1. จะมีหน้าต่างเบราว์เซอร์เปิดขึ้นมา (อีเมลกับรหัสผ่านกรอกไว้ให้แล้ว)"
 echo "  2. ติ๊กช่อง \"ฉันไม่ใช่โปรแกรมอัตโนมัติ\" ทำตามที่ขึ้นมาจนผ่าน แล้วกดปุ่มเข้าสู่ระบบ — ภายใน 5 นาที"
-echo "  3. จากนั้นปล่อยไว้ ไม่ต้องกดอะไรในเบราว์เซอร์ จนหน้าต่างนี้ขึ้นสรุป (ราว 5-10 นาที)"
+echo "  3. จากนั้นปล่อยไว้ ไม่ต้องกดอะไรในเบราว์เซอร์ จนหน้าต่างนี้ขึ้นสรุป (ราว 5-10 นาทีต่อวันที่ต้องดึง)"
+echo "     ถ้ารายงานได้ครบแล้ว จะไม่มีหน้าต่างเบราว์เซอร์ และไม่ต้องกดอะไร"
 echo
 
 cd "$EXPORTER_DIR" || stop_with "เข้าโฟลเดอร์ $EXPORTER_DIR ไม่ได้"
 "$NODE" src/index.ts export --site foodstory --report all --daily --headful
+EXPORT_RC=$?
 # ปลดล็อกทันทีที่ดึงเสร็จ — หน้าต่างที่ค้างรอ "กดปุ่มใดก็ได้" ข้ามวันต้องไม่ทำให้รอบพรุ่งนี้ขึ้นว่า "รันอยู่แล้ว" (ลองจริง 2026-10-12)
 release_lock
 
-# ── สรุปจากสถานะล่าสุดรายใบใน `_run.json` · ผ่าน = ok หรือรอบนี้ล้มแต่ไฟล์ที่ผ่านของรอบก่อนยังอยู่ (previousOk) ──
-RUN_JSON="$(find "$STORE/daily" -name _run.json -newer "$MARK" 2>/dev/null | head -1)"
-COUNTS=""
-if [ -n "$RUN_JSON" ]; then
-  COUNTS="$("$NODE" -e '
-    const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-    const v = Object.values(r.reports ?? {});
-    console.log(v.filter((x) => x.status === "ok" || x.previousOk).length, v.length);
-  ' "$RUN_JSON" 2>/dev/null)"
-fi
-read -r PASSED TOTAL <<<"${COUNTS:-0 0}"
+# ── สรุปจากสถานะล่าสุดรายใบใน `_run.json` ทุกโฟลเดอร์ที่รอบนี้เขียน (เติมหลายวัน + ภาพของวันนี้ — ใบ 06) · นับเฉพาะรายงานที่รอบนี้รัน
+#    (รายการรอบสุดท้ายของโฟลเดอร์ ไม่มีรายการรอบ = ทุกใบ) · ผ่าน = ok หรือรอบนี้ล้มแต่ไฟล์ที่ผ่านของรอบก่อนยังอยู่ (previousOk) ──
+SUMMARY="$(find "$STORE/daily" -name _run.json -newer "$MARK" 2>/dev/null | sort | xargs "$NODE" -e '
+  const fs = require("fs");
+  // วันตามเวลาไทยของเวลาเริ่มรอบ — รายงานตามวันไม่เคยถูกดึงในวันของข้อมูลเอง โฟลเดอร์ที่วันตรงกับวันเริ่มรอบจึงเป็นโฟลเดอร์รายงานภาพ
+  const thaiDay = (iso) => { const d = new Date(iso); return isNaN(d) ? null : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(d); };
+  let passed = 0, total = 0, pictures = 0, closes = 0; const days = []; let warnings = [];
+  for (const f of process.argv.slice(1)) {
+    const r = JSON.parse(fs.readFileSync(f, "utf8"));
+    const last = (r.runs ?? []).at(-1);
+    const ids = last ? last.reports : Object.keys(r.reports ?? {});
+    const pictureFolder = last !== undefined && thaiDay(last.startedAt) === r.dataThrough;
+    let perDay = false;
+    for (const id of ids) {
+      const x = (r.reports ?? {})[id];
+      if (!x) continue;
+      total++;
+      if (!(x.status === "ok" || x.previousOk)) continue;
+      passed++; // วัน/ภาพที่บอกบนจอ = เฉพาะที่ได้จริง (วันที่ล้มทั้งวันไม่ขึ้นว่า "ได้ข้อมูล")
+      if (id.endsWith("@period-close")) closes++;
+      else if (pictureFolder) pictures++;
+      else perDay = true;
+    }
+    if (perDay) days.push(r.dataThrough);
+    if (last && last.warnings) warnings = last.warnings;
+  }
+  console.log(passed, total);
+  console.log(days.join(", "));
+  console.log(pictures, closes);
+  for (const w of warnings) console.log(w);
+' 2>/dev/null)"
+read -r PASSED TOTAL <<<"$(printf '%s\n' "$SUMMARY" | sed -n 1p)"
+PASSED="${PASSED:-0}"; TOTAL="${TOTAL:-0}"
+DAYS="$(printf '%s\n' "$SUMMARY" | sed -n 2p)"
+read -r PICTURES CLOSES <<<"$(printf '%s\n' "$SUMMARY" | sed -n 3p)"
+PICTURES="${PICTURES:-0}"; CLOSES="${CLOSES:-0}"
+WARNINGS="$(printf '%s\n' "$SUMMARY" | sed -n '4,$p')"
+# ได้อะไรมาบ้าง (เฉพาะที่ได้จริง) — ทุกกรณีที่รอบนี้เขียนอย่างน้อยหนึ่งโฟลเดอร์ (ผ่านครบ / บางส่วน / ล้มหมด = ไม่ขึ้นบรรทัดนี้)
+what_was_fetched() {
+  [ -n "$DAYS" ] && echo "   รายงานตามวัน: ข้อมูลวันที่ $DAYS"
+  if [ "$PICTURES" -gt 0 ] || [ "$CLOSES" -gt 0 ]; then
+    line="   รายงานภาพ: ถ่าย $PICTURES รายงาน"
+    [ "$CLOSES" -gt 0 ] && line="$line · ภาพปิดงวด $CLOSES รายงาน"
+    echo "$line"
+  fi
+  return 0
+}
 
 echo
 echo "════════════════════════════════════════════════════════"
-if [ "$TOTAL" -gt 0 ] && [ "$PASSED" -eq "$TOTAL" ]; then
+if [ "$TOTAL" -eq 0 ] && [ "$EXPORT_RC" -eq 0 ]; then
   RESULT=0
-  echo "✅ เสร็จเรียบร้อย — ได้รายงานของเมื่อวานครบ $PASSED/$TOTAL รายงาน"
+  echo "✅ ไม่มีงานค้าง — รายงานได้ครบแล้วตั้งแต่รอบก่อน ไม่ต้องกด captcha"
+  echo "   ปิดหน้าต่างนี้ได้เลย"
+elif [ "$TOTAL" -gt 0 ] && [ "$PASSED" -eq "$TOTAL" ]; then
+  RESULT=0
+  echo "✅ เสร็จเรียบร้อย — ได้รายงานครบ $PASSED/$TOTAL รายงาน"
+  what_was_fetched
   echo "   ไม่ต้องทำอะไรต่อ ปิดหน้าต่างนี้ได้เลย"
 elif [ "$PASSED" -gt 0 ]; then
   RESULT=2
   echo "⚠️  ได้บางส่วน — ได้ $PASSED จาก $TOTAL รายงาน · ไม่ผ่าน $((TOTAL - PASSED)) รายงาน"
+  what_was_fetched
   echo "   1. ดับเบิลคลิกไฟล์เดิมอีกครั้ง แล้วกด captcha ใหม่ — รายงานที่ได้แล้วจะไม่หาย"
   echo "   2. ถ้ารอบที่สองยังขึ้นข้อความนี้ ถ่ายรูปหน้าจอนี้ส่งให้ผู้ดูแลระบบ"
 elif [ "$TOTAL" -gt 0 ]; then
   RESULT=1
   echo "❌ ไม่สำเร็จ — เข้าสู่ระบบได้ แต่ไม่ได้รายงานเลยสักรายงาน"
+  what_was_fetched
   echo "   ถ่ายรูปหน้าจอนี้ส่งให้ผู้ดูแลระบบ"
 else
   RESULT=1
-  echo "❌ ไม่สำเร็จ — ยังไม่ได้รายงานของเมื่อวาน"
+  echo "❌ ไม่สำเร็จ — ยังไม่ได้รายงาน"
   echo "   สาเหตุที่พบบ่อย: กด captcha/เข้าสู่ระบบไม่ทันใน 5 นาที หรืออินเทอร์เน็ตหลุด"
   echo "   1. ดับเบิลคลิกไฟล์เดิมอีกครั้ง"
   echo "   2. ถ้ายังไม่ได้ ถ่ายรูปหน้าจอนี้ส่งให้ผู้ดูแลระบบ"
 fi
+[ -n "$WARNINGS" ] && printf '%s\n' "$WARNINGS" | sed 's/^/⚠️  /'
 echo "════════════════════════════════════════════════════════"
 pause_and_exit "$RESULT"

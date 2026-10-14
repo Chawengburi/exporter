@@ -25,12 +25,22 @@ async function tempDir(prefix: string): Promise<string> {
 type ReportState = { readonly status: 'ok' | 'failed'; readonly previousOk?: boolean };
 type Fake = { readonly dir: string; readonly launcher: string; readonly argsFile: string };
 
-/** `reports` = สถานะล่าสุดรายใบใน `_run.json` ของโฟลเดอร์เมื่อวาน · ไม่ระบุ = ตัวแทนไม่เขียน `_run.json` เลย */
+type FakeFolder = {
+  readonly day: string; readonly reports: Readonly<Record<string, ReportState>>; readonly warnings?: readonly string[];
+  /** เวลาเริ่มรอบ (UTC ISO) — โฟลเดอร์ที่วันตรงกับวันที่เริ่มรอบ (เวลาไทย) คือโฟลเดอร์รายงานภาพของวันนี้ */
+  readonly startedAt?: string;
+};
+
+/**
+ * `reports` = สถานะล่าสุดรายใบใน `_run.json` ของโฟลเดอร์เมื่อวาน · `folders` = รอบที่เขียนหลายโฟลเดอร์ (เติมวันที่ขาด + ภาพของวันนี้ — ใบ 06)
+ * · ไม่ระบุทั้งคู่ = ตัวแทนไม่เขียน `_run.json` เลย
+ */
 async function fakeExporter(opts: {
   env?: boolean;
   nodeModules?: boolean;
   exit?: number;
   reports?: Readonly<Record<string, ReportState>>;
+  folders?: readonly FakeFolder[];
 } = {}): Promise<Fake> {
   const dir = await tempDir('fs-launcher-');
   await mkdir(path.join(dir, 'launchers'));
@@ -41,26 +51,34 @@ async function fakeExporter(opts: {
   if (opts.env ?? true) await writeFile(path.join(dir, '.env'), 'FOODSTORY_EMAIL=x\n');
   if (opts.nodeModules ?? true) await mkdir(path.join(dir, 'node_modules'));
   const argsFile = path.join(dir, 'args.json');
-  const runDir = path.join(dir, 'data', 'foodstory', 'daily', '2026-10', '2026-10-11');
-  const record = opts.reports === undefined ? null : {
-    site: 'foodstory', kind: 'daily', dataThrough: '2026-10-11', runs: [], skipped: [],
-    reports: Object.fromEntries(Object.entries(opts.reports).map(([id, r]) => [id, {
+  const toRecord = (f: FakeFolder, runs: boolean) => ({
+    site: 'foodstory', kind: 'daily', dataThrough: f.day, skipped: [],
+    // รอบเดิมของ ticket 11 ไม่มีรายการรอบ (runs ว่าง) — launcher ต้องนับทุกใบในโฟลเดอร์เหมือนเดิม
+    runs: runs ? [{ startedAt: f.startedAt ?? 'x', finishedAt: 'x', reports: Object.keys(f.reports), ...(f.warnings ? { warnings: f.warnings } : {}) }] : [],
+    reports: Object.fromEntries(Object.entries(f.reports).map(([id, r]) => [id, {
       report: id, status: r.status,
       ...(r.previousOk ? { previousOk: { finishedAt: '2026-10-12T05:00:00.000Z', rows: 1 } } : {}),
     }])),
-  };
+  });
+  const writes = opts.folders !== undefined
+    ? opts.folders.map((f) => ({ dir: path.join(dir, 'data', 'foodstory', 'daily', f.day.slice(0, 7), f.day), record: toRecord(f, true) }))
+    : opts.reports !== undefined
+      ? [{ dir: path.join(dir, 'data', 'foodstory', 'daily', '2026-10', '2026-10-11'), record: toRecord({ day: '2026-10-11', reports: opts.reports }, false) }]
+      : [];
   await writeFile(path.join(dir, 'src', 'index.ts'), `
     import { mkdirSync, writeFileSync } from 'node:fs';
     writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(process.argv.slice(2)));
-    const record = ${JSON.stringify(record)};
-    if (record) {
-      mkdirSync(${JSON.stringify(runDir)}, { recursive: true });
-      writeFileSync(${JSON.stringify(path.join(runDir, '_run.json'))}, JSON.stringify(record));
+    for (const w of ${JSON.stringify(writes)}) {
+      mkdirSync(w.dir, { recursive: true });
+      writeFileSync(w.dir + '/_run.json', JSON.stringify(w.record));
     }
     process.exit(${opts.exit ?? 0});
   `);
   return { dir, launcher, argsFile };
 }
+
+// 17:00 เวลาไทย 2026-10-14 — รอบที่เติมวันที่ 12, 13 และถ่ายภาพของวันที่ 14
+const STARTED = '2026-10-14T10:00:00.000Z';
 
 const all = (n: number, state: ReportState): Record<string, ReportState> =>
   Object.fromEntries(Array.from({ length: n }, (_, i) => [`r${i}`, state]));
@@ -182,4 +200,44 @@ test('ระหว่างรอ "กดปุ่มใดก็ได้" ต�
   } finally {
     child.kill(); // ล้มกลางทางต้องไม่ทิ้ง bash ค้างรอ stdin จน test ไม่จบ
   }
+});
+
+test('🔴 รอบเดียวเติมหลายวัน + ภาพของวันนี้ (ใบ 06): รวมผลทุกโฟลเดอร์ที่รอบนี้เขียน บอกวันที่ได้ และคำเตือนวันที่ยังขาด', async () => {
+  const fake = await fakeExporter({
+    folders: [
+      { day: '2026-10-12', reports: all(42, { status: 'ok' }), startedAt: STARTED },
+      { day: '2026-10-13', reports: all(42, { status: 'ok' }), startedAt: STARTED },
+      { day: '2026-10-14', reports: all(7, { status: 'ok' }), startedAt: STARTED, warnings: ['ยังขาดอีก 2 วันของข้อมูล เกินจำนวนวันสูงสุดต่อรอบ (3)'] },
+    ],
+  });
+  const { code, out } = run(fake.launcher);
+  assert.equal(code, 0);
+  assert.match(out, /เสร็จเรียบร้อย[\s\S]*91\/91/);
+  assert.match(out, /รายงานตามวัน: ข้อมูลวันที่ 2026-10-12, 2026-10-13\n/);
+  assert.match(out, /รายงานภาพ: ถ่าย 7 รายงาน/);
+  assert.match(out, /ยังขาดอีก 2 วัน/);
+});
+
+test('🔴 ไม่มีงานค้าง (exporter จบ 0 โดยไม่ login ไม่เขียน _run.json): บอกว่าครบแล้ว ไม่ใช่ "ไม่สำเร็จ"', async () => {
+  const fake = await fakeExporter({ exit: 0 });
+  const { code, out } = run(fake.launcher);
+  assert.equal(code, 0);
+  assert.match(out, /ไม่มีงานค้าง|ครบแล้ว/);
+  assert.doesNotMatch(out, /ไม่สำเร็จ/);
+});
+
+test('🔴 ได้บางส่วน: ยังบอกว่าได้ข้อมูลวันไหน ภาพกี่รายงาน และภาพปิดงวด — นับเฉพาะที่ได้จริง วันที่ล้มทั้งวันไม่ขึ้น (code review ใบ 06 — เดิมบอกเฉพาะตอนผ่านครบ)', async () => {
+  const fake = await fakeExporter({
+    folders: [
+      { day: '2026-09-30', reports: { a: { status: 'ok' }, 'salebymonthsum@period-close': { status: 'ok' } }, startedAt: STARTED },
+      { day: '2026-10-12', reports: { a: { status: 'failed' } }, startedAt: STARTED },
+      { day: '2026-10-13', reports: { a: { status: 'ok' }, b: { status: 'failed' } }, startedAt: STARTED },
+      { day: '2026-10-14', reports: { current_stock: { status: 'ok' }, supplier: { status: 'failed' } }, startedAt: STARTED },
+    ],
+  });
+  const { code, out } = run(fake.launcher);
+  assert.equal(code, 2);
+  assert.match(out, /ได้บางส่วน/);
+  assert.match(out, /รายงานตามวัน: ข้อมูลวันที่ 2026-09-30, 2026-10-13\n/);
+  assert.match(out, /รายงานภาพ: ถ่าย 1 รายงาน · ภาพปิดงวด 1 รายงาน/);
 });

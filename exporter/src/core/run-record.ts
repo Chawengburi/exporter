@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { RunKind } from './order.ts';
 import { thaiClock } from './thai-time.ts';
 import type { SiteId } from './placement.ts';
+import { PERIOD_CLOSE_SUFFIX } from './run-planner.ts';
 
 /**
  * บันทึกผลรอบ — `_run.json` (เครื่องอ่าน) + `_summary.txt` (คนอ่าน) ในโฟลเดอร์รอบ และตัวชี้ `latest`
@@ -53,6 +54,8 @@ export type RunRecordInput = {
   readonly skipped?: readonly SkippedReport[];
   /** path ของตัวชี้ `latest` — เลื่อนมาที่โฟลเดอร์นี้เมื่อรอบนี้ผ่านอย่างน้อยหนึ่งใบ · ไม่ใส่ = ไม่แตะ */
   readonly latest?: string;
+  /** คำเตือนของรอบนี้ที่คนต้องเห็น (เช่น วันที่ขาดเกินเพดาน, ยังไม่ได้ตั้งวันเริ่มใช้งาน) — บันทึกไว้ในรายการรอบและ `_summary.txt` */
+  readonly warnings?: readonly string[];
 };
 
 export type RecordedOutcome =
@@ -66,7 +69,12 @@ export type RunRecord = {
   readonly site: SiteId;
   readonly kind: StoreKind;
   readonly dataThrough: string;
-  readonly runs: readonly { readonly startedAt: string; readonly finishedAt: string; readonly reports: readonly string[] }[];
+  readonly runs: readonly {
+    readonly startedAt: string;
+    readonly finishedAt: string;
+    readonly reports: readonly string[];
+    readonly warnings?: readonly string[];
+  }[];
   /**
    * สถานะล่าสุดของแต่ละใบ · ใบที่ล้มในรอบนี้แต่เคยผ่านในโฟลเดอร์เดียวกันมาก่อน มี `previousOk` — ไฟล์ของ
    * รอบนั้นยังอยู่ เพราะการแทนไฟล์เกิดเฉพาะตอนผ่าน
@@ -118,7 +126,12 @@ export async function recordRun(folder: string, input: RunRecordInput): Promise<
     dataThrough: input.dataThrough,
     runs: [
       ...(previous?.runs ?? []),
-      { startedAt: input.startedAt.toISOString(), finishedAt, reports: input.outcomes.map((o) => o.report) },
+      {
+        startedAt: input.startedAt.toISOString(),
+        finishedAt,
+        reports: input.outcomes.map((o) => o.report),
+        ...(input.warnings !== undefined && input.warnings.length > 0 ? { warnings: input.warnings } : {}),
+      },
     ],
     reports,
     skipped: mergeSkipped(previous?.skipped ?? [], input.skipped ?? [], input.outcomes),
@@ -132,47 +145,15 @@ export async function recordRun(folder: string, input: RunRecordInput): Promise<
   return record;
 }
 
-/** ใบที่สถานะล่าสุดในโฟลเดอร์ยังล้ม — รายการที่รอบเก็บตก (`--retry-failed`) ต้องรันซ้ำ เรียงตามชื่อ */
-export function failedReportIds(record: RunRecord): string[] {
-  return Object.values(record.reports)
-    .filter((r) => r.status === 'failed')
-    .map((r) => r.report)
-    .sort();
-}
-
-export type RetryTargets<R> =
-  | { readonly kind: 'normal' }
-  | { readonly kind: 'retry'; readonly reports: readonly R[] }
-  | { readonly kind: 'nothing'; readonly message: string };
-
 /**
- * เป้าของรอบเก็บตก (`--retry-failed`) จากบันทึกของโฟลเดอร์วันนี้
+ * baseline ปัจจุบันของ (รายงาน, **วันของข้อมูล**) = โฟลเดอร์ baseline ล่าสุดที่วันนั้นของรายงานนั้นมีไฟล์ที่ผ่านอยู่ (ADR-0002/0005, ใบ 09 —
+ * baseline ไฟล์ละวัน บันทึกใน `_run.json` ด้วย id `<รายงาน>@<วัน>`)
  *
- * ยังไม่มีบันทึก = รอบรายวันยังไม่เคยรันวันนี้ (เช่น เครื่องหลับตอนเที่ยง) → รันเหมือนรอบรายวันปกติ ·
- * ไม่มีใบไหนในรายการที่ขอที่ยังล้ม → ไม่มีอะไรต้องทำ (ข้อความบอกตามจริงว่าเพราะอะไร)
+ * รอบ baseline ที่บางวันล้มไม่ถูกทิ้งทั้งรอบ — วันที่ผ่านใช้ได้ทันที วันที่ล้มใช้ของโฟลเดอร์ก่อนหน้าไปก่อน
+ * · วันที่ล้มในการรันซ้ำวันเดียวกันแต่มี `previousOk` ยังนับ เพราะไฟล์ของรอบที่ผ่านยังอยู่ในโฟลเดอร์นั้น
+ * · คืน null ถ้ายังไม่เคยมี baseline ที่วันนั้นผ่านเลย
  */
-export function selectRetryTargets<R extends { readonly id: string }>(
-  record: RunRecord | null,
-  requested: readonly R[],
-): RetryTargets<R> {
-  if (record === null) return { kind: 'normal' };
-  const stillFailed = new Set(failedReportIds(record));
-  const reports = requested.filter((r) => stillFailed.has(r.id));
-  if (reports.length > 0) return { kind: 'retry', reports };
-  const message = stillFailed.size === 0 || requested.length !== 1
-    ? 'ไม่มีใบที่ล้มในโฟลเดอร์ของวันนี้ — ไม่ต้องเก็บตก'
-    : `${requested[0]!.id} ไม่ได้ล้มในโฟลเดอร์ของวันนี้ (ใบที่ยังล้ม: ${[...stillFailed].join(', ')})`;
-  return { kind: 'nothing', message };
-}
-
-/**
- * baseline ปัจจุบันของรายงานหนึ่ง = โฟลเดอร์ baseline ล่าสุดที่ใบนั้นมีไฟล์ที่ผ่านอยู่ (ADR-0005)
- *
- * รอบ baseline ที่บางใบล้มไม่ถูกทิ้งทั้งรอบ — ใบที่ผ่านใช้ได้ทันที ใบที่ล้มใช้ของโฟลเดอร์ก่อนหน้าไปก่อน
- * · ใบที่ล้มในการรันซ้ำวันเดียวกันแต่มี `previousOk` ยังนับ เพราะไฟล์ของรอบที่ผ่านยังอยู่ในโฟลเดอร์นั้น
- * · คืน null ถ้ายังไม่เคยมี baseline ที่ใบนั้นผ่านเลย
- */
-export async function currentBaselineFor(baselineDir: string, reportId: string): Promise<string | null> {
+export async function currentBaselineFor(baselineDir: string, reportId: string, day: string): Promise<string | null> {
   let names: string[];
   try {
     names = await readdir(baselineDir);
@@ -184,7 +165,7 @@ export async function currentBaselineFor(baselineDir: string, reportId: string):
   // · ไม่มี production code เรียกตอนนี้ ปลายทางที่จะใช้คือขาส่งเข้า uploader (ticket 08 เดิม)
   for (const name of names.filter((n) => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort().reverse()) {
     const folder = path.join(baselineDir, name);
-    const entry = (await readRunRecord(folder))?.reports[reportId];
+    const entry = (await readRunRecord(folder))?.reports[`${reportId}@${day}`];
     if (entry?.status === 'ok' || (entry?.status === 'failed' && entry.previousOk !== undefined)) return folder;
   }
   return null;
@@ -223,8 +204,12 @@ function renderSummary(record: RunRecord): string {
   const last = record.runs[record.runs.length - 1]!;
 
   const lines = [
-    `${SITE_LABEL[record.site]} · ${KIND_LABEL[record.kind]} · ข้อมูลถึง ${record.dataThrough}`,
+    // โฟลเดอร์ที่มีแต่ภาพปิดงวด (วันสุดท้ายของงวดก่อนวันเริ่มใช้งาน/ก่อนเครื่องเริ่มเก็บ) ไม่ใช่รอบรายวันของวันนั้น (ใบ 07)
+    all.length > 0 && all.every((r) => r.report.endsWith(PERIOD_CLOSE_SUFFIX))
+      ? `${SITE_LABEL[record.site]} · ภาพปิดงวดของงวดที่จบวันที่ ${record.dataThrough} (ไม่มีรายงานของวันนั้นในโฟลเดอร์นี้)`
+      : `${SITE_LABEL[record.site]} · ${KIND_LABEL[record.kind]} · ข้อมูลถึง ${record.dataThrough}`,
     `รันล่าสุด ${localTime(last.finishedAt)} (รันในโฟลเดอร์นี้ ${record.runs.length} ครั้ง)`,
+    ...(last.warnings ?? []).map((w) => `⚠ ${w}`),
     '',
     `ผ่าน ${passed.length}/${all.length}` +
       (failedList.length > 0 ? ` · ล้ม ${failedList.length}` : '') +
@@ -248,7 +233,7 @@ function renderSummary(record: RunRecord): string {
   // FoodStory (รายเดือนและรายวัน): xlsx คือไฟล์ข้อมูลเลย ไม่มี _raw/ — manifest อยู่ที่ _manifest.json (ticket 03/10)
   const provenance = record.site === 'foodstory'
     ? 'ที่มาของแต่ละไฟล์ + การเช็คไขว้ยอดขายอยู่ใน _manifest.json'
-    : 'ไฟล์ดิบ + manifest ของแต่ละรายงานอยู่ใน _raw/<รายงาน>/';
+    : 'ไฟล์ดิบอยู่ในโฟลเดอร์นี้ (ชื่อ ISO) · ที่มาของแต่ละไฟล์อยู่ใน _manifest.json';
   lines.push('', `${provenance} · ข้อมูลเต็มของรอบอยู่ใน _run.json`, '');
   return lines.join('\n');
 }

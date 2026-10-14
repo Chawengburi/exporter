@@ -37,8 +37,10 @@ as_user() { sudo -u shopuser -H bash -c "cd $R && $*" </dev/null; }
 as_user_answering() { local answers="$1"; shift; printf '%s' "$answers" | sudo -u shopuser -H bash -c "cd $R && $*"; }
 INSTALL="bash deploy/ubuntu/install.sh --no-login-check"
 
-echo "== ติดตั้งรอบแรก — รหัสมีช่องว่างหัวท้าย, มี ' (ทางเลือก \"...\"), สาขาเว้นว่าง = ค่าเริ่มต้นจาก .env.example"
-ANSWERS=$'hotel-user\n p#ss w0rd!$x \nfood@example.com\nit\'s f00d $$ #1\n\n'
+echo "== ติดตั้งรอบแรก — รหัสมีช่องว่างหัวท้าย, มี ' (ทางเลือก \"...\"), สาขาเว้นว่าง = ค่าเริ่มต้นจาก .env.example · URL ของ Discord webhook (ใบ 10)"
+HOOK='https://discord.com/api/webhooks/123456789/fake-webhook-token-for-install-test'
+TODAY="$(TZ=Asia/Bangkok date +%F)"
+ANSWERS=$'hotel-user\n p#ss w0rd!$x \nfood@example.com\nit\'s f00d $$ #1\n\n'"$HOOK"$'\n'
 as_user_answering "$ANSWERS" "$INSTALL" >/tmp/first.out 2>&1 || { cat /tmp/first.out; fail "ติดตั้งรอบแรก exit"; }
 cat /tmp/first.out
 [ -d $R/exporter/node_modules/playwright ] && pass "node_modules" || fail "ไม่มี node_modules"
@@ -51,6 +53,13 @@ as_user "cd exporter && node -e '
   for (const [k, w] of Object.entries(want)) if (v[k] !== w) { console.error(k, JSON.stringify(v[k]), \"!=\", JSON.stringify(w)); process.exit(1); }
   if (!v.HOTELTIME_BASE_URL) process.exit(1);
 '" && pass ".env อ่านกลับได้ตรงทุกตัว (ช่องว่างหัวท้าย, ', #, \$) + สาขาค่าเริ่มต้น + ค่าอื่นจาก .env.example ยังอยู่" || fail ".env ค่าไม่ตรง"
+as_user "cd exporter && node -e '
+  const v = require(\"dotenv\").config({ quiet: true }).parsed;
+  if (v.EXPORTER_GO_LIVE !== \"$TODAY\") { console.error(\"go-live\", v.EXPORTER_GO_LIVE); process.exit(1); }
+  if (v.DISCORD_WEBHOOK_URL !== \"$HOOK\") { console.error(\"webhook ไม่ตรง\"); process.exit(1); }
+'" && pass "วันเริ่มใช้งาน = วันที่ติดตั้ง ($TODAY) · URL ของ webhook อ่านกลับได้ตรง" || fail "วันเริ่มใช้งาน/URL ของ webhook ไม่ถูกตั้ง"
+if grep -q "fake-webhook-token-for-install-test" /tmp/first.out; then fail "URL ของ webhook โผล่บนจอ"; fi
+pass "URL ของ webhook ไม่แสดงบนจอ"
 [ "$(stat -c %a $R/windmill/.env)" = 600 ] && pass "windmill/.env 600" || fail "windmill/.env สิทธิ์ไม่ใช่ 600"
 PG="$(grep '^POSTGRES_PASSWORD=' $R/windmill/.env | cut -d= -f2-)"
 [ -n "$PG" ] && [ "$PG" != changeme ] && grep -q "^DATABASE_URL=postgres://postgres:$PG@" $R/windmill/.env \
@@ -71,6 +80,21 @@ as_user "$INSTALL" >/tmp/rerun.out 2>&1 || { cat /tmp/rerun.out; fail "รัน
   && pass "ไม่ลบ/สร้าง node_modules ใหม่ (Windmill mount อยู่)" || fail "รันซ้ำสร้าง node_modules ใหม่"
 if grep -qi "apt-get\|Installing dependencies" /tmp/rerun.out; then cat /tmp/rerun.out; fail "รันซ้ำเรียก apt"; fi
 pass "ไม่เรียก apt ซ้ำ (library ของ Chromium ครบแล้ว)"
+
+echo "== เครื่องที่ติดตั้งก่อนใบ 10 (ไม่มีวันเริ่มใช้งาน/URL): รันซ้ำเติมวันเริ่มใช้งาน ไม่แตะค่าอื่น · ข้าม URL ได้ (บอกในสิ่งที่ยังต้องทำ)"
+sed -i -e '/^EXPORTER_GO_LIVE=/d' -e '/^DISCORD_WEBHOOK_URL=/d' $R/exporter/.env
+OLD_PASS="$(grep '^HOTELTIME_PASSWORD=' $R/exporter/.env)"
+as_user_answering $'\n' "$INSTALL" >/tmp/upgrade.out 2>&1 || { cat /tmp/upgrade.out; fail "รันซ้ำบนเครื่องเก่า exit"; }
+grep -qx "EXPORTER_GO_LIVE=$TODAY" $R/exporter/.env && pass "เติมวันเริ่มใช้งาน = วันนี้" || fail "ไม่เติมวันเริ่มใช้งาน"
+if grep -q '^DISCORD_WEBHOOK_URL=' $R/exporter/.env; then fail "ข้าม URL แล้วยังเขียน DISCORD_WEBHOOK_URL"; fi
+[ "$OLD_PASS" = "$(grep '^HOTELTIME_PASSWORD=' $R/exporter/.env)" ] && pass "ค่าอื่นใน .env ไม่ถูกแตะ" || fail "รหัสผ่านเดิมเปลี่ยน"
+grep -q "ยังต้องทำ" /tmp/upgrade.out && grep -q "DISCORD_WEBHOOK_URL" /tmp/upgrade.out \
+  && pass "ข้าม URL: สรุปตอนจบบอกวิธีตั้งทีหลัง" || fail "ข้าม URL แล้วไม่บอกในสิ่งที่ยังต้องทำ"
+[ "$(stat -c %a $R/exporter/.env)" = 600 ] && pass "exporter/.env ยัง 600" || fail "exporter/.env สิทธิ์เปลี่ยน"
+sed -i "s/^EXPORTER_GO_LIVE=.*/EXPORTER_GO_LIVE=2026-01-02/" $R/exporter/.env
+as_user_answering $'\n' "$INSTALL" >/tmp/keep.out 2>&1 || { cat /tmp/keep.out; fail "รันซ้ำ exit"; }
+grep -qx "EXPORTER_GO_LIVE=2026-01-02" $R/exporter/.env && pass "รันซ้ำไม่ทับวันเริ่มใช้งานที่ตั้งไว้" || fail "รันซ้ำทับวันเริ่มใช้งาน"
+[ "$(grep -c '^EXPORTER_GO_LIVE=' $R/exporter/.env)" = 1 ] && pass "ไม่มีบรรทัดซ้ำ" || fail "EXPORTER_GO_LIVE ซ้ำหลายบรรทัด"
 
 echo "== หยุดหลังสร้างไฟล์ชั่วคราวแล้ว: ต้องไม่เหลือไฟล์ที่มีรหัสผ่าน"
 rm -f $R/exporter/.env

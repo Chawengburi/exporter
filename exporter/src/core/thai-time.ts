@@ -1,4 +1,4 @@
-import { utcDate } from './order.ts';
+import { formatISO, utcDate } from './order.ts';
 
 /**
  * เวลาของ exporter = เวลาไทยเสมอ ไม่ขึ้นกับ TZ ของเครื่องที่รัน (ticket 27 ของ exporter-daily-expansion-and-data-store)
@@ -34,4 +34,17 @@ export function thaiClock(at: Date): ThaiClock {
 export function thaiToday(now: Date = new Date()): Date {
   const c = thaiClock(now);
   return utcDate(c.year, c.month, c.day);
+}
+
+/** วันตามปฏิทินไทย (`YYYY-MM-DD`) ของเวลาแบบ ISO ใน `_run.json` · อ่านไม่ออก = null */
+export function thaiDateOf(iso: string): string | null {
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? null : formatISO(thaiToday(at));
+}
+
+/** เวลาไทยแบบ ISO 8601 เต็มพร้อม offset เช่น `2026-10-13T12:00:00+07:00` — เวลาที่ถ่ายของไฟล์ใน manifest ให้คนอ่านและเครื่องอ่านได้ตรงกัน */
+export function thaiIsoString(at: Date): string {
+  const c = thaiClock(at);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${c.year}-${p(c.month)}-${p(c.day)}T${p(c.hour)}:${p(c.minute)}:${p(c.second)}+07:00`;
 }

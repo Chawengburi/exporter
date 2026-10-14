@@ -1,4 +1,6 @@
 import type { Page } from 'playwright';
+import type { ReportFamily } from '../../../core/raw-manifest.ts';
+import type { ReportPeriod } from '../../../core/run-planner.ts';
 import type { DateRange } from '../../../core/order.ts';
 
 /**
@@ -35,10 +37,19 @@ export type Report = {
    */
   readonly dailyOnly: boolean;
   /**
-   * คอลัมน์ในไฟล์ที่ใช้ยืนยันว่า filter ทำงานจริง และใช้จัดกลุ่มไฟล์ CSV รายปี — **เฉพาะตอน
-   * `dailyOnly: false`** เท่านั้น รายงาน `dailyOnly: true` ไม่แตะคอลัมน์นี้เลยทั้งสองทาง
-   * (`writeYearlyCsv()` ใช้ปีของวันที่ query ตรง ๆ แทน ดู `commands/export.ts`) — รายงานแบบนั้น
-   * ยังต้องใส่ค่าที่มีจริงในไฟล์เพื่อให้ type ผ่าน แต่ค่านั้น "ตาย" ไม่ถูกใช้จริง
+   * ตระกูลของรายงาน (ADR-0008 · CONTEXT.md) — `per-day` = **รายงานตามวัน** ได้ไฟล์ละวันของข้อมูล ·
+   * `picture` = **รายงานภาพ** ถ่าย ณ เวลาที่ดึง ทุกครั้งเป็นฉบับใหม่ ชื่อไฟล์เป็นเวลาที่ถ่าย · ไม่เท่ากับ `dailyOnly` เสมอไป:
+   * `manager-day-detail` ดึงแบบ dailyOnly แต่เป็นยอดของเมื่อวานวันเดียว จึงเป็นรายงานตามวัน
+   */
+  readonly family: ReportFamily;
+  /**
+   * งวดของ **รายงานภาพ** สำหรับ **ภาพปิดงวด** (ADR-0008, ใบ 05) — `month`/`year` = ยอดสะสมของเดือน/ปี ถ่ายภาพของงวดที่จบแล้วทั้งงวดในรอบแรก
+   * ของงวดถัดไป · `none` = ภาพ ณ ขณะนั้น พยากรณ์ หรือช่วงเลื่อน ไม่มีงวดให้ปิด · รายงานตามวันไม่ใส่
+   */
+  readonly period?: ReportPeriod;
+  /**
+   * คอลัมน์ในไฟล์ที่ใช้ยืนยันว่า filter ทำงานจริง (ด่านช่วงวัน) และบันทึกเป็น `filterColumn` ใน `_manifest.json` — รายงานที่ข้ามด่านวันที่
+   * ยังต้องใส่ค่าที่มีจริงในไฟล์เพื่อให้ type ผ่าน แต่ไม่ถูกใช้ตรวจ
    */
   readonly dateColumn: string;
   /**
@@ -59,7 +70,7 @@ export type Report = {
   readonly filterNote?: string;
   /**
    * ช่วงข้อมูลจริงของรายงานภาพรวม (dailyOnly) ที่ค้นช่วงอื่นที่ไม่ใช่ "วันนี้" เช่น สถิติทั้งปี/เดือนหน้า, ใบค้างชำระตั้งแต่ 2024 —
-   * `applyFilters` ใช้ตั้งตัวกรอง และชื่อไฟล์ CSV + ช่วงใน `_run.json` ใช้ช่วงนี้แทนวันที่ดึง (ticket 26 — ชื่อไฟล์ขึ้นต้นด้วยช่วงข้อมูลจริง)
+   * `applyFilters` ใช้ตั้งตัวกรอง และช่วงใน `_run.json` / `_manifest.json` ใช้ช่วงนี้แทนวันที่ดึง (ticket 26) — รายงานตามวันยังใช้ช่วงนี้ตั้งชื่อไฟล์
    * · โฟลเดอร์ยังเป็นวันที่ดึง · ไม่ใส่ = ช่วงข้อมูลคือช่วงที่ขอ
    */
   readonly dataWindow?: (day: Date) => DateRange;
@@ -77,13 +88,13 @@ export type Report = {
    */
   readonly boundaryToleranceDays: number;
 
-  /**
-   * คอลัมน์ที่เป็นวันที่ทั้งหมด — ตอนเขียน CSV จะถูกแปลงให้เป็น `DD/MM/YYYY` เหมือนกันหมด
-   * 🔴 จำเป็นเพราะใบ RateCode เก็บวันที่เป็น Excel serial (45658) ซึ่งใช้ต่อไม่ได้
-   */
-  readonly dateColumns: readonly string[];
   /** หัวตารางที่คาดหวัง — ต่างจากนี้เมื่อไหร่แปลว่ารายงานเปลี่ยน ต้องสำรวจใหม่ */
   readonly expectedColumns: readonly string[];
+  /**
+   * `data-driven` = คอลัมน์หลัง `expectedColumns` เปลี่ยนตามข้อมูลของช่วงที่ค้น (เช่น ชื่อ segment ที่มีการจองในช่วงนั้น) — ตรวจแค่ว่าหัว
+   * ขึ้นต้นด้วย `expectedColumns` · ไม่ใส่ = หัวต้องตรงเป๊ะ (เจอจาก ภาพปิดงวดปี 2025 ใบ 05: segment ของปี 2025 กับ 2026 คนละชุด)
+   */
+  readonly trailingColumns?: 'data-driven';
   /** ชื่อ control ของปุ่ม Search */
   readonly searchButton: string;
 

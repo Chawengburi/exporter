@@ -145,8 +145,8 @@ export async function setDateRange(
  * — พบครั้งแรกใน pilot batch (ticket 01, Arrivals): `ctl00$pc$calDate` เป็นช่องเดียว
  * ไม่ใช่ group ที่มีสอง sub-field ค่าต้องเป็น `DD/MM/YYYY` เหมือน `setDateRange`
  *
- * ใช้กับรายงาน `dailyOnly` (ADR-0003) เท่านั้น — ค่าที่ส่งมาคือวันนี้เสมอ (จาก
- * `resolveDailyOnlyRange`) จึงไม่ต้องรองรับการ "ล้าง" เป็นค่าว่างแบบ `clearDateRange`:
+ * ใช้กับรายงาน `dailyOnly` (ADR-0003) เท่านั้น — ค่าที่ส่งมาเป็นวันเดียวเสมอ (จากตัววางแผนของรอบรายวัน)
+ * จึงไม่ต้องรองรับการ "ล้าง" เป็นค่าว่างแบบ `clearDateRange`:
  * หน้าที่เจอมาบังคับ control นี้ผ่าน popup ไม่ใช่ข้อความ "mandatory item" (ดู
  * `.scratch/pms-export-new-report-pilot/issues/01-arrivals-report.md`) — การไม่ล้างมันเลย
  * คือทางเลี่ยงปัญหานั้นทั้งหมด ไม่ต้องเขียนตัวตรวจ popup ใหม่

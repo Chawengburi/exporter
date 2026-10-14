@@ -30,6 +30,8 @@ function balanceAsOf(spec: BalanceSpec): Report {
     path: spec.path,
     allowedControls: allowed,
     dailyOnly: true,
+    family: 'picture',
+    period: 'none',
     // ยอดคงค้างต่อเอกสาร ไม่มีคอลัมน์วันที่ให้เทียบกับ "ณ วันที่"
     skipDateCoverageCheck: true,
     chunk: { kind: 'whole', reason: 'ยอดคงค้าง ณ วันที่ดึง ไม่มีอะไรให้แบ่งก้อน' },
@@ -37,7 +39,6 @@ function balanceAsOf(spec: BalanceSpec): Report {
     dateColumn: spec.expectedColumns[0]!,
     filterNote: spec.filterNote,
     searchButton: FIND,
-    dateColumns: [],
     boundaryToleranceDays: 0,
     expectedColumns: spec.expectedColumns,
     async applyFilters(page: Page, range: DateRange): Promise<void> {

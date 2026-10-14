@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readlink } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, readlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -7,12 +8,11 @@ import { test } from 'node:test';
 import {
   currentBaselineFor,
   exitCodeFor,
-  failedReportIds,
   readRunRecord,
   recordRun,
-  selectRetryTargets,
   type ReportOutcome,
 } from '../src/core/run-record.ts';
+import { publishRawFiles, type RawFileEntry } from '../src/core/raw-manifest.ts';
 
 const ok = (report: string, rows = 3): ReportOutcome => ({
   report,
@@ -132,72 +132,37 @@ test('รันซ้ำแล้วล้ม — บันทึกว่าล
   assert.match(await readFile(path.join(folder, '_summary.txt'), 'utf8'), /ไฟล์ที่ผ่านของรอบก่อน.*ยังอยู่/);
 });
 
-test('baseline ปัจจุบันของรายงาน = โฟลเดอร์ล่าสุดที่ใบนั้นผ่าน ข้ามโฟลเดอร์ที่ใบนั้นล้ม', async () => {
+test('baseline ปัจจุบันของ (รายงาน, วันของข้อมูล) = โฟลเดอร์ baseline ล่าสุดที่วันนั้นผ่าน ข้ามโฟลเดอร์ที่วันนั้นล้ม (ใบ 09 — บันทึกด้วย id `<รายงาน>@<วัน>`)', async () => {
   const baselineDir = path.join(await mkdtemp(path.join(tmpdir(), 'baseline-')), 'baseline');
   const B = { ...BASE, kind: 'baseline' as const, latest: path.join(baselineDir, 'latest') };
-  await recordRun(path.join(baselineDir, '2026-09-01'), { ...B, outcomes: [ok('reservations-search'), ok('reservations-ratecode')] });
-  await recordRun(path.join(baselineDir, '2026-10-01'), { ...B, outcomes: [failed('reservations-search'), ok('reservations-ratecode')] });
+  await recordRun(path.join(baselineDir, '2026-09-01'), { ...B, outcomes: [ok('postings@2026-08-30'), ok('postings@2026-08-31')] });
+  await recordRun(path.join(baselineDir, '2026-10-01'), { ...B, outcomes: [failed('postings@2026-08-30'), ok('postings@2026-08-31')] });
 
-  assert.equal(await currentBaselineFor(baselineDir, 'reservations-search'), path.join(baselineDir, '2026-09-01'));
-  assert.equal(await currentBaselineFor(baselineDir, 'reservations-ratecode'), path.join(baselineDir, '2026-10-01'));
-  assert.equal(await currentBaselineFor(baselineDir, 'reservations-cancelled'), null);
+  assert.equal(await currentBaselineFor(baselineDir, 'postings', '2026-08-30'), path.join(baselineDir, '2026-09-01'));
+  assert.equal(await currentBaselineFor(baselineDir, 'postings', '2026-08-31'), path.join(baselineDir, '2026-10-01'));
+  assert.equal(await currentBaselineFor(baselineDir, 'postings', '2026-08-29'), null);
 });
 
 test('baseline รันซ้ำวันเดียวกันแล้วล้ม — ไฟล์ที่ผ่านของรอบก่อนในโฟลเดอร์นั้นยังนับเป็น baseline ปัจจุบัน', async () => {
   const baselineDir = path.join(await mkdtemp(path.join(tmpdir(), 'baseline-')), 'baseline');
   const B = { ...BASE, kind: 'baseline' as const };
-  await recordRun(path.join(baselineDir, '2026-10-01'), { ...B, outcomes: [ok('reservations-search')] });
-  await recordRun(path.join(baselineDir, '2026-10-01'), { ...B, outcomes: [failed('reservations-search')] });
-  assert.equal(await currentBaselineFor(baselineDir, 'reservations-search'), path.join(baselineDir, '2026-10-01'));
+  await recordRun(path.join(baselineDir, '2026-10-01'), { ...B, outcomes: [ok('postings@2026-09-30')] });
+  await recordRun(path.join(baselineDir, '2026-10-01'), { ...B, outcomes: [failed('postings@2026-09-30')] });
+  assert.equal(await currentBaselineFor(baselineDir, 'postings', '2026-09-30'), path.join(baselineDir, '2026-10-01'));
 });
 
 test('ยังไม่เคยมี baseline เลย → null', async () => {
-  assert.equal(await currentBaselineFor(path.join(tmpdir(), 'no-such-baseline-dir'), 'x'), null);
+  assert.equal(await currentBaselineFor(path.join(tmpdir(), 'no-such-baseline-dir'), 'x', '2026-10-01'), null);
 });
 
-test('--retry-failed เลือกเฉพาะใบที่สถานะล่าสุดยังล้ม', async () => {
-  const { folder } = await dayFolder();
-  await recordRun(folder, { ...BASE, outcomes: [ok('arrivals'), failed('housekeeping'), failed('departures')] });
-  await recordRun(folder, { ...BASE, outcomes: [ok('departures')] });
-  const record = await readRunRecord(folder);
-  assert.deepEqual(failedReportIds(record!), ['housekeeping']);
-});
-
-test('รอบเก็บตกที่ผ่านหมดแล้ว — exit code ของรอบนั้นเป็น 0 และไม่มีใบให้ลองอีก', async () => {
+test('รันซ้ำในโฟลเดอร์เดิม: ใบที่รันใหม่แทนผลเดิมของใบนั้น ใบอื่นคงเดิม', async () => {
   const { folder } = await dayFolder();
   await recordRun(folder, { ...BASE, outcomes: [ok('arrivals'), failed('housekeeping')] });
   const retry = [ok('housekeeping')];
   await recordRun(folder, { ...BASE, outcomes: retry });
   assert.equal(exitCodeFor(retry), 0);
-  assert.deepEqual(failedReportIds((await readRunRecord(folder))!), []);
-});
-
-const R = (id: string) => ({ id });
-
-test('เลือกเป้าเก็บตก: ยังไม่มีรอบของวันนี้ = รันเหมือนรอบรายวันปกติ', () => {
-  assert.deepEqual(selectRetryTargets(null, [R('a'), R('b')]), { kind: 'normal' });
-});
-
-test('เลือกเป้าเก็บตก: รันเฉพาะใบที่ยังล้ม', async () => {
-  const { folder } = await dayFolder();
-  const record = await recordRun(folder, { ...BASE, outcomes: [ok('a'), failed('b')] });
-  assert.deepEqual(selectRetryTargets(record, [R('a'), R('b')]), { kind: 'retry', reports: [R('b')] });
-});
-
-test('เลือกเป้าเก็บตก: ไม่มีใบล้ม = ไม่มีอะไรต้องทำ', async () => {
-  const { folder } = await dayFolder();
-  const record = await recordRun(folder, { ...BASE, outcomes: [ok('a')] });
-  const got = selectRetryTargets(record, [R('a')]);
-  assert.equal(got.kind, 'nothing');
-  assert.match(got.kind === 'nothing' ? got.message : '', /ไม่มีใบที่ล้ม/);
-});
-
-test('เลือกเป้าเก็บตก --report X: X ไม่ได้ล้ม (แต่ใบอื่นล้ม) — บอกตามจริงว่า X ไม่ได้ล้ม ไม่ใช่ "ไม่มีใบล้ม"', async () => {
-  const { folder } = await dayFolder();
-  const record = await recordRun(folder, { ...BASE, outcomes: [ok('a'), failed('b')] });
-  const got = selectRetryTargets(record, [R('a')]);
-  assert.equal(got.kind, 'nothing');
-  assert.match(got.kind === 'nothing' ? got.message : '', /a ไม่ได้ล้ม/);
+  const record = (await readRunRecord(folder))!;
+  assert.deepEqual(Object.values(record.reports).map((r) => [r.report, r.status]).sort(), [['arrivals', 'ok'], ['housekeeping', 'ok']]);
 });
 
 // ticket 03: FoodStory รายเดือนไม่มี _raw/ — manifest อยู่ที่ _manifest.json ในโฟลเดอร์รอบ บรรทัดท้ายต้องชี้ถูกที่
@@ -220,4 +185,30 @@ test('_summary.txt ของรอบรายวัน FoodStory ชี้ _man
   assert.match(summary, /_manifest\.json/);
   assert.doesNotMatch(summary, /_raw\//);
   assert.equal(await readlink(path.join(kindDir, 'latest')), path.join('2026-10', '2026-10-11'));
+});
+
+test('🔴 วางไฟล์ดิบลงโฟลเดอร์วันของข้อมูลที่ยังไม่มี — สร้างโฟลเดอร์เอง (FoodStory พักไฟล์นอกโฟลเดอร์รอบ · รันจริงใบ 06 rename ENOENT)', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'publish-raw-'));
+  const staged = path.join(root, '_downloads', 'salebybill.xlsx');
+  await mkdir(path.dirname(staged), { recursive: true });
+  await writeFile(staged, 'raw bytes');
+  const sha256 = createHash('sha256').update('raw bytes').digest('hex');
+  const outDir = path.join(root, 'daily', '2026-10', '2026-10-12');
+  const entry: RawFileEntry = {
+    file: '2026-10-12__salebybill.xlsx', site: 'foodstory', report: 'salebybill', label: 'salebybill', family: 'per-day',
+    runKind: 'daily', range: { from: '2026-10-12', to: '2026-10-12' }, actualRange: null, takenAt: '2026-10-13T12:00:00+07:00',
+    sheets: [], bytes: 9, sha256, source: 'https://example.invalid', filterColumn: 'x', filterNote: 'x',
+  };
+  assert.deepEqual(await publishRawFiles(outDir, [{ staged, entry }], new Date()), []);
+  assert.equal(await readFile(path.join(outDir, entry.file), 'utf8'), 'raw bytes');
+  assert.equal(existsSync(staged), false);
+});
+
+test('🔴 _summary.txt ของโฟลเดอร์ที่มีแต่ภาพปิดงวด ไม่เขียนว่า "ข้อมูลถึง" (ชวนเข้าใจว่าเป็นรอบรายวันของวันนั้น — ใบ 05 → 07)', async () => {
+  const { folder } = await dayFolder();
+  const close = { ...ok('trial-balance@period-close'), range: { from: '2026-09-01', to: '2026-09-30' } };
+  await recordRun(folder, { ...BASE, dataThrough: '2026-09-30', outcomes: [close] });
+  const summary = await readFile(path.join(folder, '_summary.txt'), 'utf8');
+  assert.doesNotMatch(summary.split('\n')[0]!, /ข้อมูลถึง/);
+  assert.match(summary.split('\n')[0]!, /ภาพปิดงวด[\s\S]*2026-09-30/);
 });
