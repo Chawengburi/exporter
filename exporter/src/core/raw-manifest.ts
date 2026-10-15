@@ -47,6 +47,12 @@ export type RawFileEntry = {
   readonly baselineIntervalDays?: number;
   /** **ภาพปิดงวด** — ภาพของงวด (เดือน/ปี) ที่จบแล้วทั้งงวด (ใบ 05) · ไม่มี = ไม่ใช่ */
   readonly periodClose?: true;
+  /**
+   * ผลส่งเข้า uploader สำเร็จ (รวม `duplicate:true`) — ไม่มี = ยังไม่เคยส่งสำเร็จ ขาอัปโหลดใช้ตัดสินว่าจะข้ามไฟล์นี้
+   * ในรอบถัดไปไหม (ticket 01 ของ `exporter-upload-to-uploader`) · ไม่ตรวจกับ server ซ้ำทุกรอบ เพื่อไม่ต้องยิง
+   * network สำหรับไฟล์ที่ settled แล้ว
+   */
+  readonly uploaded?: { readonly at: string; readonly fileId: string };
 };
 
 /**
@@ -112,6 +118,17 @@ export async function recordPublished(
       ...moved.map((m): SupersededEntry => ({ file: m.to, supersededAt: movedAt, was: was.get(m.from) ?? null })),
     ],
   });
+}
+
+/**
+ * บันทึกว่าไฟล์หนึ่งถูกส่งเข้า uploader สำเร็จแล้ว (หรือได้ `duplicate:true` กลับมา) — เรียกทันทีหลังส่งแต่ละไฟล์
+ * ไม่รอจบทั้งรอบอัปโหลด (เหมือน `recordPublished` ของขา export) เพื่อให้รันคำสั่งอัปโหลดซ้ำไม่ส่งไฟล์ที่สำเร็จแล้วซ้ำ
+ * (ticket 01 ของ `exporter-upload-to-uploader`)
+ */
+export async function recordUploaded(folder: string, file: string, result: { readonly at: string; readonly fileId: string }): Promise<void> {
+  const manifest = await readRawManifest(folder);
+  if (manifest === null) throw new Error(`ไม่มี ${RAW_MANIFEST} ในโฟลเดอร์ ${folder} — บันทึกผลอัปโหลดไม่ได้`);
+  await writeRawManifest(folder, { ...manifest, files: manifest.files.map((e) => (e.file === file ? { ...e, uploaded: result } : e)) });
 }
 
 /** เขียนไฟล์ชั่วคราวแล้ว rename ทับ — manifest เดิมไม่หายถ้าเขียนไม่สำเร็จ */

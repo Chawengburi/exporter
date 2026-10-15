@@ -12,7 +12,7 @@ import {
   recordRun,
   type ReportOutcome,
 } from '../src/core/run-record.ts';
-import { publishRawFiles, type RawFileEntry } from '../src/core/raw-manifest.ts';
+import { RAW_MANIFEST, publishRawFiles, recordPublished, recordUploaded, type RawFileEntry, type RawManifest } from '../src/core/raw-manifest.ts';
 
 const ok = (report: string, rows = 3): ReportOutcome => ({
   report,
@@ -211,4 +211,30 @@ test('🔴 _summary.txt ของโฟลเดอร์ที่มีแต�
   const summary = await readFile(path.join(folder, '_summary.txt'), 'utf8');
   assert.doesNotMatch(summary.split('\n')[0]!, /ข้อมูลถึง/);
   assert.match(summary.split('\n')[0]!, /ภาพปิดงวด[\s\S]*2026-09-30/);
+});
+
+// ticket 01 ของ exporter-upload-to-uploader: track สถานะอัปโหลดในเครื่อง
+
+test('recordUploaded: บันทึก uploaded เข้า _manifest.json ของไฟล์เดียว ไม่กระทบไฟล์อื่น', async () => {
+  const folder = await mkdtemp(path.join(tmpdir(), 'raw-manifest-'));
+  const base: Omit<RawFileEntry, 'file' | 'report'> = {
+    site: 'hoteltime', label: 'Arrivals', family: 'per-day', runKind: 'daily',
+    range: { from: '2026-10-14', to: '2026-10-14' }, actualRange: null, takenAt: '2026-10-14T12:00:00+07:00',
+    sheets: ['export'], bytes: 100, sha256: 'aa'.repeat(32), source: 'https://example.invalid',
+    filterColumn: 'Date', filterNote: 'x',
+  };
+  const entryA: RawFileEntry = { ...base, file: 'a.xlsx', report: 'arrivals' };
+  const entryB: RawFileEntry = { ...base, file: 'b.xlsx', report: 'departures' };
+  await recordPublished(folder, [entryA, entryB], [], new Set(['a.xlsx', 'b.xlsx']), '2026-10-14T05:00:00.000Z');
+
+  await recordUploaded(folder, 'a.xlsx', { at: '2026-10-15T06:00:00.000Z', fileId: 'file123' });
+
+  const manifest = JSON.parse(await readFile(path.join(folder, RAW_MANIFEST), 'utf8')) as RawManifest;
+  assert.deepEqual(manifest.files.find((f) => f.file === 'a.xlsx')?.uploaded, { at: '2026-10-15T06:00:00.000Z', fileId: 'file123' });
+  assert.equal(manifest.files.find((f) => f.file === 'b.xlsx')?.uploaded, undefined);
+});
+
+test('recordUploaded: โฟลเดอร์ที่ไม่มี _manifest.json เลย throw ข้อความชัดเจน', async () => {
+  const folder = await mkdtemp(path.join(tmpdir(), 'raw-manifest-empty-'));
+  await assert.rejects(recordUploaded(folder, 'a.xlsx', { at: 'x', fileId: 'y' }), /ไม่มี.*_manifest\.json/);
 });

@@ -267,6 +267,27 @@ program
   });
 
 program
+  .command('upload')
+  .description(
+    'ส่งไฟล์ดิบของโฟลเดอร์รอบหนึ่งเข้า uploader จริง (ticket 01-04 ของ exporter-upload-to-uploader — HotelTime เท่านั้นตอนนี้ ' +
+      'retry ความล้มเหลวชั่วคราวเอง กัน as_of ย้อนหลัง และข้ามรายงานว่าง — ดู ticket 05-08 สำหรับแจ้งเตือน/status/Windmill/FoodStory)',
+  )
+  .requiredOption('--folder <path>', 'โฟลเดอร์รอบที่มี _manifest.json/_run.json เช่น data/hoteltime/daily/2026-10/2026-10-15')
+  .option('--data <dir>', 'โฟลเดอร์คลัง (ค่าเริ่มต้น exporter/data) — เก็บ state ของ as_of/รายงานว่างไว้ที่นี่')
+  .option('--json', 'พิมพ์ผลเป็น JSON', false)
+  .action(async (opts: { folder: string; data?: string; json: boolean }) => {
+    const { describeUploadResult, uploadFolder } = await import('./upload.ts');
+    try {
+      const result = await uploadFolder({ folder: opts.folder, ...(opts.data ? { dataDir: opts.data } : {}) });
+      process.stdout.write(opts.json ? `${JSON.stringify(result, null, 2)}\n` : describeUploadResult(result));
+      process.exitCode = result.stuck > 0 || result.rejected > 0 ? 1 : 0;
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+    }
+  });
+
+program
   .command('reports')
   .description('แสดงรายงานทั้งหมดที่รองรับ')
   .addOption(siteOption('site ที่จะแสดง'))
