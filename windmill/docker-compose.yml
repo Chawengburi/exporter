@@ -111,6 +111,11 @@ services:
       - MODE=worker
       - WORKER_GROUP=custom
       - FAVOR_UNSHARE_PID=true
+      # 🔴 ตัด `--user --map-root-user` (ค่าเริ่มต้นของ Windmill) ออกจาก flags ของ unshare — เจอจริงบน Ubuntu 2026-10-20: ไฟล์บน host
+      # เป็นของ uid 1000 (`.env` mode 600) แต่ user namespace map แค่ root ของ container เข้าไป ทำให้ job อ่าน/เขียนไฟล์ของ uid อื่น
+      # ไม่ได้เลย (EACCES ที่ .env แล้วก็จะเป็นที่ data/ ต่อ) · Mac (Docker Desktop) ไม่เจอเพราะ virtiofs แสดงทุกไฟล์เป็น root ·
+      # container นี้ privileged รันเป็น root จริงอยู่แล้ว ไม่ต้องใช้ user namespace · ยังคง PID namespace ไว้ (กัน chromium ค้างหลัง job จบ)
+      - UNSHARE_ISOLATION_FLAGS=--pid --fork --mount-proc
       # exporter ใช้เวลาท้องถิ่นทั้งชื่อโฟลเดอร์ baseline/backfill, "วันนี้" ของรอบรายวัน และเวลาใน _summary.txt —
       # ไม่ตั้งจะเป็น UTC (เจอจริง 2026-10-07: รอบ 12:00 เขียน "รันล่าสุด 05:01") และช่วง 00:00–07:00 วันที่จะเลื่อนไปหนึ่งวัน
       # ⚠️ ค่านี้ไม่ถึงตัวงาน — Windmill ไม่ส่ง env ของ container ต่อให้ job (เจอ 2026-10-08: จบ 18:48 แต่สรุปเขียน 11:48)
