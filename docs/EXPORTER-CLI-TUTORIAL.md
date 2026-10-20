@@ -203,7 +203,7 @@ exporter export --report all --last-days 30
 
 ### 4.1 รายวัน (พนักงาน — วันละครั้ง)
 
-พนักงานดับเบิลคลิกไอคอน **"ดึง FoodStory เมื่อวาน"** บน Desktop แล้วกด captcha ตาม
+พนักงานดับเบิลคลิกไอคอน **"Exporter - FoodStory Daily"** บน Desktop แล้วกด captcha ตาม
 [คู่มือพนักงาน](./FOODSTORY-DAILY-STAFF-GUIDE.md) — ไอคอนรันคำสั่งนี้:
 
 ```bash

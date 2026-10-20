@@ -1,5 +1,5 @@
 #!/bin/bash
-# วางไฟล์ "ดึง FoodStory เมื่อวาน" ไว้บน Desktop ของผู้ใช้ที่รันคำสั่งนี้ (ticket 02 ของ exporter-ubuntu-deploy)
+# วางไฟล์ "Exporter - FoodStory Daily" ไว้บน Desktop ของผู้ใช้ที่รันคำสั่งนี้ (ticket 02 ของ exporter-ubuntu-deploy)
 #
 #   bash exporter/launchers/install-desktop-launcher.sh      ← รันในบัญชีของคนที่จะใช้เครื่อง ห้ามใส่ sudo
 #
@@ -9,7 +9,7 @@
 # รันซ้ำได้ · ไม่เขียนทับไฟล์ชื่อเดียวกันที่ไม่ได้สร้างจากสคริปต์นี้ · ตรวจทุกปลายทางก่อนเขียน (ไม่ติดตั้งครึ่งเดียว)
 set -euo pipefail
 
-NAME="ดึง FoodStory เมื่อวาน"
+NAME="Exporter - FoodStory Daily"
 MARKER="X-Chawengburi-Launcher=foodstory-daily"
 TARGET="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/foodstory-daily.command"
 [ -f "$TARGET" ] || { echo "✘ ไม่พบ $TARGET" >&2; exit 1; }

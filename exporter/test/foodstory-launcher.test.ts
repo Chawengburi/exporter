@@ -167,7 +167,7 @@ test('ดับเบิลคลิกซ้ำระหว่างรอบ�
 
 test('เรียกผ่าน symlink บน Desktop: ยังหาโฟลเดอร์ exporter เจอ', async () => {
   const fake = await fakeExporter({ reports: all(49, { status: 'ok' }) });
-  const link = path.join(await tempDir('fs-desktop-'), 'ดึง FoodStory เมื่อวาน.command');
+  const link = path.join(await tempDir('fs-desktop-'), 'Exporter - FoodStory Daily.command');
   await symlink(fake.launcher, link);
   const { code, out } = run(link);
   assert.equal(code, 0, out);

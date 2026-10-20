@@ -13,7 +13,7 @@
 
 ### 1. ดับเบิลคลิกไฟล์บน Desktop
 
-![ไฟล์ "ดึง FoodStory เมื่อวาน" บน Desktop](images/foodstory-daily/1-desktop-file.svg)
+![ไฟล์ "Exporter - FoodStory Daily" บน Desktop](images/foodstory-daily/1-desktop-file.svg)
 
 หน้าต่างสีดำ (Terminal) จะเปิดขึ้นมาพร้อมคำแนะนำ — ไม่ต้องพิมพ์อะไร
 
@@ -80,8 +80,8 @@
    bash exporter/launchers/install-desktop-launcher.sh
    ```
 
-   - macOS: ได้ symlink ชื่อ "ดึง FoodStory เมื่อวาน" บน Desktop (อย่าก๊อปไฟล์ .command เอง — ก๊อปแล้วจะหาโฟลเดอร์ exporter ไม่เจอ)
-   - Ubuntu: ได้ไอคอน "ดึง FoodStory เมื่อวาน" บน Desktop และในเมนูแอป (ค้นชื่อได้) · ถ้าดับเบิลคลิกแล้วขึ้นว่าไม่ไว้ใจ (untrusted)
+   - macOS: ได้ symlink ชื่อ "Exporter - FoodStory Daily" บน Desktop (อย่าก๊อปไฟล์ .command เอง — ก๊อปแล้วจะหาโฟลเดอร์ exporter ไม่เจอ)
+   - Ubuntu: ได้ไอคอน "Exporter - FoodStory Daily" บน Desktop และในเมนูแอป (ค้นชื่อได้) · ถ้าดับเบิลคลิกแล้วขึ้นว่าไม่ไว้ใจ (untrusted)
      ให้คลิกขวาที่ไอคอน → **Allow Launching** ครั้งเดียว
    - รันซ้ำได้ · ถ้ามีไฟล์ชื่อเดียวกันที่ไม่ได้สร้างจากคำสั่งนี้ จะไม่เขียนทับ (ให้ดูแล้วลบเอง)
 5. ลองดับเบิลคลิกเองหนึ่งรอบ — macOS ครั้งแรกอาจถามสิทธิ์ให้ Terminal ให้กดอนุญาต · Ubuntu จะเปิดหน้าต่าง Terminal ให้เอง

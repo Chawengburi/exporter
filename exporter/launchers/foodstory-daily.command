@@ -49,8 +49,8 @@ nvm_default_node() {
   . "$NVM_DIR/nvm.sh" >/dev/null 2>&1 && nvm which default 2>/dev/null
 }
 NODE=""
-# macOS: Homebrew (/opt/homebrew, /usr/local) · Ubuntu: apt/NodeSource (/usr/bin) · ทั้งคู่: nvm default ข้างล่าง
-for candidate in "$(command -v node 2>/dev/null)" /opt/homebrew/bin/node /usr/local/bin/node /usr/bin/node; do
+# macOS: Homebrew (/opt/homebrew, /usr/local) · Ubuntu: apt/NodeSource (/usr/bin) หรือแตกไฟล์เองใน ~/.local/node (ไม่ต้องใช้ sudo) · ทั้งคู่: nvm default ข้างล่าง
+for candidate in "$(command -v node 2>/dev/null)" /opt/homebrew/bin/node /usr/local/bin/node /usr/bin/node "$HOME/.local/node/bin/node"; do
   if [ -n "$candidate" ] && [ -x "$candidate" ] && node_ok "$candidate"; then NODE="$candidate"; break; fi
 done
 if [ -z "$NODE" ]; then

@@ -270,6 +270,6 @@ else
 fi
 echo
 [ "$WINDMILL_UP" = 1 ] && echo "   • HotelTime: รันเองทุกวัน 12:00 (เก็บตก 15:00/18:00) — ดูประวัติที่ http://localhost:8000/runs · ล็อกอิน admin@windmill.dev รหัสอยู่ใน windmill/.admin-password"
-echo "   • FoodStory: ดับเบิลคลิกไอคอน \"ดึง FoodStory เมื่อวาน\" บน Desktop (ครั้งแรกอาจต้องคลิกขวา → Allow Launching)"
+echo "   • FoodStory: ดับเบิลคลิกไอคอน \"Exporter - FoodStory Daily\" บน Desktop (ครั้งแรกอาจต้องคลิกขวา → Allow Launching)"
 echo "   • คู่มือพนักงาน: docs/FOODSTORY-DAILY-STAFF-GUIDE.md"
 echo "════════════════════════════════════════════════════════"

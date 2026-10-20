@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 const LAUNCHERS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'launchers');
 const INSTALL = path.join(LAUNCHERS, 'install-desktop-launcher.sh');
 const TARGET = path.join(LAUNCHERS, 'foodstory-daily.command');
-const NAME = 'ดึง FoodStory เมื่อวาน';
+const NAME = 'Exporter - FoodStory Daily';
 
 const homes: string[] = [];
 after(async () => {

@@ -433,7 +433,7 @@ function foodstoryDailySection(view: SiteView, now: Clock, out: SectionBuilder):
       : since === 1 ? 'FoodStory ยังไม่ได้กดวันนี้'
       : notFetched ? 'FoodStory กดวันนี้แล้วแต่ยังมีวันที่ขาด'
       : 'FoodStory กดวันนี้แล้วแต่รายงานภาพ/ภาพปิดงวดยังไม่ครบ';
-    out.add('action', `${when} — ดับเบิลคลิก "ดึง FoodStory" บน Desktop แล้วกด captcha (กดครั้งเดียวได้วันที่ขาดไม่เกิน ${CATCH_UP_CAP_DAYS} วัน ` +
+    out.add('action', `${when} — ดับเบิลคลิก "Exporter - FoodStory Daily" บน Desktop แล้วกด captcha (กดครั้งเดียวได้วันที่ขาดไม่เกิน ${CATCH_UP_CAP_DAYS} วัน ` +
       '+ รายงานภาพของวันนี้)');
   }
   if (view.backlogDays > 0) {
