@@ -22,7 +22,8 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PASSWORD_FILE = path.join(HERE, '.admin-password');
-const ADMIN_EMAIL = 'admin@email.com'; // ของจริงในเครื่องนี้ไม่ใช่ default — เปลี่ยนมาก่อนหน้านี้แล้ว (เจอ 2026-10-19)
+// เครื่องที่เปลี่ยนอีเมล admin ไปแล้วตั้ง WM_ADMIN_EMAIL=... ตอนรัน · เครื่องใหม่ใช้ค่าเริ่มต้นของ Windmill
+const ADMIN_EMAIL = process.env.WM_ADMIN_EMAIL ?? 'admin@windmill.dev';
 const DEFAULT_PASSWORD = 'changeme';
 const WORKSPACE = 'admins';
 const WORKER_GROUP = 'worker__custom';
