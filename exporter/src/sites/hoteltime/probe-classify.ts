@@ -149,6 +149,6 @@ export function judgeProbe(o: ProbeObservation): ProbeVerdict {
     }
     return { verdict: 'pass', dailyMode: 'ledger', reason: `กรองช่วงวันที่ได้ และผลมีคอลัมน์วันที่ ${o.dateColumns.join(', ')}` };
   }
-  if (o.singleDates.length > 0) return { verdict: 'pass', dailyMode: 'snapshot', reason: 'เลือกได้ทีละวัน — ภาพของวันนั้น' };
+  if (o.singleDates.length > 0) return { verdict: 'pass', dailyMode: 'snapshot', reason: 'เลือกได้ทีละวัน — snapshot ของวันนั้น' };
   return { verdict: 'pass', dailyMode: 'whole', reason: 'ไม่มีตัวกรองวันที่ — เก็บเป็นภาพรวมของวันนั้นทุกวัน' };
 }

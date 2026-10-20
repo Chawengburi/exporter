@@ -4,7 +4,7 @@
 > เปลี่ยนจาก `PMS_*` เป็น `HOTELTIME_*` · เอกสาร/ticket ก่อนวันนั้นยังเรียกชื่อเดิม
 
 > **โมเดลรอบรายวัน (2026-10-14, `.scratch/exporter-daily-per-day-raw/`):** เก็บแค่ **ไฟล์ดิบ** (ADR-0007) · **รายงานตามวัน**
-> ดึงไฟล์ละ **วันของข้อมูล** · **รายงานภาพ** ถ่าย ณ เวลาที่รัน (ADR-0008) · เติมวันที่ขาดเองตั้งแต่ **วันเริ่มใช้งาน** (ADR-0009) · แจ้งผลทาง
+> ดึงไฟล์ละ **วันของข้อมูล** · **รายงาน snapshot** ถ่าย ณ เวลาที่รัน (ADR-0008) · เติมวันที่ขาดเองตั้งแต่ **วันเริ่มใช้งาน** (ADR-0009) · แจ้งผลทาง
 > Discord · ศัพท์ทั้งหมดอยู่ใน [`CONTEXT.md`](../CONTEXT.md)
 
 ดึงรายงานจาก **HotelTime PMS** (ระบบโรงแรม) และ **FoodStory** (ระบบร้านอาหาร) ด้วย Playwright แล้วเก็บไฟล์ดิบลงดิสก์
@@ -23,7 +23,7 @@
 | Phase A — แผนที่เมนู | ✅ ได้ครบแล้ว ดู [`recon/MENU.md`](./recon/MENU.md) |
 | Phase A — สำรวจ filter/export ครบ 3 รายงานแรก | ✅ เสร็จ ดู [`recon/NOTES.md`](./recon/NOTES.md) |
 | `exporter export` — ดึงไฟล์ดิบ + ตรวจ + `_manifest.json` | ✅ HotelTime 48 รายงาน · FoodStory 49 รายงาน |
-| รอบรายวันแบบไฟล์ละวันของข้อมูล + เติมวันที่ขาดเอง + ภาพปิดงวด + baseline | ✅ 2026-10-14 (ใบ 01–09 ของ `exporter-daily-per-day-raw`) |
+| รอบรายวันแบบไฟล์ละวันของข้อมูล + เติมวันที่ขาดเอง + snapshot ปิดงวด + baseline | ✅ 2026-10-14 (ใบ 01–09 ของ `exporter-daily-per-day-raw`) |
 | `exporter status` + แจ้งเตือน Discord | ✅ 2026-10-14 (ใบ 07–08) |
 | ชั้นตรวจไฟล์ (`sites/hoteltime/verify.ts` + `core/verify.ts`) | ✅ เสร็จ — จับบั๊กจริงไปแล้ว 1 ตัว |
 | รองรับหลาย site (`src/sites/<site>/`) | ✅ HotelTime 48 รายงาน + FoodStory 49 รายงาน (FoodStory ต้องมีคนแก้ reCAPTCHA ทุกรอบ รันบน Windmill ไม่ได้) · rename เป็น `exporter` แล้ว 2026-09-28 (ADR-0004) |
@@ -51,9 +51,9 @@ npm link                            # ทำให้เรียก `exporter` 
 - **รายงานตามวัน** (HotelTime 22 · FoodStory 42 — ledger/ยอดของวันเดียว) ขอ Site ทีละ **วันของข้อมูล** ได้ไฟล์ละวัน
   `<วันของข้อมูล>__<id>.xlsx` (เช่น `2026-10-13__postings.xlsx`) ลง `data/<site>/daily/<YYYY-MM>/<วันของข้อมูล>/` · วันของข้อมูลปกติ =
   **เมื่อวาน** (ถึงกำหนดตั้งแต่ 07:00 เวลาไทย — รายงานยกเลิกของ HotelTime ตัดวันตาม UTC)
-- **รายงานภาพ** (HotelTime 26 · FoodStory 7 — สถานะห้อง แขก สต็อก ข้อมูลหลัก ยอดสะสม พยากรณ์) ถ่ายวันละครั้ง ณ เวลาที่รัน ชื่อ
-  `<YYYYMMDDTHHMMSS+0700>__<id>.xlsx` ลงโฟลเดอร์ของวันนี้ · ภาพของวันที่ผ่านไปแล้ว**ดึงย้อนไม่ได้**
-- **ภาพปิดงวด**: 7 วันแรกของเดือน/ปีใหม่ ถ่ายยอดสะสมของงวดที่จบ ชื่อ `<ต้นงวด>--<สิ้นงวด>__<id>.xlsx` ลงโฟลเดอร์ของวันสุดท้ายของงวด
+- **รายงาน snapshot** (HotelTime 26 · FoodStory 7 — สถานะห้อง แขก สต็อก ข้อมูลหลัก ยอดสะสม พยากรณ์) ถ่ายวันละครั้ง ณ เวลาที่รัน ชื่อ
+  `<YYYYMMDDTHHMMSS+0700>__<id>.xlsx` ลงโฟลเดอร์ของวันนี้ · snapshot ของวันที่ผ่านไปแล้ว**ดึงย้อนไม่ได้**
+- **snapshot ปิดงวด**: 7 วันแรกของเดือน/ปีใหม่ ถ่ายยอดสะสมของงวดที่จบ ชื่อ `<ต้นงวด>--<สิ้นงวด>__<id>.xlsx` ลงโฟลเดอร์ของวันสุดท้ายของงวด
 - **เติมวันที่ขาดเอง**: ทุกรอบดึง (รายงาน, วันของข้อมูล) ที่ยังไม่สำเร็จตั้งแต่ **วันเริ่มใช้งาน** (`EXPORTER_GO_LIVE` ใน `.env`) ใหม่สุดก่อน
   ไม่เกิน 3 วันต่อรอบ (เพดานจาก timeout 15 นาทีของ Windmill) · ไม่ตั้งวันเริ่มใช้งาน = ดึงแค่เมื่อวาน · **ว่าง** (เว็บไม่มีรายการ) นับว่าสำเร็จ ·
   ไม่มีงาน = จบทันทีไม่เปิดเบราว์เซอร์ — รอบเก็บตก 15:00/18:00 ของ Windmill จึงเป็นคำสั่งเดียวกับรอบเที่ยง
@@ -76,15 +76,15 @@ npm link                            # ทำให้เรียก `exporter` 
 
 ### คำสั่งอื่น
 
-- `--date YYYY-MM-DD` (HotelTime): ดึงรายงานตามวันของวันนั้นวันเดียวใหม่ ไม่สนสถานะเดิม · ถึงเมื่อวาน · ไม่ถ่ายรายงานภาพ
+- `--date YYYY-MM-DD` (HotelTime): ดึงรายงานตามวันของวันนั้นวันเดียวใหม่ ไม่สนสถานะเดิม · ถึงเมื่อวาน · ไม่ถ่ายรายงาน snapshot
 - `--baseline` (HotelTime, ใบ 09): ดึงวันของข้อมูลที่เคยดึงแล้วใหม่ ไฟล์ละวันชื่อเดียวกับรอบรายวัน ลง `data/hoteltime/baseline/<วันที่รัน>/`
   (โฟลเดอร์รายวันไม่ถูกแตะ · `_run.json` ใช้ id `<รายงาน>@<วัน>`) · `--from/--to` หรือไม่ใส่ = `--baseline-interval-days` (30) วันล่าสุดถึงเมื่อวาน ·
-  รายงานภาพไม่มี baseline
+  รายงาน snapshot ไม่มี baseline
 - back-fill `--from`/`--to`/`--last-days` (HotelTime): ก้อนหลายวัน ชื่อช่วง `<from>--<to>__<id>.xlsx` ลง `data/hoteltime/backfill/<เวลาที่รัน>/`
   · รายงาน dailyOnly (ADR-0003) ถูกข้าม
 - FoodStory รายเดือน (ไม่ใส่ `--daily`): เดือนที่แล้วทั้งเดือน ลง `data/foodstory/monthly/<YYYY-MM>/` · ดึงเดือนเดิมซ้ำวันอื่นได้
   `monthly/<YYYY-MM>__<วันที่ดึง>/` · เกิน 5,000 แถวผ่าช่วงเป็น `<id>_part<n>.xlsx` (part ต้องต่อกันจึงครบเดือน)
-- `status`: สรุปหน้าเดียวต่อ Site × วันของข้อมูล (มีข้อมูล / ว่าง / ล้ม / ยังไม่ได้ดึง + รายงานภาพ + ภาพปิดงวด + สิ่งที่ต้องทำ) อ่านคลังอย่างเดียว ·
+- `status`: สรุปหน้าเดียวต่อ Site × วันของข้อมูล (มีข้อมูล / ว่าง / ล้ม / ยังไม่ได้ดึง + รายงาน snapshot + snapshot ปิดงวด + สิ่งที่ต้องทำ) อ่านคลังอย่างเดียว ·
   `--json` คือโครงสร้างที่ใช้สร้างข้อความ Discord · exit 0 ปกติ/มีสิ่งต้องทำ · 1 มีปัญหา · 2 ใช้ผิด
 - `notify`: ส่ง Discord เอง (`--summary` ส่งสรุปของวันนี้ · `--dry-run` แค่แสดง) — รอบรายวันเรียกเองอยู่แล้ว: สรุปวันละครั้งหลังรอบ
   HotelTime ที่จบหลัง 18:00 · แจ้งเตือนทันทีเมื่อ status มีปัญหา/ขาดเกินเพดาน/FoodStory ไม่ได้กดมา 2 วัน · ไม่ซ้ำในวันเดียว ·
@@ -186,7 +186,7 @@ src/
   index.ts                    commander wiring · --site hoteltime | foodstory (ADR-0004)
   core/                       เฉพาะของที่พิสูจน์แล้วว่าไม่ผูกกับ site ไหนเลย
     order.ts                  ใบสั่ง · ซอยก้อนรายเดือน · ผ่าครึ่งเมื่อชนเพดาน · ช่วงของ back-fill/baseline
-    run-planner.ts            ตัววางแผนรอบ (ฟังก์ชันล้วน): วันไหน/รายงานไหนต้องดึง · เติมวันที่ขาด · ภาพปิดงวด · baseline
+    run-planner.ts            ตัววางแผนรอบ (ฟังก์ชันล้วน): วันไหน/รายงานไหนต้องดึง · เติมวันที่ขาด · snapshot ปิดงวด · baseline
     run-record.ts             _run.json / _summary.txt · placement.ts ชื่อไฟล์ ISO + โฟลเดอร์ · raw-manifest.ts _manifest.json + _superseded/
     status.ts                 exporter status · discord.ts ข้อความ + ตัวส่ง Discord · browser-env.ts env ของเบราว์เซอร์ไม่มีความลับ
     redact.ts                 กันความลับหลุดลง log
@@ -200,14 +200,14 @@ src/
     sweep-classify.ts         ตัวจำแนกผล sweep (บริสุทธิ์ล้วน แต่ผูกกับ pattern control ของ ASP.NET)
     verify.ts                 ส่วนที่ผูกกับรูปร่าง Report ของ HotelTime (verifyChunk/RowCapError)
     export.ts / login.ts / sweep.ts   คำสั่งจริง — สั่งจาก index.ts
-    reports/                  หนึ่งไฟล์ต่อหนึ่งรายงาน — 48 ใบ แต่ละใบบอกตระกูล (ตามวัน/ภาพ) และงวด
+    reports/                  หนึ่งไฟล์ต่อหนึ่งรายงาน — 48 ใบ แต่ละใบบอกตระกูล (ตามวัน/snapshot) และงวด
   sites/foodstory/            FoodStory — config.ts (prefix FOODSTORY_*) · login ต้องมีคนแก้ reCAPTCHA · daily.ts รอบรายวันใน login เดียว
                               reports/ 47 ใบ + salebychannel.ts + reservation-report.ts = 49 ใบใน --report all
   notify.ts                   แจ้ง Discord หลังรอบรายวัน / exporter notify (ประกอบ status + discord + บันทึกที่ส่งแล้ว)
 recon/NOTES.md          บันทึกเส้นทาง/filter/กับดักที่เจอตอนสำรวจ — ที่มาของทุกค่าในโค้ด
 recon/menu-sweep.json   ผล sweep ทั้งเว็บล่าสุด (สคริปต์ล้วน ดู ADR-0001)
 data/                   คลังผลลัพธ์ (ADR-0005) — ทุกโฟลเดอร์รอบมีไฟล์ดิบ + _manifest.json + _summary.txt + _run.json (gitignored)
-  hoteltime/daily/<YYYY-MM>/<YYYY-MM-DD>/   รอบรายวัน: โฟลเดอร์ = วันของข้อมูล (และรายงานภาพที่ถ่ายวันนั้น) + daily/latest
+  hoteltime/daily/<YYYY-MM>/<YYYY-MM-DD>/   รอบรายวัน: โฟลเดอร์ = วันของข้อมูล (และรายงาน snapshot ที่ถ่ายวันนั้น) + daily/latest
   hoteltime/baseline/<YYYY-MM-DD>/          --baseline (วันที่รัน) ไฟล์ละวันของข้อมูล + baseline/latest
   hoteltime/backfill/<YYYY-MM-DD_HHMMSS>/   back-fill / --from/--to / --last-days โฟลเดอร์ละรอบ
   foodstory/daily/<YYYY-MM>/<YYYY-MM-DD>/   FoodStory --daily: โฟลเดอร์ = วันของข้อมูล + daily/latest

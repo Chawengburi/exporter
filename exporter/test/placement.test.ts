@@ -32,12 +32,12 @@ test('🔴 ชื่อไฟล์หลายวันใช้ตัวคั
   assert.equal(dataFileName('hoteltime', range, 'reservations-search', 'xlsx'), 'hoteltime__2026-10-01--2026-10-31__reservations-search.xlsx');
 });
 
-test('🔴 ชื่อไฟล์รายงานภาพ: <site>__เวลาที่ถ่ายแบบ ISO ย่อ YYYYMMDDTHHMMSS+0700 (ไม่มี ":" — เปิดบน Windows ได้)', () => {
+test('🔴 ชื่อไฟล์รายงาน snapshot: <site>__เวลาที่ถ่ายแบบ ISO ย่อ YYYYMMDDTHHMMSS+0700 (ไม่มี ":" — เปิดบน Windows ได้)', () => {
   // 05:00:00Z = เที่ยงวันเวลาไทย
   assert.equal(pictureFileName('hoteltime', new Date('2026-10-13T05:00:00Z'), 'arrivals', 'xlsx'), 'hoteltime__20261013T120000+0700__arrivals.xlsx');
 });
 
-test('🔴 ชื่อไฟล์รายงานภาพตัดวันตามเวลาไทย — 17:00Z คือเที่ยงคืนของวันถัดไปในไทย', () => {
+test('🔴 ชื่อไฟล์รายงาน snapshot ตัดวันตามเวลาไทย — 17:00Z คือเที่ยงคืนของวันถัดไปในไทย', () => {
   assert.equal(pictureFileName('foodstory', new Date('2026-10-12T17:00:00Z'), 'arrivals', 'xlsx'), 'foodstory__20261013T000000+0700__arrivals.xlsx');
   assert.equal(pictureFileName('foodstory', new Date('2026-10-12T16:59:59Z'), 'arrivals', 'xlsx'), 'foodstory__20261012T235959+0700__arrivals.xlsx');
 });

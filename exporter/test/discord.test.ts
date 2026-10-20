@@ -26,7 +26,7 @@ const outcome = (id: string, r: Result, day: string): RunRecord['reports'][strin
     ? { report: id, status: 'ok', rows: r === 'data' ? 5 : 0, range: { from: day, to: day }, actualRange: null, files: [], attempts: 1, finishedAt: `${day}T06:00:00.000Z` }
     : { report: id, status: 'failed', error: r[1], attempts: 3, finishedAt: `${day}T06:00:00.000Z` };
 const nextDay = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
-/** โฟลเดอร์ของวัน D: รายงานตามวันดึงเที่ยงของ D+1 · ภาพถ่ายเที่ยงของ D */
+/** โฟลเดอร์ของวัน D: รายงานตามวันดึงเที่ยงของ D+1 · snapshot ถ่ายเที่ยงของ D */
 function folder(day: string, perDay?: Record<string, Result>, pictures?: Record<string, Result>): Folder {
   const reports: Record<string, RunRecord['reports'][string]> = {};
   const runs: RunRecord['runs'][number][] = [];
@@ -56,15 +56,15 @@ const healthy = (): StoreSnapshot => ({
 const NONE = new Set<string>();
 const keysOf = (ms: ReturnType<typeof discordMessages>) => ms.flatMap((m) => m.keys);
 
-test('🔴 สรุปรายวัน: แต่ละ Site มีข้อมูลกี่รายงาน ว่างตัวไหน ภาพของวันนี้ครบไหม — ภาษาไทยสั้น · ปกติ = ไม่มีแจ้งเตือน', () => {
+test('🔴 สรุปรายวัน: แต่ละ Site มีข้อมูลกี่รายงาน ว่างตัวไหน snapshot ของวันนี้ครบไหม — ภาษาไทยสั้น · ปกติ = ไม่มีแจ้งเตือน', () => {
   const r = buildStatus(healthy(), thai('2026-10-14T18:30'), SETUP);
   const ms = discordMessages(r, { summary: true, alreadySent: NONE });
   assert.equal(ms.length, 1);
   const [summary] = ms;
   assert.deepEqual(summary!.keys, ['summary@2026-10-14']);
   assert.match(summary!.content, /2026-10-13/); // วันของข้อมูลที่สรุป
-  assert.match(summary!.content, /HotelTime[\s\S]*?มีข้อมูล 2\/3[^\n]*ว่าง 1 \(cancelled\)[^\n]*ภาพวันนี้ ครบ 2\/2/);
-  assert.match(summary!.content, /FoodStory[\s\S]*?มีข้อมูล 1\/2[^\n]*ว่าง 1 \(pay\)[^\n]*ภาพวันนี้ ครบ 1\/1/);
+  assert.match(summary!.content, /HotelTime[\s\S]*?มีข้อมูล 2\/3[^\n]*ว่าง 1 \(cancelled\)[^\n]*snapshot วันนี้ ครบ 2\/2/);
+  assert.match(summary!.content, /FoodStory[\s\S]*?มีข้อมูล 1\/2[^\n]*ว่าง 1 \(pay\)[^\n]*snapshot วันนี้ ครบ 1\/1/);
   assert.match(summary!.content, /ปกติ/);
   assert.ok(summary!.content.length < 2000);
   // เจ้าของระบบขอ 2026-10-19: header แบบ H1 + subtext เวลา เป็น section แยกจากรายละเอียดของแต่ละ site ด้วย Separator จริง
@@ -72,7 +72,7 @@ test('🔴 สรุปรายวัน: แต่ละ Site มีข้อ�
   assert.doesNotMatch(summary!.content, /ไม่สำเร็จ/); // วันนี้ไม่มีอะไรล้ม — section นี้ไม่โชว์เลย
 });
 
-// เจ้าของระบบขอ 2026-10-19: ความล้มเหลว (รายงานตามวัน/รายงานภาพ) ต้องมีชื่อรายงาน+เหตุผลแยกเป็น section ของตัวเอง
+// เจ้าของระบบขอ 2026-10-19: ความล้มเหลว (รายงานตามวัน/รายงาน snapshot) ต้องมีชื่อรายงาน+เหตุผลแยกเป็น section ของตัวเอง
 // ในข้อความสรุป (ไม่ใช่แค่ตัวเลข "ล้ม N" ปนอยู่กับสถิติปกติ) เพราะคนดูไม่ต้องเข้าใจโค้ดแต่จำชื่อรายงานได้
 test('🔴 สรุปรายวัน: รายงานที่ล้มขึ้นเป็น section "ไม่สำเร็จ" แยกต่างหาก พร้อมชื่อรายงานและเหตุผล ไม่ปนกับสถิติปกติ', () => {
   const s = healthy();
@@ -94,7 +94,7 @@ test('🔴 แจ้งเตือนเมื่อรายงานยัง
   assert.deepEqual(ms[0]!.keys, ['failed@hoteltime@2026-10-13@postings@2026-10-14']);
 });
 
-test('🔴 แจ้งเตือนเมื่อรายงานภาพของวันนี้ถ่ายไม่ได้ทุกรอบ · วันขาดเกินเพดาน · FoodStory ไม่ได้กดมา 2 วันขึ้นไป', () => {
+test('🔴 แจ้งเตือนเมื่อรายงาน snapshot ของวันนี้ถ่ายไม่ได้ทุกรอบ · วันขาดเกินเพดาน · FoodStory ไม่ได้กดมา 2 วันขึ้นไป', () => {
   const s = healthy();
   const store: StoreSnapshot = {
     ...s,
@@ -273,7 +273,7 @@ test('🔴 เรื่องที่ยังไม่หาย เตือ�
   assert.ok(keysOf(tomorrow).includes('failed@hoteltime@2026-10-13@postings@2026-10-15'), keysOf(tomorrow).join());
 });
 
-test('🔴 รายงานภาพของวันนี้ของ FoodStory ล้มหนึ่งครั้ง (พนักงานกดใหม่ได้) ยังไม่เตือนก่อน 18:30 — "ถ่ายไม่ได้ทุกรอบ"', () => {
+test('🔴 รายงาน snapshot ของวันนี้ของ FoodStory ล้มหนึ่งครั้ง (พนักงานกดใหม่ได้) ยังไม่เตือนก่อน 18:30 — "ถ่ายไม่ได้ทุกรอบ"', () => {
   const s = healthy();
   const store = { ...s, foodstoryDaily: [s.foodstoryDaily[0]!, s.foodstoryDaily[1]!, folder('2026-10-14', undefined, { current_stock: ['failed', 'x'] })] };
   assert.deepEqual(keysOf(discordMessages(buildStatus(store, thai('2026-10-14T11:00'), SETUP), { summary: false, alreadySent: NONE })), []);

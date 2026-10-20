@@ -4,7 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-// ใบ 09: `--baseline` ปฏิเสธดัง ๆ ก่อนเปิดเบราว์เซอร์และก่อนแตะบัญชี — รายงานภาพ (แบบ ADR-0003) และช่วงที่ถึงวันนี้ (ยังไม่ครบ)
+// ใบ 09: `--baseline` ปฏิเสธดัง ๆ ก่อนเปิดเบราว์เซอร์และก่อนแตะบัญชี — รายงาน snapshot (แบบ ADR-0003) และช่วงที่ถึงวันนี้ (ยังไม่ครบ)
 const EXPORTER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const run = (...args: string[]) => {
   const r = spawnSync(process.execPath, ['src/index.ts', 'export', '--site', 'hoteltime', ...args], {
@@ -14,10 +14,10 @@ const run = (...args: string[]) => {
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
 };
 
-test('🔴 --baseline กับรายงานภาพใบเดียว = ปฏิเสธ บอกเหตุผล (ไม่มี stack)', () => {
+test('🔴 --baseline กับรายงาน snapshot ใบเดียว = ปฏิเสธ บอกเหตุผล (ไม่มี stack)', () => {
   const r = run('--report', 'arrivals', '--baseline', '--from', '11/10/2026', '--to', '13/10/2026');
   assert.equal(r.code, 1, r.out);
-  assert.match(r.out, /arrivals[\s\S]*รายงานภาพไม่มี baseline/);
+  assert.match(r.out, /arrivals[\s\S]*รายงาน snapshot ไม่มี baseline/);
   assert.doesNotMatch(r.out, /at .*\.ts:\d+/);
 });
 

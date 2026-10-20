@@ -75,7 +75,7 @@ test('🔴 เพดานแถวนับรวมทุกชีต — 1,00
   assert.throws(() => verifyChunk(ledger, DAY, p, null), (err: Error) => err.name === 'RowCapError');
 });
 
-// ── รายงานที่คอลัมน์ท้ายเปลี่ยนตามข้อมูล (ใบ 05: ภาพปิดงวดปี 2025 ของ reservation-stats-segment) ──
+// ── รายงานที่คอลัมน์ท้ายเปลี่ยนตามข้อมูล (ใบ 05: snapshot ปิดงวดปี 2025 ของ reservation-stats-segment) ──
 // หัวตารางคือชื่อ segment ที่มีการจองในช่วงนั้น — ปี 2025 กับ 2026 มีคนละชุด จึงตรวจแค่คอลัมน์นำที่คงที่
 const segment = findReport('reservation-stats-segment')!;
 const YEAR_2025 = { from: utcDate(2025, 1, 1), to: utcDate(2025, 12, 31) };

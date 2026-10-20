@@ -138,7 +138,7 @@ export type IngestManifestEntry = {
 /**
  * แปลง `RawFileEntry` หนึ่งตัว + `as_of` ระดับรอบ (`reports[<report>].finishedAt` ของ `_run.json` — มีอยู่แล้ว
  * ไม่ต้องเพิ่ม field ใหม่) เป็น field ตามที่คู่มือ uploader ต้องการ · ไม่มี logic พิเศษต่อตระกูลรายงาน เพราะ
- * `entry.range` ครอบ semantics ของทุกตระกูล (วันเดียว/ยอดสะสม/งวดคงที่/ภาพปิดงวด) ไว้แล้วตาม spec
+ * `entry.range` ครอบ semantics ของทุกตระกูล (วันเดียว/ยอดสะสม/งวดคงที่/snapshot ปิดงวด) ไว้แล้วตาม spec
  * `exporter-daily-per-day-raw`
  */
 export function buildIngestPayload(entry: RawFileEntry, asOf: string, documentType: string): IngestManifestEntry {

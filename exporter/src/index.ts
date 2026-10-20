@@ -60,18 +60,18 @@ program
   .option('--last-days <n>', 'ดึงย้อนหลัง N วันจากวันนี้ รวมวันนี้ (n >= 1) — แทนการระบุ --from/--to')
   .option(
     '--daily',
-    'รอบรายวัน — hoteltime: รายงานตามวันดึงเมื่อวานไฟล์ละวัน + ถ่ายรายงานภาพของวันนี้ ทำเฉพาะที่ยังไม่สำเร็จ (รันซ้ำได้ทั้งวัน) · ' +
+    'รอบรายวัน — hoteltime: รายงานตามวันดึงเมื่อวานไฟล์ละวัน + ถ่ายรายงาน snapshot ของวันนี้ ทำเฉพาะที่ยังไม่สำเร็จ (รันซ้ำได้ทั้งวัน) · ' +
       'foodstory: เหมือนกันใน login เดียว (กด captcha ครั้งเดียว) · ใช้คู่กับ --from/--to/--last-days/--baseline ไม่ได้',
     false,
   )
   .option(
     '--date <YYYY-MM-DD>',
-    'hoteltime: ดึงรายงานตามวันของวันของข้อมูลนั้นวันเดียวใหม่ (ฉบับเก่าไม่หาย) · ไม่ถ่ายรายงานภาพ · ใช้คู่กับ --daily/--from/--to/--last-days/--baseline ไม่ได้',
+    'hoteltime: ดึงรายงานตามวันของวันของข้อมูลนั้นวันเดียวใหม่ (ฉบับเก่าไม่หาย) · ไม่ถ่ายรายงาน snapshot · ใช้คู่กับ --daily/--from/--to/--last-days/--baseline ไม่ได้',
   )
   .option(
     '--baseline',
     'hoteltime: ดึงรายงานตามวันของวันที่เคยดึงแล้วใหม่ ไฟล์ละวันของข้อมูล (ชื่อเดียวกับรอบรายวัน) ลง baseline/<วันที่รัน>/ · ไม่ใส่ --from/--to = ' +
-      'ช่วงเริ่มต้นถึงเมื่อวาน (--baseline-interval-days วัน) · รายงานภาพไม่มี baseline · ใช้คู่กับ --last-days/--daily ไม่ได้',
+      'ช่วงเริ่มต้นถึงเมื่อวาน (--baseline-interval-days วัน) · รายงาน snapshot ไม่มี baseline · ใช้คู่กับ --last-days/--daily ไม่ได้',
     false,
   )
   .option(
@@ -113,7 +113,7 @@ program
     }
 
     if (opts.site === 'foodstory') {
-      // FoodStory มีรอบรายเดือน (ค่าเริ่มต้น / --from --to) กับรอบรายวัน --daily (ใบ 06: เมื่อวาน + รอบเก็บตก + รายงานภาพ) — ไม่มี baseline/format/
+      // FoodStory มีรอบรายเดือน (ค่าเริ่มต้น / --from --to) กับรอบรายวัน --daily (ใบ 06: เมื่อวาน + รอบเก็บตก + รายงาน snapshot) — ไม่มี baseline/format/
       // เก็บตก · ปฏิเสธตรง ๆ แทนที่จะเงียบ ๆ เพิกเฉย flag ที่ผู้ใช้ตั้งใจส่งมา
       if (opts.baseline || opts.lastDays !== undefined || opts.baselineIntervalDays !== undefined || opts.date !== undefined) {
         console.error(

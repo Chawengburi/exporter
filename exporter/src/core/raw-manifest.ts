@@ -12,7 +12,7 @@ import { supersededPath, type SiteId } from './placement.ts';
  * ยังเขียน `_manifest.json` รูปเดิมของตัวเองจนกว่าจะย้ายมาในใบ 06 (ทั้งสองอยู่คนละโฟลเดอร์ของ Site ไม่ชนกัน)
  */
 
-/** รายงานตามวัน / รายงานภาพ (ADR-0008 · CONTEXT.md) */
+/** รายงานตามวัน / รายงาน snapshot (ADR-0008 · CONTEXT.md) */
 export type ReportFamily = 'per-day' | 'picture';
 
 export type RawFileEntry = {
@@ -23,11 +23,11 @@ export type RawFileEntry = {
   readonly label: string;
   readonly family: ReportFamily;
   readonly runKind: RunKind;
-  /** ช่วงวันของข้อมูลที่ไฟล์ครอบ (ISO date) — รายงานภาพคือช่วงที่ภาพนั้นสรุป เช่น ต้นเดือนถึงวันนี้ หรือวันปฏิบัติการ */
+  /** ช่วงวันของข้อมูลที่ไฟล์ครอบ (ISO date) — รายงาน snapshot คือช่วงที่ snapshot นั้นสรุป เช่น ต้นเดือนถึงวันนี้ หรือวันปฏิบัติการ */
   readonly range: { readonly from: string; readonly to: string };
   /** ช่วงวันที่ที่พบจริงในไฟล์ · null = รายงานที่ไม่มีคอลัมน์วันที่ให้วัด */
   readonly actualRange: { readonly from: string; readonly to: string } | null;
-  /** เวลาที่ได้ไฟล์มา เวลาไทยแบบ ISO มี offset (`2026-10-13T12:00:05+07:00`) — เวลาที่ถ่ายของรายงานภาพ */
+  /** เวลาที่ได้ไฟล์มา เวลาไทยแบบ ISO มี offset (`2026-10-13T12:00:05+07:00`) — เวลาที่ถ่ายของรายงาน snapshot */
   readonly takenAt: string;
   /** จำนวนแถวของไฟล์นี้ · ไม่มี = ไม่รู้รายไฟล์ (FoodStory ที่ผ่าเป็นหลายส่วน รู้แค่ยอดรวม) */
   readonly rows?: number;
@@ -45,7 +45,7 @@ export type RawFileEntry = {
   readonly filterNote: string;
   /** ระยะที่ baseline รอบนี้ตั้งใจครอบคลุม (เฉพาะ baseline) */
   readonly baselineIntervalDays?: number;
-  /** **ภาพปิดงวด** — ภาพของงวด (เดือน/ปี) ที่จบแล้วทั้งงวด (ใบ 05) · ไม่มี = ไม่ใช่ */
+  /** **snapshot ปิดงวด** — snapshot ของงวด (เดือน/ปี) ที่จบแล้วทั้งงวด (ใบ 05) · ไม่มี = ไม่ใช่ */
   readonly periodClose?: true;
   /**
    * ผลส่งเข้า uploader สำเร็จ (รวม `duplicate:true`) — ไม่มี = ยังไม่เคยส่งสำเร็จ ขาอัปโหลดใช้ตัดสินว่าจะข้ามไฟล์นี้
@@ -76,7 +76,7 @@ export const RAW_MANIFEST = '_manifest.json';
 
 /**
  * รวม manifest เดิมของโฟลเดอร์กับไฟล์ของรอบนี้ — เก็บรายการเดิมเฉพาะไฟล์ที่ยังอยู่ในโฟลเดอร์และไม่ถูกไฟล์ชื่อเดียวกันของรอบนี้แทน
- * (ไฟล์ของรายงานตามวันที่ถูกแทนหายจากดิสก์ไปแล้ว รายการของมันจึงหลุดเอง · ภาพฉบับก่อนยังอยู่ รายการจึงอยู่ต่อ) · เรียงตามรายงานแล้วชื่อไฟล์
+ * (ไฟล์ของรายงานตามวันที่ถูกแทนหายจากดิสก์ไปแล้ว รายการของมันจึงหลุดเอง · snapshot ฉบับก่อนยังอยู่ รายการจึงอยู่ต่อ) · เรียงตามรายงานแล้วชื่อไฟล์
  */
 export function mergeRawManifest(
   previous: readonly RawFileEntry[],
@@ -142,7 +142,7 @@ async function writeRawManifest(folder: string, manifest: RawManifest): Promise<
 /**
  * วางไฟล์ดิบลงโฟลเดอร์รอบด้วยชื่อ ISO (ADR-0007) หลังผ่านทุกด่านแล้ว — **ไม่ลบ ไม่ทับไฟล์ที่ export มาเลย** (ADR-0005):
  * ชื่อซ้ำกับไฟล์ที่มีอยู่และไบต์ต่างกัน → ไฟล์เดิมย้ายไป `_superseded/` ก่อน · ไบต์เหมือนกันทุก byte → เก็บชุดเดียว (ไม่ได้ข้อมูลหายแม้ byte เดียว)
- * · ไฟล์ชื่ออื่นของรายงานเดียวกัน (เช่น ภาพฉบับก่อน หรือช่วงวันอื่น) ไม่ถูกแตะ · rename จากที่พักในโฟลเดอร์เดียวกัน (ระบบไฟล์เดียวกัน ไม่คัดลอก)
+ * · ไฟล์ชื่ออื่นของรายงานเดียวกัน (เช่น snapshot ฉบับก่อน หรือช่วงวันอื่น) ไม่ถูกแตะ · rename จากที่พักในโฟลเดอร์เดียวกัน (ระบบไฟล์เดียวกัน ไม่คัดลอก)
  * · คืนรายการไฟล์ที่ถูกย้าย ให้ผู้เรียกบันทึกลง manifest
  */
 export async function publishRawFiles(

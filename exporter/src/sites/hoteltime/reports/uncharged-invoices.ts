@@ -7,7 +7,7 @@ import type { Report } from './_types.ts';
  * ใบแจ้งหนี้ค้างชำระ `invoices/UnchargedInvoices.aspx` (ticket 16 ของ exporter-daily-expansion-and-data-store) · recon อ่านอย่างเดียว
  * 2026-10-07 อยู่ใน `recon/NOTES.md`
  *
- * 🔴 ทั้งสองหน้าเป็น**รายการสถานะ ณ ตอนดึง** ไม่ใช่ ledger ที่สะสม — ใบที่ชำระครบแล้วหายไปจากรายการ จึงเก็บเป็นภาพของวันที่ดึง
+ * 🔴 ทั้งสองหน้าเป็น**รายการสถานะ ณ ตอนดึง** ไม่ใช่ ledger ที่สะสม — ใบที่ชำระครบแล้วหายไปจากรายการ จึงเก็บเป็น snapshot ของวันที่ดึง
  * (dailyOnly — ADR-0003): ไฟล์ของแต่ละวันคือ "ค้างอยู่อะไรบ้าง ณ วันนั้น" · เดิมทำ taxes เป็น ledger ย้อน 3 วัน ซึ่งให้แค่ใบค้างที่ออกใน
  * 3 วันล่าสุด (วันที่ทดสอบ = 0 จาก 12 ใบที่ค้างจริง) และไฟล์เก่าค้างใบที่จ่ายแล้วไว้จนถึง baseline ถัดไป — code review ticket 16
  */
@@ -33,7 +33,7 @@ export const unchargedInvoices: Report = {
   period: 'none',
   // ช่วงที่ค้นกว้างกว่า "วันนี้" ที่ชั้นตรวจเทียบ (ค้นตั้งแต่ 2024) — ด่าน "อยู่ในช่วง" ใช้ไม่ได้ · ตัวกรองยังพิสูจน์ได้จากหัวตาราง
   skipDateCoverageCheck: true,
-  chunk: { kind: 'whole', reason: 'ภาพของวันที่ดึง — ค้นทั้งช่วงทีเดียว (ค้างชำระ 12 ใบ ณ 2026-10-07)' },
+  chunk: { kind: 'whole', reason: 'snapshot ของวันที่ดึง — ค้นทั้งช่วงทีเดียว (ค้างชำระ 12 ใบ ณ 2026-10-07)' },
   // ถ้าวันหนึ่งค้างถึง 2000 ใบ ชั้นตรวจจะล้มดัง ๆ (ผ่าครึ่งวันเดียวไม่ได้) ซึ่งดีกว่าได้รายการขาดเงียบ ๆ
   hasRowCap: true,
   dateColumn: 'Issue date',
@@ -65,7 +65,7 @@ const S_ID = 'uncharged-invoices-by-customer';
 
 /**
  * แท็บ "by subjects" — ยอดค้างชำระรวมต่อลูกค้า แยกตามอายุหนี้ (ก่อนครบกำหนด / 0–30 / 31–60 / 61–90 / 91+ วัน) · ไม่มีตัวกรอง
- * เก็บเป็นภาพของวันที่ดึงทุกวัน (dailyOnly — ADR-0003)
+ * เก็บเป็น snapshot ของวันที่ดึงทุกวัน (dailyOnly — ADR-0003)
  */
 export const unchargedInvoicesByCustomer: Report = {
   id: S_ID,
@@ -76,7 +76,7 @@ export const unchargedInvoicesByCustomer: Report = {
   family: 'picture',
   period: 'none',
   skipDateCoverageCheck: true,
-  chunk: { kind: 'whole', reason: 'ภาพของวันที่ดึง ไม่มีตัวกรอง' },
+  chunk: { kind: 'whole', reason: 'snapshot ของวันที่ดึง ไม่มีตัวกรอง' },
   hasRowCap: false,
   dateColumn: 'Customer',
   filterNote: 'ยอดค้างชำระต่อลูกค้า ณ วันที่ดึง แยกตามอายุหนี้ — ไม่มีตัวกรองวันที่',

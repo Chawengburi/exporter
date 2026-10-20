@@ -157,7 +157,7 @@ const VERDICT_LABEL: Readonly<Record<ProbeVerdict['verdict'], string>> = {
   'no-export': '⚪ ไม่มีปุ่ม export',
   undetermined: '🟡 ต้องให้คนตัดสิน',
 };
-const MODE_LABEL = { ledger: 'ledger ย้อน 3 วัน', snapshot: 'ภาพของวันนั้น', whole: 'ภาพรวมทั้งก้อน' } as const;
+const MODE_LABEL = { ledger: 'ledger ย้อน 3 วัน', snapshot: 'snapshot ของวันนั้น', whole: 'ภาพรวมทั้งก้อน' } as const;
 
 function renderMarkdown(rows: readonly ProbeRow[], probedAt: string, keepDates: boolean): string {
   const order: ProbeVerdict['verdict'][] = ['pass', 'undetermined', 'no-data', 'no-export'];

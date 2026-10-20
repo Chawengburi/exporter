@@ -11,19 +11,19 @@ import { thaiClock, thaiDateOf, thaiToday } from './thai-time.ts';
  * · วันทุกวันเป็นวันตามปฏิทินไทย (ISO `YYYY-MM-DD`)
  */
 
-/** งวดของ **รายงานภาพ** สำหรับ **ภาพปิดงวด** (ใบ 05) — `none` = ภาพ ณ ขณะนั้น พยากรณ์ หรือช่วงเลื่อน ไม่มีงวดให้ปิด */
+/** งวดของ **รายงาน snapshot** สำหรับ **snapshot ปิดงวด** (ใบ 05) — `none` = snapshot ณ ขณะนั้น พยากรณ์ หรือช่วงเลื่อน ไม่มีงวดให้ปิด */
 export type ReportPeriod = 'month' | 'year' | 'none';
 
 export type PlannedReport = {
   readonly id: string;
   readonly family: ReportFamily;
-  /** ไม่ใส่ = ไม่มีภาพปิดงวด (รายงานตามวัน) */
+  /** ไม่ใส่ = ไม่มี snapshot ปิดงวด (รายงานตามวัน) */
   readonly period?: ReportPeriod;
 };
 
 /**
- * id ที่ใช้บันทึกผลของ **ภาพปิดงวด** ใน `_run.json` — แยกจากภาพปกติของรายงานเดียวกัน เพราะภาพปิดงวดอยู่ในโฟลเดอร์ของวันสุดท้ายของงวด
- * ซึ่งมีภาพปกติของวันนั้นอยู่แล้ว (`_run.json` เก็บได้หนึ่งสถานะต่อ id ต่อโฟลเดอร์)
+ * id ที่ใช้บันทึกผลของ **snapshot ปิดงวด** ใน `_run.json` — แยกจาก snapshot ปกติของรายงานเดียวกัน เพราะ snapshot ปิดงวดอยู่ในโฟลเดอร์ของวันสุดท้ายของงวด
+ * ซึ่งมี snapshot ปกติของวันนั้นอยู่แล้ว (`_run.json` เก็บได้หนึ่งสถานะต่อ id ต่อโฟลเดอร์)
  */
 export const PERIOD_CLOSE_SUFFIX = '@period-close';
 
@@ -35,8 +35,8 @@ export function periodCloseId(report: string): string {
 export type DayStatus = 'data' | 'empty' | 'failed';
 
 /**
- * ภาพรวมของที่เก็บข้อมูล: (รายงาน, วัน) → สถานะล่าสุด · วัน = วันของข้อมูลสำหรับรายงานตามวัน วันที่ดึงสำหรับรายงานภาพ และวันสุดท้ายของงวด
- * สำหรับภาพปิดงวด (id `<รายงาน>@period-close`) — ตรงกับโฟลเดอร์รายวันของวันนั้นพอดี (ADR-0005/0008) · key จาก `stateKey`
+ * ภาพรวมของที่เก็บข้อมูล: (รายงาน, วัน) → สถานะล่าสุด · วัน = วันของข้อมูลสำหรับรายงานตามวัน วันที่ดึงสำหรับรายงาน snapshot และวันสุดท้ายของงวด
+ * สำหรับ snapshot ปิดงวด (id `<รายงาน>@period-close`) — ตรงกับโฟลเดอร์รายวันของวันนั้นพอดี (ADR-0005/0008) · key จาก `stateKey`
  */
 export type StoreState = ReadonlyMap<string, DayStatus>;
 
@@ -50,9 +50,9 @@ export type PlannedItem = { readonly report: string; readonly day: string };
 export type WorkPlan = {
   /** รายงานตามวัน × วันของข้อมูลที่ต้องดึง */
   readonly perDay: readonly PlannedItem[];
-  /** รายงานภาพที่ต้องถ่าย (day = วันนี้) */
+  /** รายงาน snapshot ที่ต้องถ่าย (day = วันนี้) */
   readonly pictures: readonly PlannedItem[];
-  /** ภาพปิดงวดที่ต้องถ่าย (day = วันสุดท้ายของงวด — ถ่ายด้วยการค้นวันนั้น ซึ่งได้ทั้งงวดของรายงานยอดสะสม) */
+  /** snapshot ปิดงวดที่ต้องถ่าย (day = วันสุดท้ายของงวด — ถ่ายด้วยการค้นวันนั้น ซึ่งได้ทั้งงวดของรายงานยอดสะสม) */
   readonly periodCloses: readonly PlannedItem[];
 };
 
@@ -64,19 +64,19 @@ export type DailyPlan = WorkPlan & {
   readonly goLiveMissing: boolean;
   /** วันเริ่มใช้งานอยู่หลังวันนี้ — ยังไม่ดึงรายงานตามวันเลย (ต้องบอก เผื่อพิมพ์ผิด ไม่ให้หยุดเก็บข้อมูลเงียบ ๆ) */
   readonly goLiveInFuture: boolean;
-  /** ภาพปิดงวดที่รอบก่อนล้มและยังอยู่ในช่วงที่ถ่ายได้ (`<รายงาน>@<วันสุดท้ายของงวด>`) — ต้องบอก เพราะพ้นช่วงแล้วจะหายถาวร */
+  /** snapshot ปิดงวดที่รอบก่อนล้มและยังอยู่ในช่วงที่ถ่ายได้ (`<รายงาน>@<วันสุดท้ายของงวด>`) — ต้องบอก เพราะพ้นช่วงแล้วจะหายถาวร */
   readonly failingCloses: readonly string[];
 };
 
 /**
- * ภาพปิดงวดถ่ายได้ในกี่วันแรกของงวดถัดไป — "รอบแรกหลังงวดจบ" (ADR-0008) เผื่อวันที่ 1 พลาดหรือล้ม · พ้นแล้วไม่ถ่าย: ภาพที่ถ่ายช้ากว่านี้คือภาพ
- * ณ วันที่ถ่าย ไม่ใช่ภาพปิดงวด (และไม่ให้เครื่องที่เพิ่งติดตั้งย้อนถ่ายปีที่แล้ว — ใบ 05 code review) · วันละ 3 รอบ = ลองได้ราว 21 ครั้ง
+ * snapshot ปิดงวดถ่ายได้ในกี่วันแรกของงวดถัดไป — "รอบแรกหลังงวดจบ" (ADR-0008) เผื่อวันที่ 1 พลาดหรือล้ม · พ้นแล้วไม่ถ่าย: snapshot ที่ถ่ายช้ากว่านี้คือ snapshot
+ * ณ วันที่ถ่าย ไม่ใช่ snapshot ปิดงวด (และไม่ให้เครื่องที่เพิ่งติดตั้งย้อนถ่ายปีที่แล้ว — ใบ 05 code review) · วันละ 3 รอบ = ลองได้ราว 21 ครั้ง
  */
 export const PERIOD_CLOSE_WINDOW_DAYS = 7;
 
 /**
  * จำนวนวันของข้อมูลสูงสุดที่รอบเก็บตกเติมในรอบเดียว (ADR-0009) — วัดจริง 2026-10-14: รายงานตามวันหนึ่งวัน ≈ 142 วินาที (22 รายงาน × 6.4 วินาที) ·
- * รายงานภาพ ≈ 177 วินาที · timeout ค่าเริ่มต้นของ job บน Windmill คือ 15 นาที — ภาพ + 3 วัน ≈ 10 นาที เหลือที่ให้การลองใหม่
+ * รายงาน snapshot ≈ 177 วินาที · timeout ค่าเริ่มต้นของ job บน Windmill คือ 15 นาที — snapshot + 3 วัน ≈ 10 นาที เหลือที่ให้การลองใหม่
  * (spec เดิมตั้ง 14 วัน ≈ 33 นาที โดน Windmill ตัดกลางรอบ) · วันละ 3 รอบจึงเติมได้ 9 วันของข้อมูลต่อวัน · ถ้าขยาย timeout ของ Windmill ค่อยเพิ่ม
  */
 export const CATCH_UP_CAP_DAYS = 3;
@@ -99,7 +99,7 @@ export function lastDueDay(now: Date): string {
 /**
  * แผนของรอบรายวัน: รายงานตามวันของทุกวันของข้อมูลที่ถึงกำหนดแล้วแต่ยังไม่สำเร็จ ตั้งแต่ **วันเริ่มใช้งาน** (ADR-0009 — รอบไหนก็ซ่อมวันที่
  * เครื่องดับไปได้เอง) ไม่เกิน `cap` วันต่อรอบ (ค่าเริ่มต้น `CATCH_UP_CAP_DAYS`) เอาวันใหม่ที่สุดก่อน (เมื่อวานได้เสมอ) ที่เหลือนับเป็น `backlogDays` · ไม่ได้ตั้งวันเริ่มใช้งาน
- * = ดูแค่เมื่อวาน · รายงานภาพ: ของวันนี้ที่ยังไม่สำเร็จ (ภาพของวันที่ผ่านไปแล้วเติมไม่ได้)
+ * = ดูแค่เมื่อวาน · รายงาน snapshot: ของวันนี้ที่ยังไม่สำเร็จ (snapshot ของวันที่ผ่านไปแล้วเติมไม่ได้)
  */
 export function planDailyRun(input: {
   readonly now: Date;
@@ -124,7 +124,7 @@ export function planDailyRun(input: {
     if (due('per-day', day).length > 0) missing.push(day);
   }
   const taken = missing.slice(0, input.cap ?? CATCH_UP_CAP_DAYS);
-  // ภาพปิดงวดของงวดที่จบล่าสุดที่ยังไม่มี — ภายใน PERIOD_CLOSE_WINDOW_DAYS วันแรกของงวดถัดไป (วันที่ 1 พลาดหรือล้มก็ลองรอบถัดไป) ·
+  // snapshot ปิดงวดของงวดที่จบล่าสุดที่ยังไม่มี — ภายใน PERIOD_CLOSE_WINDOW_DAYS วันแรกของงวดถัดไป (วันที่ 1 พลาดหรือล้มก็ลองรอบถัดไป) ·
   // ไม่ย้อนไปงวดที่จบก่อนวันเริ่มใช้งาน
   const periodCloses: PlannedItem[] = [];
   const failingCloses: string[] = [];
@@ -148,12 +148,12 @@ export function planDailyRun(input: {
   };
 }
 
-/** วันสุดท้ายที่รอบรายวันยังถ่าย/ลองถ่ายภาพปิดงวดของงวดที่จบวันที่ `end` — พ้นแล้วหายถาวร (`exporter status` ใช้กติกาเดียวกัน) */
+/** วันสุดท้ายที่รอบรายวันยังถ่าย/ลองถ่าย snapshot ปิดงวดของงวดที่จบวันที่ `end` — พ้นแล้วหายถาวร (`exporter status` ใช้กติกาเดียวกัน) */
 export function periodCloseRetryUntil(end: string): string {
   return addDaysISO(end, PERIOD_CLOSE_WINDOW_DAYS);
 }
 
-/** ยังอยู่ในช่วงที่ถ่ายภาพปิดงวดของงวดที่จบวันที่ `end` ได้ไหม */
+/** ยังอยู่ในช่วงที่ถ่าย snapshot ปิดงวดของงวดที่จบวันที่ `end` ได้ไหม */
 function closeStillDue(end: string, today: string): boolean {
   return today <= periodCloseRetryUntil(end);
 }
@@ -165,7 +165,7 @@ function closeStillDue(end: string, today: string): boolean {
 export function daysToRead(input: { readonly now: Date; readonly goLive: string | null }): string[] {
   const today = formatISO(thaiToday(input.now));
   const yesterday = addDaysISO(today, -1);
-  // วันสุดท้ายของงวดที่จบล่าสุดที่ยังถ่ายภาพปิดงวดได้ — ที่อยู่ของภาพปิดงวด (ใบ 05)
+  // วันสุดท้ายของงวดที่จบล่าสุดที่ยังถ่าย snapshot ปิดงวดได้ — ที่อยู่ของ snapshot ปิดงวด (ใบ 05)
   const out = [lastClosedPeriodEnd(today, 'year'), lastClosedPeriodEnd(today, 'month')].filter((end) => closeStillDue(end, today));
   for (let day = input.goLive !== null && input.goLive < yesterday ? input.goLive : yesterday; day <= today; day = addDaysISO(day, 1)) {
     out.push(day);
@@ -184,8 +184,8 @@ export class PlanError extends Error {
 }
 
 /**
- * `--date`: คนสั่งดึงวันของข้อมูลวันเดียวใหม่ ไม่สนสถานะเดิม (ฉบับเก่าไม่หาย — ย้ายไป `_superseded/` ถ้าชื่อชน ADR-0005) · ไม่ถ่ายรายงานภาพ
- * เพราะภาพของวันที่ผ่านไปแล้วดึงไม่ได้ · ปฏิเสธวันที่ยังไม่ถึงกำหนด (วันนี้ อนาคต เมื่อวานก่อน 07:00) — ดึงตอนนั้นได้ข้อมูลไม่ครบวัน
+ * `--date`: คนสั่งดึงวันของข้อมูลวันเดียวใหม่ ไม่สนสถานะเดิม (ฉบับเก่าไม่หาย — ย้ายไป `_superseded/` ถ้าชื่อชน ADR-0005) · ไม่ถ่ายรายงาน snapshot
+ * เพราะ snapshot ของวันที่ผ่านไปแล้วดึงไม่ได้ · ปฏิเสธวันที่ยังไม่ถึงกำหนด (วันนี้ อนาคต เมื่อวานก่อน 07:00) — ดึงตอนนั้นได้ข้อมูลไม่ครบวัน
  */
 export function planDateRun(input: { readonly now: Date; readonly reports: readonly PlannedReport[]; readonly day: string }): WorkPlan {
   const { day } = input;
@@ -201,14 +201,14 @@ export function planDateRun(input: { readonly now: Date; readonly reports: reado
   }
   const perDay = input.reports.filter((r) => r.family === 'per-day').map((r) => ({ report: r.id, day }));
   if (perDay.length === 0) {
-    throw new PlanError('--date ใช้กับรายงานตามวันเท่านั้น — รายงานภาพเป็นภาพ ณ เวลาที่ถ่าย ดึงย้อนเป็นภาพของวันที่ผ่านไปแล้วไม่ได้');
+    throw new PlanError('--date ใช้กับรายงานตามวันเท่านั้น — รายงาน snapshot เป็น snapshot ณ เวลาที่ถ่าย ดึงย้อนเป็น snapshot ของวันที่ผ่านไปแล้วไม่ได้');
   }
   return { perDay, pictures: [], periodCloses: [] };
 }
 
 /**
  * แผนของ **baseline** (ใบ 09, ADR-0008) — ดึงวันของข้อมูลในช่วงใหม่หมดทีละวัน (ไฟล์ละวัน ชื่อ/key เดียวกับรอบรายวัน ฉบับใหม่แทนฉบับเก่าได้ในขาอัปโหลด)
- * ไม่สนสถานะในที่เก็บข้อมูล · เรียงตามวัน (เก่าไปใหม่) แล้วตามแคตตาล็อก · **รายงานภาพ**ไม่มี baseline — ภาพ ณ เวลาที่ถ่าย ดึงย้อนหลังไม่ได้ (ADR-0003/0008)
+ * ไม่สนสถานะในที่เก็บข้อมูล · เรียงตามวัน (เก่าไปใหม่) แล้วตามแคตตาล็อก · **รายงาน snapshot**ไม่มี baseline — snapshot ณ เวลาที่ถ่าย ดึงย้อนหลังไม่ได้ (ADR-0003/0008)
  */
 export function planBaselineRun(input: { readonly reports: readonly PlannedReport[]; readonly from: string; readonly to: string }): {
   readonly items: readonly PlannedItem[];
@@ -221,7 +221,7 @@ export function planBaselineRun(input: { readonly reports: readonly PlannedRepor
   }
   const skipped = input.reports
     .filter((r) => r.family === 'picture')
-    .map((r) => ({ report: r.id, reason: 'รายงานภาพไม่มี baseline — เป็นภาพ ณ เวลาที่ถ่าย ดึงย้อนหลังไม่ได้ (ADR-0003/0008)' }));
+    .map((r) => ({ report: r.id, reason: 'รายงาน snapshot ไม่มี baseline — เป็น snapshot ณ เวลาที่ถ่าย ดึงย้อนหลังไม่ได้ (ADR-0003/0008)' }));
   return { items, skipped };
 }
 
@@ -242,7 +242,7 @@ export function storeStateFrom(
   const state = new Map<string, DayStatus>();
   for (const { day, record } of folders) {
     for (const [id, o] of Object.entries(record.reports)) {
-      // ภาพปิดงวดนับเป็นภาพ (ไม่มีกติกาช่วงวันเดียวของรายงานตามวัน) — แต่รายงานต้นทางต้องอยู่ในแคตตาล็อก
+      // snapshot ปิดงวดนับเป็น snapshot (ไม่มีกติกาช่วงวันเดียวของรายงานตามวัน) — แต่รายงานต้นทางต้องอยู่ในแคตตาล็อก
       const isClose = id.endsWith(PERIOD_CLOSE_SUFFIX);
       const f = isClose ? (family.has(id.slice(0, -PERIOD_CLOSE_SUFFIX.length)) ? 'picture' : undefined) : family.get(id);
       if (f === undefined) continue;
@@ -298,7 +298,7 @@ export function planWarnings(plan: DailyPlan, goLive: string | null, site: { rea
     );
   }
   for (const c of plan.failingCloses) {
-    out.push(`ภาพปิดงวด ${c} ยังไม่สำเร็จ — ลองซ้ำทุกรอบภายใน ${PERIOD_CLOSE_WINDOW_DAYS} วันแรกของงวดถัดไป พ้นแล้วจะไม่มีภาพปิดงวดนี้`);
+    out.push(`snapshot ปิดงวด ${c} ยังไม่สำเร็จ — ลองซ้ำทุกรอบภายใน ${PERIOD_CLOSE_WINDOW_DAYS} วันแรกของงวดถัดไป พ้นแล้วจะไม่มี snapshot ปิดงวดนี้`);
   }
   if (plan.goLiveInFuture) {
     out.push(`วันเริ่มใช้งาน (EXPORTER_GO_LIVE=${goLive}) ยังไม่มาถึง — ยังไม่ดึงรายงานตามวันเลย · ถ้าพิมพ์ผิดให้แก้ใน exporter/.env`);

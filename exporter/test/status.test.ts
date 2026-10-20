@@ -10,8 +10,8 @@ import type { RunRecord } from '../src/core/run-record.ts';
 import { buildStatus, renderStatus, type Folder, type MonthRun, type StatusSetup, type StoreSnapshot } from '../src/core/status.ts';
 
 // `exporter status` (Ubuntu ticket 05 → ใบ 07 ของ exporter-daily-per-day-raw) — สรุปภาษาไทยหน้าเดียว ตามโมเดลใหม่: สถานะต่อ **วันของข้อมูล**
-// (มีข้อมูล / ว่าง / ล้ม / ยังไม่ได้ดึง) + รายงานภาพของแต่ละวัน + ภาพปิดงวดแยก + สิ่งที่ต้องทำ (seam S2: ฟังก์ชันล้วน "คลัง + เวลา + ค่าตั้ง" → สรุป
-// และรันคำสั่งจริงกับคลังปลอม) · HotelTime รันเอง: ขาด/ล้ม = ปัญหา · FoodStory คนกด: ยังไม่ได้กด = สิ่งที่ต้องทำ · ภาพของวันที่ผ่านไปแล้วหาย =
+// (มีข้อมูล / ว่าง / ล้ม / ยังไม่ได้ดึง) + รายงาน snapshot ของแต่ละวัน + snapshot ปิดงวดแยก + สิ่งที่ต้องทำ (seam S2: ฟังก์ชันล้วน "คลัง + เวลา + ค่าตั้ง" → สรุป
+// และรันคำสั่งจริงกับคลังปลอม) · HotelTime รันเอง: ขาด/ล้ม = ปัญหา · FoodStory คนกด: ยังไม่ได้กด = สิ่งที่ต้องทำ · snapshot ของวันที่ผ่านไปแล้วหาย =
 // บอกว่าหายถาวร (เติมไม่ได้ ไม่มีอะไรให้ทำ)
 
 /** เวลาไทย → instant (UTC+7) */
@@ -35,7 +35,7 @@ const outcome = (id: string, r: Result, from: string, to: string): RunRecord['re
 const nextDay = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
 
 /**
- * โฟลเดอร์ของวัน D ตามโมเดลใหม่: รายงานตามวันของ D ดึงตอนเที่ยงของ D+1 · ภาพถ่ายตอนเที่ยงของ D · ภาพปิดงวด (`<id>@period-close`) ถ่ายตอน D+1
+ * โฟลเดอร์ของวัน D ตามโมเดลใหม่: รายงานตามวันของ D ดึงตอนเที่ยงของ D+1 · snapshot ถ่ายตอนเที่ยงของ D · snapshot ปิดงวด (`<id>@period-close`) ถ่ายตอน D+1
  * · `sameDay` = รอบรูปแบบเดิมที่ดึงรายงานตามวันในวันนั้นเอง (ได้ครึ่งวัน — เป็นประวัติ ไม่นับ)
  */
 function folder(day: string, parts: {
@@ -63,7 +63,7 @@ const month = (period: string, failures = 0): MonthRun => ({
   period, pulledOn: '2026-10-12', passed: 49 - failures, total: 49,
   failed: Array.from({ length: failures }, (_, i) => ({ report: `r${i}`, error: 'x' })),
 });
-/** 8–13 ครบทั้งสอง Site · ภาพของวันนี้ (14) ถ่ายแล้ว · รายเดือน ก.ย. มีแล้ว */
+/** 8–13 ครบทั้งสอง Site · snapshot ของวันนี้ (14) ถ่ายแล้ว · รายเดือน ก.ย. มีแล้ว */
 const healthy = (): StoreSnapshot => ({
   hoteltime: [
     ...['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13'].map((d) => folder(d, { perDay: ALL_HT, pictures: PICS_HT })),
@@ -80,12 +80,12 @@ const without = (folders: readonly Folder[], day: string) => folders.filter((x) 
 const text = (r: ReturnType<typeof buildStatus>) => r.sections.flatMap((s) => [s.title, ...s.lines.map((l) => l.text)]).join('\n');
 const EVENING_14 = thai('2026-10-14T20:05');
 
-test('ทุกอย่างปกติ: ปกติ ไม่มีปัญหา ไม่มีสิ่งต้องทำ · แสดงต่อวันของข้อมูลว่ามีข้อมูล/ว่างกี่รายงาน (ว่างบอกชื่อ) และภาพของวันนั้นครบ', () => {
+test('ทุกอย่างปกติ: ปกติ ไม่มีปัญหา ไม่มีสิ่งต้องทำ · แสดงต่อวันของข้อมูลว่ามีข้อมูล/ว่างกี่รายงาน (ว่างบอกชื่อ) และ snapshot ของวันนั้นครบ', () => {
   const r = buildStatus(healthy(), EVENING_14, SETUP);
   assert.equal(r.verdict, 'ok', text(r));
   assert.deepEqual([r.problems, r.actions], [[], []]);
-  assert.match(text(r), /2026-10-13[^\n]*มีข้อมูล 2[^\n]*ว่าง 1 \(cancelled\)[^\n]*ภาพ ครบ 2\/2/);
-  assert.match(text(r), /2026-10-14[^\n]*ภาพ ครบ 2\/2/);
+  assert.match(text(r), /2026-10-13[^\n]*มีข้อมูล 2[^\n]*ว่าง 1 \(cancelled\)[^\n]*snapshot ครบ 2\/2/);
+  assert.match(text(r), /2026-10-14[^\n]*snapshot ครบ 2\/2/);
 });
 
 test('🔴 สี่สถานะต่อวันของข้อมูล: ล้ม (บอกชื่อและสาเหตุ) และยังไม่ได้ดึง (บอกชื่อ) ของ HotelTime วันที่ผ่านมา = ปัญหา', () => {
@@ -116,16 +116,16 @@ test('HotelTime เมื่อวานยังไม่ได้ดึง: �
   assert.match(buildStatus(failing, thai('2026-10-14T19:00'), SETUP).problems.join('\n'), /postings/);
 });
 
-test('🔴 รายงานภาพ: ของวันนี้ยังไม่ได้ถ่าย HotelTime หลัง 15:00 = ปัญหา · ภาพของวันที่ผ่านไปแล้วหาย = บอกว่าหายถาวร เติมไม่ได้ (ไม่ใช่ปัญหาที่แก้ได้)', () => {
+test('🔴 รายงาน snapshot: ของวันนี้ยังไม่ได้ถ่าย HotelTime หลัง 15:00 = ปัญหา · snapshot ของวันที่ผ่านไปแล้วหาย = บอกว่าหายถาวร เติมไม่ได้ (ไม่ใช่ปัญหาที่แก้ได้)', () => {
   const s = healthy();
   const r = buildStatus({
     ...s,
     hoteltime: replace(replace(s.hoteltime, folder('2026-10-14', { pictures: { arrivals: 'data' } })),
       folder('2026-10-11', { perDay: ALL_HT, pictures: { arrivals: 'data', 'trial-balance': ['failed', 'x'] } })),
   }, thai('2026-10-14T16:00'), SETUP);
-  assert.match(r.problems.join('\n'), /2026-10-14[^\n]*ภาพ[^\n]*trial-balance/);
+  assert.match(r.problems.join('\n'), /2026-10-14[^\n]*snapshot[^\n]*trial-balance/);
   assert.doesNotMatch(r.problems.join('\n'), /2026-10-11/);
-  assert.match(text(r), /2026-10-11[^\n]*ภาพ[^\n]*trial-balance[^\n]*หายถาวร[^\n]*เติมไม่ได้/);
+  assert.match(text(r), /2026-10-11[^\n]*snapshot[^\n]*trial-balance[^\n]*หายถาวร[^\n]*เติมไม่ได้/);
   const early = buildStatus({ ...s, hoteltime: without(s.hoteltime, '2026-10-14') }, thai('2026-10-14T11:00'), SETUP);
   assert.equal(early.verdict, 'ok', text(early));
 });
@@ -138,7 +138,7 @@ test('🔴 FoodStory ไม่ได้กดมา 3 วัน = สิ่ง�
   assert.deepEqual(r.problems, []);
   assert.match(r.actions.join('\n'), /ไม่ได้กดมา 3 วัน[\s\S]*ดับเบิลคลิก/);
   assert.match(text(r), /2026-10-13[^\n]*ยังไม่ได้ดึง 2 \(salebybill, pay\)/);
-  assert.match(text(r), /2026-10-12[^\n]*ภาพ[^\n]*หายถาวร/);
+  assert.match(text(r), /2026-10-12[^\n]*snapshot[^\n]*หายถาวร/);
 });
 
 test('FoodStory ดึงแล้วแต่มีรายงานล้ม = ปัญหา (ให้กดใหม่)', () => {
@@ -171,20 +171,20 @@ test('🔴 คลังที่มีรอบรูปแบบเดิม (�
   assert.deepEqual(fresh.problems, [], text(fresh));
 });
 
-test('🔴 ภาพปิดงวดแยกจากรายงานภาพที่ถ่ายในวันนั้น: ล้ม = เรื่องของงวด (บอกว่าลองซ้ำได้ถึงวันไหน) ไม่ใช่ความล้มของวันที่ 30', () => {
+test('🔴 snapshot ปิดงวดแยกจากรายงาน snapshot ที่ถ่ายในวันนั้น: ล้ม = เรื่องของงวด (บอกว่าลองซ้ำได้ถึงวันไหน) ไม่ใช่ความล้มของวันที่ 30', () => {
   const s = healthy();
   const sep30 = folder('2026-09-30', { closes: { 'trial-balance': ['failed', 'Timeout'] } });
   const r = buildStatus({ ...s, hoteltime: [sep30, ...s.hoteltime] }, thai('2026-10-03T20:00'), { ...SETUP, goLive: '2026-09-01' });
-  assert.match(r.problems.join('\n'), /ภาพปิดงวด[^\n]*2026-09[^\n]*trial-balance[^\n]*2026-10-07/);
+  assert.match(r.problems.join('\n'), /snapshot ปิดงวด[^\n]*2026-09[^\n]*trial-balance[^\n]*2026-10-07/);
   const ht = r.sites.find((x) => x.site === 'hoteltime')!;
   assert.deepEqual(ht.days.find((d) => d.day === '2026-09-30')!.pictures!.failed, []);
   assert.deepEqual(ht.closes.map((c) => [c.periodEnd, c.failed.map((f) => f.report)]), [['2026-09-30', ['trial-balance']]]);
   const done = buildStatus({ ...s, hoteltime: [folder('2026-09-30', { closes: { 'trial-balance': 'data' } }), ...s.hoteltime] },
     thai('2026-10-03T20:00'), { ...SETUP, goLive: '2026-09-01' });
-  assert.match(text(done), /ภาพปิดงวด[^\n]*2026-09[^\n]*ครบ 1\/1/);
+  assert.match(text(done), /snapshot ปิดงวด[^\n]*2026-09[^\n]*ครบ 1\/1/);
 });
 
-test('🔴 --json: ต่อ Site × วันของข้อมูล มีรายชื่อว่าง/ล้ม/ยังไม่ได้ดึง และภาพหาย — โครงสร้างที่ใบ 08 ใช้สร้างข้อความ Discord', () => {
+test('🔴 --json: ต่อ Site × วันของข้อมูล มีรายชื่อว่าง/ล้ม/ยังไม่ได้ดึง และ snapshot หาย — โครงสร้างที่ใบ 08 ใช้สร้างข้อความ Discord', () => {
   const s = healthy();
   const r = buildStatus({ ...s, hoteltime: replace(s.hoteltime, folder('2026-10-13', { perDay: { postings: ['failed', 'x'], invoices: 'data' }, pictures: { arrivals: 'data' } })) },
     EVENING_14, SETUP);
@@ -296,7 +296,7 @@ test('🔴 --json: ทุกวันและทุกงวดมี level + n
 
 test('🔴 FoodStory กดวันนี้แล้วแต่ยังขาดเกินที่กดครั้งเดียวเติมได้ — ไม่บอกว่า "ยังไม่ได้กดวันนี้"', () => {
   const s = healthy();
-  // กดวันนี้ (14) ได้ภาพของวันนี้ + วันที่ 13 แต่วันที่ 9–12 ยังขาด
+  // กดวันนี้ (14) ได้ snapshot ของวันนี้ + วันที่ 13 แต่วันที่ 9–12 ยังขาด
   const fs = [folder('2026-10-08', { perDay: ALL_FS }), { ...folder('2026-10-13', { perDay: ALL_FS }) }, folder('2026-10-14', { pictures: PICS_FS })];
   const r = buildStatus({ ...s, foodstoryDaily: fs }, EVENING_14, SETUP);
   assert.doesNotMatch(r.actions.join('\n'), /ยังไม่ได้กดวันนี้/);
@@ -311,16 +311,16 @@ test('🔴 วันเริ่มใช้งานอยู่หลังว
   assert.equal(typo.setup.goLiveError !== undefined, true);
 });
 
-test('🔴 ภาพปิดงวดที่ถึงกำหนดแต่ยังไม่มีรอบไหนลองเลย (เครื่องดับวันที่ 1) ไม่เงียบ — HotelTime ก่อนรอบเที่ยงของวันที่ 1 = รอ · หลังจากนั้น = ปัญหา', () => {
+test('🔴 snapshot ปิดงวดที่ถึงกำหนดแต่ยังไม่มีรอบไหนลองเลย (เครื่องดับวันที่ 1) ไม่เงียบ — HotelTime ก่อนรอบเที่ยงของวันที่ 1 = รอ · หลังจากนั้น = ปัญหา', () => {
   const s = { ...healthy(), hoteltime: [folder('2026-09-30', { perDay: ALL_HT, pictures: PICS_HT })] };
   const setup = { ...SETUP, goLive: '2026-09-01' };
   const morning = buildStatus(s, thai('2026-10-01T10:00'), setup).sites[0]!.closes;
   assert.deepEqual(morning.map((c) => [c.periodEnd, c.level, c.missing]), [['2026-09-30', 'wait', ['trial-balance']]]);
   const later = buildStatus(s, thai('2026-10-02T20:00'), setup);
-  assert.match(later.problems.join('\n'), /ภาพปิดงวดเดือน 2026-09[^\n]*trial-balance[^\n]*2026-10-07/);
+  assert.match(later.problems.join('\n'), /snapshot ปิดงวดเดือน 2026-09[^\n]*trial-balance[^\n]*2026-10-07/);
 });
 
-test('ข้ามปี: 2027-01-02 — ข้อมูลวันที่ 1 ม.ค. ถึงกำหนด · ภาพปิดงวดของ ธ.ค. และปี 2026 อยู่ในโฟลเดอร์ 2026-12-31 · รายเดือนที่ต้องมีคือ 2026-12', () => {
+test('ข้ามปี: 2027-01-02 — ข้อมูลวันที่ 1 ม.ค. ถึงกำหนด · snapshot ปิดงวดของ ธ.ค. และปี 2026 อยู่ในโฟลเดอร์ 2026-12-31 · รายเดือนที่ต้องมีคือ 2026-12', () => {
   const s: StoreSnapshot = {
     hoteltime: [folder('2026-12-31', { perDay: ALL_HT, pictures: PICS_HT, closes: { 'trial-balance': 'data' } }), folder('2027-01-01', { perDay: ALL_HT, pictures: PICS_HT })],
     foodstoryDaily: [folder('2026-12-31', { perDay: ALL_FS, pictures: PICS_FS, closes: { salebymonthsum: 'data' } }), folder('2027-01-01', { perDay: ALL_FS, pictures: PICS_FS })],
@@ -328,8 +328,8 @@ test('ข้ามปี: 2027-01-02 — ข้อมูลวันที่ 1 
   };
   const r = buildStatus(s, thai('2027-01-02T20:00'), { ...SETUP, goLive: '2026-12-31' });
   assert.match(text(r), /เมื่อวาน 2027-01-01[^\n]*มีข้อมูล 2/);
-  assert.match(text(r), /ภาพปิดงวดเดือน 2026-12[^\n]*ครบ 1\/1/);
-  assert.match(text(r), /ภาพปิดงวดปี 2026[^\n]*ครบ 1\/1/);
+  assert.match(text(r), /snapshot ปิดงวดเดือน 2026-12[^\n]*ครบ 1\/1/);
+  assert.match(text(r), /snapshot ปิดงวดปี 2026[^\n]*ครบ 1\/1/);
   assert.match(text(r), /ยังไม่ได้ดึงรายเดือนของ 2026-12/); // ก่อนวันที่ 5 = แสดงเฉย ๆ
 });
 
@@ -357,7 +357,7 @@ test('🔴 คลังรอบรูปแบบเดิมจริง (ไ�
   assert.doesNotMatch(r.problems.join('\n'), /2026-10-05|retired-report/);
 });
 
-test('🔴 ภาพปิดงวดแบบรายงานตามวัน (เจ้าของเลือก 2026-10-14): HotelTime ล้มวันที่ 1 ก่อน 18:30 = รอรอบเก็บตก หลังจากนั้น = ปัญหา · พ้นช่วงลองซ้ำ = ปัญหา "หายถาวร" (ให้คนเห็นว่าหายจริง)', () => {
+test('🔴 snapshot ปิดงวดแบบรายงานตามวัน (เจ้าของเลือก 2026-10-14): HotelTime ล้มวันที่ 1 ก่อน 18:30 = รอรอบเก็บตก หลังจากนั้น = ปัญหา · พ้นช่วงลองซ้ำ = ปัญหา "หายถาวร" (ให้คนเห็นว่าหายจริง)', () => {
   const s = { ...healthy(), hoteltime: [folder('2026-09-30', { perDay: ALL_HT, pictures: PICS_HT, closes: { 'trial-balance': ['failed', 'Timeout'] } })] };
   const setup = { ...SETUP, goLive: '2026-09-01' };
   const close = (at: string) => buildStatus(s, thai(at), setup).sites[0]!.closes[0]!;
@@ -365,7 +365,7 @@ test('🔴 ภาพปิดงวดแบบรายงานตามวั
   assert.equal(close('2026-10-01T19:00').level, 'problem');
   assert.equal(close('2026-10-03T10:00').level, 'problem');
   const lost = buildStatus(s, thai('2026-10-09T10:00'), setup);
-  assert.match(lost.problems.join('\n'), /ภาพปิดงวดเดือน 2026-09[^\n]*หายถาวร/);
+  assert.match(lost.problems.join('\n'), /snapshot ปิดงวดเดือน 2026-09[^\n]*หายถาวร/);
 });
 
 // ticket 06 ของ exporter-upload-to-uploader: backlog ของขาอัปโหลด — `opts.uploadBacklog` เป็น optional โดยตั้งใจ

@@ -156,7 +156,7 @@ test('ยังไม่เคยมี baseline เลย → null', async () =
   assert.equal(await currentBaselineFor(path.join(tmpdir(), 'no-such-baseline-dir'), 'x', '2026-10-01'), null);
 });
 
-// พบจากของจริง 2026-10-19 (ขาอัปโหลด ticket 11): key ของ baseline/ภาพปิดงวดเป็นแบบผสม (`<รายงาน>@<วัน>`,
+// พบจากของจริง 2026-10-19 (ขาอัปโหลด ticket 11): key ของ baseline/snapshot ปิดงวดเป็นแบบผสม (`<รายงาน>@<วัน>`,
 // `<รายงาน>@period-close`) ไม่ใช่ชื่อรายงานตรง ๆ — เทียบ key ตรงกับชื่อรายงานแล้วหา as_of ไม่เจอ ปฏิเสธไฟล์จริงไปเฉย ๆ
 test('findOutcomeForFile: key ตรงชื่อรายงานปกติ → หาเจอจากชื่อไฟล์', async () => {
   const { folder } = await dayFolder();
@@ -240,13 +240,13 @@ test('🔴 วางไฟล์ดิบลงโฟลเดอร์วัน
   assert.equal(existsSync(staged), false);
 });
 
-test('🔴 _summary.txt ของโฟลเดอร์ที่มีแต่ภาพปิดงวด ไม่เขียนว่า "ข้อมูลถึง" (ชวนเข้าใจว่าเป็นรอบรายวันของวันนั้น — ใบ 05 → 07)', async () => {
+test('🔴 _summary.txt ของโฟลเดอร์ที่มีแต่ snapshot ปิดงวด ไม่เขียนว่า "ข้อมูลถึง" (ชวนเข้าใจว่าเป็นรอบรายวันของวันนั้น — ใบ 05 → 07)', async () => {
   const { folder } = await dayFolder();
   const close = { ...ok('trial-balance@period-close'), range: { from: '2026-09-01', to: '2026-09-30' } };
   await recordRun(folder, { ...BASE, dataThrough: '2026-09-30', outcomes: [close] });
   const summary = await readFile(path.join(folder, '_summary.txt'), 'utf8');
   assert.doesNotMatch(summary.split('\n')[0]!, /ข้อมูลถึง/);
-  assert.match(summary.split('\n')[0]!, /ภาพปิดงวด[\s\S]*2026-09-30/);
+  assert.match(summary.split('\n')[0]!, /snapshot ปิดงวด[\s\S]*2026-09-30/);
 });
 
 // ticket 01 ของ exporter-upload-to-uploader: track สถานะอัปโหลดในเครื่อง

@@ -86,7 +86,7 @@ test('ผ่าน + ledger: กรองด้วยช่วงวันที
   assert.deepEqual(judgeProbe(BASE), { verdict: 'pass', dailyMode: 'ledger', reason: 'กรองช่วงวันที่ได้ และผลมีคอลัมน์วันที่ Posting date' });
 });
 
-test('ผ่าน + ภาพของวันนั้น: มีช่องวันเดียว ไม่มีช่วงวันที่', () => {
+test('ผ่าน + snapshot ของวันนั้น: มีช่องวันเดียว ไม่มีช่วงวันที่', () => {
   const got = judgeProbe({ ...BASE, dateRangeGroups: [], singleDates: ['ctl00$pc$calDate'], dateColumns: [] });
   assert.equal(got.verdict, 'pass');
   assert.equal(got.dailyMode, 'snapshot');

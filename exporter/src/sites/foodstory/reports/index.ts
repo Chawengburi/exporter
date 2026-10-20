@@ -135,7 +135,7 @@ export function reportIds(): string[] {
 }
 
 /**
- * **รายงานภาพ** ของ FoodStory (ADR-0008, ใบ 06) — จำนวนแถวรายวันกับรายเดือนเท่ากัน คือไม่กรองตามวัน (ข้อมูลหลัก/สต็อก ณ ตอนกด) และยอดสะสม
+ * **รายงาน snapshot** ของ FoodStory (ADR-0008, ใบ 06) — จำนวนแถวรายวันกับรายเดือนเท่ากัน คือไม่กรองตามวัน (ข้อมูลหลัก/สต็อก ณ ตอนกด) และยอดสะสม
  * ทั้งปี `salebymonthsum` · ตามตารางเทียบรายงาน 2026-10-13 ซึ่งบางตัวยัง "ต้องยืนยัน" เพราะได้ 0 แถวทั้งสองรอบ (`intermidiate`, `supplier`) ·
  * ที่เหลือทั้งหมด (รวม salebychannel และ reservation-report ที่ไม่อยู่ใน REPORTS) = **รายงานตามวัน** · นิยามอยู่ที่ระดับแคตตาล็อก ไม่ใช่ใน
  * Report แต่ละใบ — ตระกูลเป็นการตัดสินจากข้อมูลจริงของทั้งชุด ไม่ใช่คุณสมบัติของหน้า
@@ -163,7 +163,7 @@ export function familyOf(id: string): ReportFamily {
   return id in PICTURE_PERIOD ? 'picture' : 'per-day';
 }
 
-/** งวดของภาพปิดงวด — รายงานตามวันไม่มี (undefined) */
+/** งวดของ snapshot ปิดงวด — รายงานตามวันไม่มี (undefined) */
 export function periodOf(id: string): ReportPeriod | undefined {
   return PICTURE_PERIOD[id];
 }

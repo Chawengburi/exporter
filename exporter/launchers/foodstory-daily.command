@@ -1,6 +1,6 @@
 #!/bin/bash
 # ดับเบิลคลิกจาก Desktop (macOS: Finder · Ubuntu: ไอคอน .desktop) → ดึงรายงาน FoodStory ของ "เมื่อวาน" ทั้งหมด (ticket 11, ADR-0006)
-# พร้อมเติมวันที่ยังไม่ได้กดและถ่ายรายงานภาพของวันนี้ใน login เดียว (ใบ 06 ของ exporter-daily-per-day-raw, ADR-0008/0009)
+# พร้อมเติมวันที่ยังไม่ได้กดและถ่ายรายงาน snapshot ของวันนี้ใน login เดียว (ใบ 06 ของ exporter-daily-per-day-raw, ADR-0008/0009)
 #
 # พนักงานกด reCAPTCHA ครั้งเดียว ที่เหลือรันเองจนจบ แล้วสรุปเป็นภาษาไทย · วางบน Desktop เป็น alias/symlink ได้ — สคริปต์ตาม
 # symlink กลับมาหาโฟลเดอร์ exporter เอง ไม่ผูกกับ path ของเครื่องไหน · คู่มือ: docs/FOODSTORY-DAILY-STAFF-GUIDE.md
@@ -59,7 +59,7 @@ if [ -z "$NODE" ]; then
 fi
 
 echo "════════════════════════════════════════════════════════"
-echo "  ดึงรายงาน FoodStory (เมื่อวาน + วันที่ยังขาด + รายงานภาพ)"
+echo "  ดึงรายงาน FoodStory (เมื่อวาน + วันที่ยังขาด + รายงาน snapshot)"
 echo "════════════════════════════════════════════════════════"
 
 [ -n "$NODE" ] || stop_with "ไม่พบโปรแกรม Node.js (ต้องเป็นรุ่น 22.18 ขึ้นไป) บนเครื่องนี้" \
@@ -103,11 +103,11 @@ EXPORT_RC=$?
 # ปลดล็อกทันทีที่ดึงเสร็จ — หน้าต่างที่ค้างรอ "กดปุ่มใดก็ได้" ข้ามวันต้องไม่ทำให้รอบพรุ่งนี้ขึ้นว่า "รันอยู่แล้ว" (ลองจริง 2026-10-12)
 release_lock
 
-# ── สรุปจากสถานะล่าสุดรายใบใน `_run.json` ทุกโฟลเดอร์ที่รอบนี้เขียน (เติมหลายวัน + ภาพของวันนี้ — ใบ 06) · นับเฉพาะรายงานที่รอบนี้รัน
+# ── สรุปจากสถานะล่าสุดรายใบใน `_run.json` ทุกโฟลเดอร์ที่รอบนี้เขียน (เติมหลายวัน + snapshot ของวันนี้ — ใบ 06) · นับเฉพาะรายงานที่รอบนี้รัน
 #    (รายการรอบสุดท้ายของโฟลเดอร์ ไม่มีรายการรอบ = ทุกใบ) · ผ่าน = ok หรือรอบนี้ล้มแต่ไฟล์ที่ผ่านของรอบก่อนยังอยู่ (previousOk) ──
 SUMMARY="$(find "$STORE/daily" -name _run.json -newer "$MARK" 2>/dev/null | sort | xargs "$NODE" -e '
   const fs = require("fs");
-  // วันตามเวลาไทยของเวลาเริ่มรอบ — รายงานตามวันไม่เคยถูกดึงในวันของข้อมูลเอง โฟลเดอร์ที่วันตรงกับวันเริ่มรอบจึงเป็นโฟลเดอร์รายงานภาพ
+  // วันตามเวลาไทยของเวลาเริ่มรอบ — รายงานตามวันไม่เคยถูกดึงในวันของข้อมูลเอง โฟลเดอร์ที่วันตรงกับวันเริ่มรอบจึงเป็นโฟลเดอร์รายงาน snapshot
   const thaiDay = (iso) => { const d = new Date(iso); return isNaN(d) ? null : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(d); };
   let passed = 0, total = 0, pictures = 0, closes = 0; const days = []; let warnings = [];
   for (const f of process.argv.slice(1)) {
@@ -121,7 +121,7 @@ SUMMARY="$(find "$STORE/daily" -name _run.json -newer "$MARK" 2>/dev/null | sort
       if (!x) continue;
       total++;
       if (!(x.status === "ok" || x.previousOk)) continue;
-      passed++; // วัน/ภาพที่บอกบนจอ = เฉพาะที่ได้จริง (วันที่ล้มทั้งวันไม่ขึ้นว่า "ได้ข้อมูล")
+      passed++; // วัน/snapshot ที่บอกบนจอ = เฉพาะที่ได้จริง (วันที่ล้มทั้งวันไม่ขึ้นว่า "ได้ข้อมูล")
       if (id.endsWith("@period-close")) closes++;
       else if (pictureFolder) pictures++;
       else perDay = true;
@@ -144,8 +144,8 @@ WARNINGS="$(printf '%s\n' "$SUMMARY" | sed -n '4,$p')"
 what_was_fetched() {
   [ -n "$DAYS" ] && echo "   รายงานตามวัน: ข้อมูลวันที่ $DAYS"
   if [ "$PICTURES" -gt 0 ] || [ "$CLOSES" -gt 0 ]; then
-    line="   รายงานภาพ: ถ่าย $PICTURES รายงาน"
-    [ "$CLOSES" -gt 0 ] && line="$line · ภาพปิดงวด $CLOSES รายงาน"
+    line="   รายงาน snapshot: ถ่าย $PICTURES รายงาน"
+    [ "$CLOSES" -gt 0 ] && line="$line · snapshot ปิดงวด $CLOSES รายงาน"
     echo "$line"
   fi
   return 0

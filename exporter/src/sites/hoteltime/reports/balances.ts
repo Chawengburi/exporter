@@ -4,7 +4,7 @@ import { gridRowCount, setSelect, setSingleDate } from '../webforms.ts';
 import type { Report } from './_types.ts';
 
 /**
- * ยอดคงค้าง ณ วันที่ 2 หน้า (ticket 23 ของ exporter-daily-expansion-and-data-store — ผ่านการตรวจซ้ำใน ticket 22) · ภาพของวันที่ดึง
+ * ยอดคงค้าง ณ วันที่ 2 หน้า (ticket 23 ของ exporter-daily-expansion-and-data-store — ผ่านการตรวจซ้ำใน ticket 22) · snapshot ของวันที่ดึง
  * (dailyOnly — ADR-0003) · ช่องวันเดี่ยว `ctl00$pc$calFrom` = "ณ วันที่" (ค่าตั้งต้น = วันนี้) — เดิมการตรวจเบื้องต้นนับเป็นช่วงครึ่งเดียวแล้วล้ม
  * · recon อ่านอย่างเดียว 2026-10-08 อยู่ใน `recon/NOTES.md`
  */

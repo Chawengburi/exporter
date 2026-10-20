@@ -10,11 +10,11 @@ import type { EmptyResultEntry, UploadFileResult, UploadRunResult } from './uplo
  * ข้อความ Discord (ใบ 08) — ฟังก์ชันล้วนจากผลของ `exporter status` (`buildStatus`, ใบ 07): ระดับรอ/ปัญหาตามกติกาเวลามาจาก status แล้ว ที่นี่ไม่คิดซ้ำ
  *
  * - **สรุปรายวัน** (วันละข้อความ — ไม่มีข้อความวันไหนแปลว่าระบบเงียบ): ต่อ Site วันของข้อมูลล่าสุดที่ถึงกำหนด มีข้อมูลกี่รายงาน ว่างตัวไหน ล้ม/ขาดกี่ตัว
- *   และรายงานภาพของวันนี้ครบไหม
- * - **แจ้งเตือน**: ทุกเรื่องที่ status ตัดสินว่าเป็นปัญหา (รายงานยังล้ม/ขาดหลังรอบเก็บตก, รายงานภาพของวันนี้ถ่ายไม่ได้, ภาพปิดงวด, `_run.json` เสีย/รอบไม่จบ)
+ *   และรายงาน snapshot ของวันนี้ครบไหม
+ * - **แจ้งเตือน**: ทุกเรื่องที่ status ตัดสินว่าเป็นปัญหา (รายงานยังล้ม/ขาดหลังรอบเก็บตก, รายงาน snapshot ของวันนี้ถ่ายไม่ได้, snapshot ปิดงวด, `_run.json` เสีย/รอบไม่จบ)
  *   + วันขาดเกินที่รอบเดียวเติมได้ + FoodStory ไม่ได้กดมา `NOT_PRESSED_ALERT_DAYS` วันขึ้นไป
  * - ทุกเรื่องมีกุญแจ (`ชนิด@site@วัน@รายงาน@วันนี้`) — เรื่องเดียวกันไม่ส่งซ้ำในวันเดียวกัน (spec) · ยังไม่หายพรุ่งนี้ = เตือนอีกวันละครั้ง
- * - รายงานภาพของวันนี้ของ FoodStory ล้ม = พนักงานกดใหม่ได้ทั้งวัน → เตือนตั้งแต่ 18:30 ("ถ่ายไม่ได้ทุกรอบ" — user story 39)
+ * - รายงาน snapshot ของวันนี้ของ FoodStory ล้ม = พนักงานกดใหม่ได้ทั้งวัน → เตือนตั้งแต่ 18:30 ("ถ่ายไม่ได้ทุกรอบ" — user story 39)
  * - FoodStory ยังไม่เคยกดเลย เตือนเฉพาะเครื่องที่ตั้งวันเริ่มใช้งานแล้ว (ยังไม่ตั้ง = ยังไม่เริ่มใช้งาน)
  */
 
@@ -24,7 +24,7 @@ export const NOT_PRESSED_ALERT_DAYS = 2;
 const MAX_CONTENT = 1900;
 const NAMES_SHOWN = 8;
 const SITE_LABEL: Readonly<Record<SiteView['site'], string>> = { hoteltime: 'HotelTime', foodstory: 'FoodStory' };
-/** เวลาไทยที่รายงานภาพของวันนี้ของ FoodStory ล้มแล้วถือว่า "ถ่ายไม่ได้ทุกรอบ" — เท่ากับเส้นหลังรอบเก็บตกสุดท้ายของ HotelTime */
+/** เวลาไทยที่รายงาน snapshot ของวันนี้ของ FoodStory ล้มแล้วถือว่า "ถ่ายไม่ได้ทุกรอบ" — เท่ากับเส้นหลังรอบเก็บตกสุดท้ายของ HotelTime */
 const MANUAL_PICTURE_ALERT_AT = '18:30';
 /**
  * สีแถบซ้ายของ Discord Container (เจ้าของระบบขอ 2026-10-18 ให้ใช้ container ของ Discord แทน emoji) — เขียว/เหลือง/แดง
@@ -91,7 +91,7 @@ function summarySiteBlock(site: SiteView, today: string): string {
   const pictures = site.days.find((d) => d.day === today)?.pictures;
   if (pictures) {
     const bad = pictures.failed.length + pictures.missing.length;
-    parts.push(bad === 0 ? `ภาพวันนี้ ครบ ${pictures.taken}/${pictures.total}` : `ภาพวันนี้ ${pictures.taken}/${pictures.total} (ไม่ได้ ${bad})`);
+    parts.push(bad === 0 ? `snapshot วันนี้ ครบ ${pictures.taken}/${pictures.total}` : `snapshot วันนี้ ${pictures.taken}/${pictures.total} (ไม่ได้ ${bad})`);
   }
   if (site.site === 'foodstory' && site.daysSinceLastRun !== null && site.daysSinceLastRun >= 1) {
     parts.push(`ไม่ได้กดมา ${site.daysSinceLastRun} วัน`);
@@ -109,7 +109,7 @@ function failuresBlock(failures: readonly { readonly label: string; readonly rea
   return [`ไม่สำเร็จ ${failures.length} ไฟล์`, ...shown, ...more].join('\n');
 }
 
-/** รายงานตามวัน + รายงานภาพของวันนี้ที่ล้มจริง (ไม่รวม "ยังไม่ได้ดึง"/"ยังไม่ได้ถ่าย" ที่เป็นแค่ยังไม่ถึงตา ไม่ใช่ความล้มเหลว) */
+/** รายงานตามวัน + รายงาน snapshot ของวันนี้ที่ล้มจริง (ไม่รวม "ยังไม่ได้ดึง"/"ยังไม่ได้ถ่าย" ที่เป็นแค่ยังไม่ถึงตา ไม่ใช่ความล้มเหลว) */
 function exportFailures(report: StatusReport, today: string): { readonly label: string; readonly reason: string }[] {
   const out: { label: string; reason: string }[] = [];
   for (const site of report.sites) {
@@ -117,7 +117,7 @@ function exportFailures(report: StatusReport, today: string): { readonly label: 
     const day = latestDataDay(site);
     for (const f of day?.perDay?.failed ?? []) out.push({ label: `${label}: ${f.report}`, reason: firstLine(f.error) });
     const pictures = site.days.find((d) => d.day === today)?.pictures;
-    for (const f of pictures?.failed ?? []) out.push({ label: `${label}: ${f.report} (ภาพ)`, reason: firstLine(f.error) });
+    for (const f of pictures?.failed ?? []) out.push({ label: `${label}: ${f.report} (snapshot)`, reason: firstLine(f.error) });
   }
   return out;
 }
@@ -158,8 +158,8 @@ function alertsOf(report: StatusReport, today: string): Alert[] {
         for (const id of d.perDay?.notFetched ?? []) out.push({ key: `missing@${site.site}@${d.day}@${id}`, line: `${at}: ${id} ยังไม่ได้ดึง` });
       }
       if (d.day === today && d.pictures && (site.site === 'hoteltime' || time >= MANUAL_PICTURE_ALERT_AT)) {
-        for (const f of d.pictures.failed) out.push({ key: `picture@${site.site}@${d.day}@${f.report}`, line: `${at}: รายงานภาพ ${f.report} ถ่ายไม่ได้ — ${firstLine(f.error)}` });
-        for (const id of d.pictures.missing) out.push({ key: `picture@${site.site}@${d.day}@${id}`, line: `${at}: รายงานภาพ ${id} ยังไม่ได้ถ่าย` });
+        for (const f of d.pictures.failed) out.push({ key: `picture@${site.site}@${d.day}@${f.report}`, line: `${at}: รายงาน snapshot ${f.report} ถ่ายไม่ได้ — ${firstLine(f.error)}` });
+        for (const id of d.pictures.missing) out.push({ key: `picture@${site.site}@${d.day}@${id}`, line: `${at}: รายงาน snapshot ${id} ยังไม่ได้ถ่าย` });
       }
     }
     for (const c of site.closes) {
@@ -169,7 +169,7 @@ function alertsOf(report: StatusReport, today: string): Alert[] {
       for (const id of [...c.failed.map((f) => f.report), ...c.missing]) {
         out.push({
           key: `close@${site.site}@${c.periodEnd}@${id}${lost ? '@lost' : ''}`,
-          line: `${label} ภาพปิดงวด${period}: ${id} ${lost ? 'หายถาวร (พ้นช่วงลองซ้ำแล้ว)' : `ยังไม่ได้ — ${c.note}`}`,
+          line: `${label} snapshot ปิดงวด${period}: ${id} ${lost ? 'หายถาวร (พ้นช่วงลองซ้ำแล้ว)' : `ยังไม่ได้ — ${c.note}`}`,
         });
       }
     }

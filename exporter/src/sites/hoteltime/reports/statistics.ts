@@ -7,7 +7,7 @@ import type { Report } from './_types.ts';
 /**
  * หน้าสถิติ 7 หน้าจากการตรวจเบื้องต้น (`recon/PROBE.md`, ticket 21 ของ exporter-daily-expansion-and-data-store)
  *
- * เก็บเป็นภาพของวันที่ดึงทุกวัน (เจ้าของระบบยืนยัน 2026-10-07) — ตัวเลขสถิติ/พยากรณ์เปลี่ยนทุกวันตามการจอง ไฟล์ของแต่ละวัน
+ * เก็บเป็น snapshot ของวันที่ดึงทุกวัน (เจ้าของระบบยืนยัน 2026-10-07) — ตัวเลขสถิติ/พยากรณ์เปลี่ยนทุกวันตามการจอง ไฟล์ของแต่ละวัน
  * จึงคือ "สถิติตามที่ระบบเห็น ณ วันนั้น" · dailyOnly (ADR-0003) — ดึงได้แค่วันนี้
  *
  * 🔴 ค่าตั้งต้นของหน้าเหล่านี้ไม่สม่ำเสมอ (recon อ่านอย่างเดียว 2026-10-07: term/CombinedForecast ตั้งไว้ที่**เดือนหน้า**,
@@ -29,9 +29,9 @@ type StatsSpec = {
   readonly grid: string | null;
   readonly expectedColumns: readonly string[];
   readonly trailingColumns?: 'data-driven';
-  /** ช่วงข้อมูลของภาพนี้ตามวันที่ดึง — ใช้ตั้งตัวกรองและตั้งชื่อไฟล์ (`Report.dataWindow`, ticket 26) */
+  /** ช่วงข้อมูลของ snapshot นี้ตามวันที่ดึง — ใช้ตั้งตัวกรองและตั้งชื่อไฟล์ (`Report.dataWindow`, ticket 26) */
   readonly window: (day: Date) => DateRange;
-  /** งวดของภาพปิดงวด (ใบ 05) — ภาพของงวดที่จบแล้วทั้งงวดถ่ายวันแรกของงวดถัดไป · ภาพที่มองไปข้างหน้า/ช่วงเลื่อนไม่มีงวด */
+  /** งวดของ snapshot ปิดงวด (ใบ 05) — snapshot ของงวดที่จบแล้วทั้งงวดถ่ายวันแรกของงวดถัดไป · snapshot ที่มองไปข้างหน้า/ช่วงเลื่อนไม่มีงวด */
   readonly period: ReportPeriod;
   readonly applyFilters: (page: Page, window: DateRange, allowed: readonly string[], id: string) => Promise<void>;
 };
@@ -47,10 +47,10 @@ function statsReport(spec: StatsSpec): Report {
     family: 'picture',
     period: spec.period,
     skipDateCoverageCheck: true,
-    chunk: { kind: 'whole', reason: 'dailyOnly — ภาพของวันที่ดึง ไม่มีอะไรให้แบ่งก้อน' },
+    chunk: { kind: 'whole', reason: 'dailyOnly — snapshot ของวันที่ดึง ไม่มีอะไรให้แบ่งก้อน' },
     hasRowCap: false,
     dateColumn: spec.expectedColumns[0]!,
-    filterNote: 'สถิติรวม เก็บเป็นภาพของวันที่ดึง — ช่วงในชื่อไฟล์คือช่วงที่สถิติครอบคลุม (ปีนี้/เดือนนี้/เดือนหน้า/ย้อน 12 เดือน)',
+    filterNote: 'สถิติรวม เก็บเป็น snapshot ของวันที่ดึง — ช่วงในชื่อไฟล์คือช่วงที่สถิติครอบคลุม (ปีนี้/เดือนนี้/เดือนหน้า/ย้อน 12 เดือน)',
     dataWindow: spec.window,
     searchButton: spec.searchButton,
     boundaryToleranceDays: 0,
@@ -151,7 +151,7 @@ export const reservationStatsSegment = statsReport({
   searchButton: 'ctl00$pc$btnSegFind',
   controls: ['ctl00$pc$calSegFrom', 'ctl00$pc$calSegTo'],
   grid: 'dtgSegments',
-  // หลังสองคอลัมน์แรกคือชื่อ segment **ที่มีการจองในช่วงที่ค้น** — เปลี่ยนตามข้อมูล ไม่ใช่โครงรายงาน (ภาพปิดงวดปี 2025 ใบ 05 ได้ชุดต่างจาก 2026:
+  // หลังสองคอลัมน์แรกคือชื่อ segment **ที่มีการจองในช่วงที่ค้น** — เปลี่ยนตามข้อมูล ไม่ใช่โครงรายงาน (snapshot ปิดงวดปี 2025 ใบ 05 ได้ชุดต่างจาก 2026:
   // มี F.I.T. - Longstay/Travel Trade/Package แต่ไม่มี Complimentary/Corporate - Local) จึงตรวจแค่สองคอลัมน์แรก · '&nbsp;' เป็นแบบนี้ในไฟล์จริง
   // ไม่ใช่พิมพ์ผิด · ชุดที่เห็นปี 2026: F.I.T. - Promotion, F.I.T. - Full Price, OTA, Complimentary, ฺฺฺBooking.com (มีสระที่มองไม่เห็นนำหน้า),
   // Expedia, Traveloka, Trip.com, Xcaliber, Corporate - Local

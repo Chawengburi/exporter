@@ -17,16 +17,16 @@ import type { UploadBacklogView } from './uploader.ts';
  * ช่วยอ่าน อ่านจาก `_run.json` ในคลัง + ค่าตั้งสองค่าใน `.env` (ไม่เปิดเบราว์เซอร์ ไม่อ่านรหัสผ่าน)
  *
  * พูดภาษาของโมเดลใหม่ (ADR-0008/0009, CONTEXT.md): ต่อ Site × **วันของข้อมูล** — รายงานตามวันแต่ละตัวเป็น มีข้อมูล / ว่าง / ล้ม / ยังไม่ได้ดึง
- * (สถานะเดียวกับที่ตัววางแผนใช้ตัดสินว่าต้องดึงอะไร — `storeStateFrom`) · รายงานภาพที่ถ่ายในวันนั้น · ภาพปิดงวดแยกเป็นเรื่องของงวด
+ * (สถานะเดียวกับที่ตัววางแผนใช้ตัดสินว่าต้องดึงอะไร — `storeStateFrom`) · รายงาน snapshot ที่ถ่ายในวันนั้น · snapshot ปิดงวดแยกเป็นเรื่องของงวด
  *
  * กติกา:
  * - HotelTime รันเอง (Windmill 12:00 + เก็บตก 15:00/18:00): เมื่อวานยังไม่ได้ดึงหลัง 15:00 / ล้มหลัง 18:30 = ปัญหา (ก่อนนั้น = รอ) · วันก่อนหน้า
- *   ที่ขาด/ล้ม = ปัญหา (รอบไหนก็เติมเองได้ — ยังขาดแปลว่ารอบไม่ได้รันหรือล้มซ้ำ) · รายงานภาพของวันนี้เหมือนเมื่อวาน
- * - FoodStory คนกด: ยังไม่ได้ดึง / รายงานภาพของวันนี้ยังไม่ได้ถ่าย = สิ่งที่ต้องทำบรรทัดเดียว "กด" (บอกว่าไม่ได้กดมากี่วัน) · ล้ม = ปัญหา
- * - รายงานภาพของวันที่ผ่านไปแล้วที่หาย = บอกว่าหายถาวร เติมไม่ได้ (ไม่ใช่ปัญหา — ไม่มีอะไรให้ทำ · user story 30)
+ *   ที่ขาด/ล้ม = ปัญหา (รอบไหนก็เติมเองได้ — ยังขาดแปลว่ารอบไม่ได้รันหรือล้มซ้ำ) · รายงาน snapshot ของวันนี้เหมือนเมื่อวาน
+ * - FoodStory คนกด: ยังไม่ได้ดึง / รายงาน snapshot ของวันนี้ยังไม่ได้ถ่าย = สิ่งที่ต้องทำบรรทัดเดียว "กด" (บอกว่าไม่ได้กดมากี่วัน) · ล้ม = ปัญหา
+ * - รายงาน snapshot ของวันที่ผ่านไปแล้วที่หาย = บอกว่าหายถาวร เติมไม่ได้ (ไม่ใช่ปัญหา — ไม่มีอะไรให้ทำ · user story 30)
  * - วันก่อน **วันเริ่มใช้งาน** (หรือก่อนวันแรกที่มีผลแบบใหม่ ถ้ายังไม่ได้ตั้ง) ไม่นับว่าขาด · โฟลเดอร์ของรอบรูปแบบเดิมแสดงเป็นประวัติ
  * - วันขาดเกินที่รอบเดียวเติมได้ / ยังไม่ตั้ง (หรือตั้งผิด) วันเริ่มใช้งาน / ยังไม่ตั้ง URL ของ webhook = สิ่งที่ต้องทำ · `_run.json` อ่านไม่ได้ = ปัญหาเสมอ
- * - ภาพปิดงวด: แบบเดียวกับรายงานตามวัน (HotelTime รอถึง 18:30 ของวันแรกของงวดถัดไป) · พ้นช่วงลองซ้ำ = ปัญหา "หายถาวร" (เจ้าของเลือก 2026-10-14)
+ * - snapshot ปิดงวด: แบบเดียวกับรายงานตามวัน (HotelTime รอถึง 18:30 ของวันแรกของงวดถัดไป) · พ้นช่วงลองซ้ำ = ปัญหา "หายถาวร" (เจ้าของเลือก 2026-10-14)
  * - FoodStory รายเดือนของเดือนที่แล้ว: ยังไม่มีหลังวันที่ 5 = สิ่งที่ต้องทำ · มีใบที่ไม่เคยผ่านเลย = ปัญหา
  *
  * `--json` = `StatusReport` ทั้งก้อน — `sites` (ทุกวัน/ทุกงวดมี `level` + `note` ตามกติกาข้างบน) คือโครงสร้างที่ใบ 08 ใช้สร้างข้อความ Discord
@@ -46,7 +46,7 @@ const WEBHOOK_ENV: Readonly<Record<WebhookChannel, string>> = { export: WEBHOOK_
 export type FailedReport = { readonly report: string; readonly error: string };
 /** `running` = มีโฟลเดอร์แต่ยังไม่มี `_run.json` (กำลังรัน หรือรอบนั้นตายกลางทาง) · `unreadable` = `_run.json` เสีย/ผิดรูป */
 export type RunState = 'running' | 'unreadable';
-/** โฟลเดอร์รายวันหนึ่งโฟลเดอร์ · `day` = วันของโฟลเดอร์ (วันของข้อมูล / วันที่ถ่ายรายงานภาพ / วันสุดท้ายของงวด) */
+/** โฟลเดอร์รายวันหนึ่งโฟลเดอร์ · `day` = วันของโฟลเดอร์ (วันของข้อมูล / วันที่ถ่ายรายงาน snapshot / วันสุดท้ายของงวด) */
 export type Folder = { readonly day: string; readonly record: RunRecord | RunState };
 type Counts = {
   readonly passed: number;
@@ -84,7 +84,7 @@ export type PerDayView = {
   readonly failed: readonly FailedReport[];
   readonly notFetched: readonly string[];
 };
-/** รายงานภาพที่ถ่ายในวันหนึ่ง · `taken` = มีข้อมูล + ว่าง */
+/** รายงาน snapshot ที่ถ่ายในวันหนึ่ง · `taken` = มีข้อมูล + ว่าง */
 export type PictureView = {
   readonly total: number;
   readonly taken: number;
@@ -100,7 +100,7 @@ export type DayView = Judged & {
   readonly perDay: PerDayView | null;
   readonly pictures: PictureView | null;
 };
-/** ภาพปิดงวดของงวดหนึ่ง (โฟลเดอร์ของวันสุดท้ายของงวด) · `retryUntil` = วันสุดท้ายที่รอบรายวันยังลองถ่ายซ้ำ */
+/** snapshot ปิดงวดของงวดหนึ่ง (โฟลเดอร์ของวันสุดท้ายของงวด) · `retryUntil` = วันสุดท้ายที่รอบรายวันยังลองถ่ายซ้ำ */
 export type CloseView = Judged & {
   readonly periodEnd: string;
   readonly period: 'month' | 'year';
@@ -186,12 +186,12 @@ function perDayLevel(v: PerDayView, day: string, mode: Mode, now: Clock): Judged
     : { level: 'problem', note: 'รอบถัดไปลองซ้ำเอง — ถ้ายังล้มดู _summary.txt ของวันนั้น' };
 }
 
-/** รายงานภาพที่ถ่ายในวันหนึ่ง — วันที่ผ่านไปแล้ว = หายถาวร (บอกเฉย ๆ) */
+/** รายงาน snapshot ที่ถ่ายในวันหนึ่ง — วันที่ผ่านไปแล้ว = หายถาวร (บอกเฉย ๆ) */
 function pictureLevel(v: PictureView, day: string, mode: Mode, now: Clock): Judged {
   if (v.failed.length === 0 && v.missing.length === 0) return { level: 'ok', note: '' };
   if (day < now.today) return { level: 'info', note: '' };
   if (mode === 'manual') {
-    return v.failed.length > 0 ? { level: 'problem', note: 'ดับเบิลคลิกใหม่ — รายงานภาพของวันนี้ถ่ายได้ถึงสิ้นวัน' } : { level: 'info', note: '' };
+    return v.failed.length > 0 ? { level: 'problem', note: 'ดับเบิลคลิกใหม่ — รายงาน snapshot ของวันนี้ถ่ายได้ถึงสิ้นวัน' } : { level: 'info', note: '' };
   }
   if (v.missing.length > 0 && now.minutes < HOTELTIME_TODAY_DEADLINE_MIN) return { level: 'wait', note: 'รอรอบเที่ยง (12:00)' };
   if (v.missing.length === 0 && now.minutes < HOTELTIME_CATCHUP_DONE_MIN) return { level: 'wait', note: 'รอรอบเก็บตก 15:00/18:00' };
@@ -216,7 +216,7 @@ function dayLevel(d: Omit<DayView, keyof Judged>, mode: Mode, now: Clock): Judge
 }
 
 /**
- * ภาพปิดงวด (เจ้าของเลือก 2026-10-14: แบบเดียวกับรายงานตามวัน) — ครบ = ok · HotelTime วันแรกของงวดถัดไป: ยังไม่มีรอบไหนลองก่อน 15:00 / ล้มก่อน
+ * snapshot ปิดงวด (เจ้าของเลือก 2026-10-14: แบบเดียวกับรายงานตามวัน) — ครบ = ok · HotelTime วันแรกของงวดถัดไป: ยังไม่มีรอบไหนลองก่อน 15:00 / ล้มก่อน
  * 18:30 = รอ หลังจากนั้นและวันต่อ ๆ ไป = ปัญหา (รอบรายวันยังลองซ้ำเองถึง `retryUntil`) · FoodStory ล้ม = ปัญหา (กดซ้ำ) ยังไม่มีใครกด = รวมในบรรทัด "กด" ·
  * พ้นช่วงลองซ้ำ = ปัญหา "หายถาวร" ให้คนเห็นว่าหายจริง (แสดงอยู่ในช่วงที่ดู)
  */
@@ -303,7 +303,7 @@ function siteView(
 }
 
 /**
- * ภาพปิดงวดของงวดที่ยังอยู่ในช่วงที่ดู (นับรวมช่วงที่ยังลองซ้ำได้) — จากผลในโฟลเดอร์ของวันสุดท้ายของงวด และงวดที่ตัววางแผนบอกว่าถึงกำหนดแต่ยังไม่มี
+ * snapshot ปิดงวดของงวดที่ยังอยู่ในช่วงที่ดู (นับรวมช่วงที่ยังลองซ้ำได้) — จากผลในโฟลเดอร์ของวันสุดท้ายของงวด และงวดที่ตัววางแผนบอกว่าถึงกำหนดแต่ยังไม่มี
  * ผลเลย (เครื่องดับวันที่ 1) · สิ้นปีมีทั้งงวดเดือน ธ.ค. และงวดปี
  */
 function closesOf(
@@ -373,9 +373,9 @@ function perDayPart(v: PerDayView): string {
   );
 }
 function picturePart(v: PictureView, lost: boolean): string {
-  if (v.failed.length === 0 && v.missing.length === 0) return `ภาพ ครบ ${v.taken}/${v.total}`;
+  if (v.failed.length === 0 && v.missing.length === 0) return `snapshot ครบ ${v.taken}/${v.total}`;
   return (
-    `ภาพ ได้ ${v.taken}/${v.total}` +
+    `snapshot ได้ ${v.taken}/${v.total}` +
     (v.failed.length > 0 ? ` · ล้ม ${v.failed.length} (${failSummary(v.failed)})` : '') +
     (v.missing.length > 0 ? ` · ยังไม่ได้ถ่าย ${v.missing.length} (${names(v.missing)})` : '') +
     (lost ? ' — หายถาวร เติมไม่ได้' : '')
@@ -400,7 +400,7 @@ function siteLines(view: SiteView, now: Clock, out: SectionBuilder): void {
     out.add(d.level, `${dayLabel(d.day, now)}  ${[parts.join(' · '), d.note].filter((x) => x !== '').join(' — ')}`);
   }
   for (const c of view.closes) {
-    const label = c.period === 'year' ? `ภาพปิดงวดปี ${c.periodEnd.slice(0, 4)}` : `ภาพปิดงวดเดือน ${c.periodEnd.slice(0, 7)}`;
+    const label = c.period === 'year' ? `snapshot ปิดงวดปี ${c.periodEnd.slice(0, 4)}` : `snapshot ปิดงวดเดือน ${c.periodEnd.slice(0, 7)}`;
     const bad = [...c.failed, ...c.missing.map((report) => ({ report, error: 'ยังไม่ได้ถ่าย' }))];
     const body = bad.length === 0 ? `ครบ ${c.ok}/${c.total}` : `ได้ ${c.ok}/${c.total} · ไม่ได้ ${bad.length} (${failSummary(bad)})`;
     out.add(c.level, `${label}  ${body}${c.note ? ` — ${c.note}` : ''}`);
@@ -432,9 +432,9 @@ function foodstoryDailySection(view: SiteView, now: Clock, out: SectionBuilder):
       : since >= 2 ? `FoodStory ไม่ได้กดมา ${since} วัน (ครั้งล่าสุด ${view.lastRunDay})`
       : since === 1 ? 'FoodStory ยังไม่ได้กดวันนี้'
       : notFetched ? 'FoodStory กดวันนี้แล้วแต่ยังมีวันที่ขาด'
-      : 'FoodStory กดวันนี้แล้วแต่รายงานภาพ/ภาพปิดงวดยังไม่ครบ';
+      : 'FoodStory กดวันนี้แล้วแต่รายงาน snapshot/snapshot ปิดงวดยังไม่ครบ';
     out.add('action', `${when} — ดับเบิลคลิก "Exporter - FoodStory Daily" บน Desktop แล้วกด captcha (กดครั้งเดียวได้วันที่ขาดไม่เกิน ${CATCH_UP_CAP_DAYS} วัน ` +
-      '+ รายงานภาพของวันนี้)');
+      '+ รายงาน snapshot ของวันนี้)');
   }
   if (view.backlogDays > 0) {
     out.add('action', `FoodStory ขาดอีก ${view.backlogDays} วันของข้อมูล เกินที่กดครั้งเดียวเติมได้ (${CATCH_UP_CAP_DAYS}) — กดซ้ำได้เลย ครั้งละ ${CATCH_UP_CAP_DAYS} วัน`);

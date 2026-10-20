@@ -375,7 +375,7 @@ export async function uploadFolder(opts: {
     const candidates: { readonly report: string; readonly outcome: OkOutcome; readonly documentType: string }[] = [];
     for (const [report, outcome] of Object.entries(runRecord.reports)) {
       if (outcome.status !== 'ok' || !isEmptyReportOutcome(outcome)) continue;
-      // key ของ _run.json ไม่ใช่ชื่อรายงานเสมอไป (baseline เก็บเป็น `<รายงาน>@<วัน>`, ภาพปิดงวดเก็บเป็น
+      // key ของ _run.json ไม่ใช่ชื่อรายงานเสมอไป (baseline เก็บเป็น `<รายงาน>@<วัน>`, snapshot ปิดงวดเก็บเป็น
       // `<รายงาน>@period-close`) — ไม่มีไฟล์ให้เทียบแบบไฟล์ปกติ (เพราะว่างจริง ไม่มีไฟล์เลย) จึงไม่มีทางรู้ชื่อ
       // รายงานที่ถูกต้องจาก key แบบผสมนี้ได้ ข้ามไปอย่างปลอดภัย (ไม่ส่ง ไม่เดา) แทนการแก้ให้ถูก — ชื่อรายงานจริง
       // ไม่มี "@" ปนอยู่เลย (เช็คแล้ว) ใช้เป็นตัวจับได้ตรง (พบช่องโหว่นี้พร้อมกับบั๊ก as_of ของไฟล์จริง 2026-10-19)
@@ -441,7 +441,7 @@ export async function uploadFolder(opts: {
       results.push({ file: entry.file, report: entry.report, kind: 'rejected', reason: `document_type "${documentType}" ไม่อยู่ใน catalog จริงของ uploader — ไม่ส่ง ไม่เดา` });
       continue;
     }
-    // key ของ _run.json ไม่ใช่ชื่อรายงานเสมอไป (baseline/ภาพปิดงวดเก็บเป็น `<รายงาน>@<วัน>`/`<รายงาน>@period-close`)
+    // key ของ _run.json ไม่ใช่ชื่อรายงานเสมอไป (baseline/snapshot ปิดงวดเก็บเป็น `<รายงาน>@<วัน>`/`<รายงาน>@period-close`)
     // หาจากชื่อไฟล์จริงแทน ไม่ใช่เทียบ key ตรงกับ entry.report (พบจาก production จริง 2026-10-19: 12 ไฟล์ถูกปฏิเสธผิด ๆ)
     const asOf = findOutcomeForFile(runRecord, entry.file)?.finishedAt;
     if (asOf === undefined) {

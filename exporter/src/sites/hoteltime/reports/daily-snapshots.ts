@@ -4,7 +4,7 @@ import { gridRowCount, setSingleDate } from '../webforms.ts';
 import type { Report } from './_types.ts';
 
 /**
- * หน้าภาพของวันนั้น 6 หน้าจากการตรวจเบื้องต้น (`recon/PROBE.md`, ticket 20 ของ exporter-daily-expansion-and-data-store)
+ * หน้า snapshot ของวันนั้น 6 หน้าจากการตรวจเบื้องต้น (`recon/PROBE.md`, ticket 20 ของ exporter-daily-expansion-and-data-store)
  *
  * ทุกหน้าโครงเดียวกันกับ arrivals/housekeeping (recon เชิงลึกด้วยสคริปต์อ่านอย่างเดียว 2026-10-07): ช่องวันเดียว
  * `ctl00$pc$calDate` (ค่าตั้งต้น = วันนี้) + ปุ่ม `ctl00$pc$btnFind` + ตารางผล `dtgItems` (ยกเว้น Housekeeping all-in-one
@@ -92,7 +92,7 @@ export const housekeepingBasic = dailySnapshot({
   label: 'Housekeeping - basic report',
   path: 'reports/RoomStatesSimple.aspx',
   grid: 'dtgItems',
-  // ภาพของทุกห้อง (121 แถว) — ห้องว่างไม่มีแขก ช่อง Arrival/Departure จึงว่าง ไม่มีคอลัมน์ไหนเท่ากับวันที่เลือก
+  // snapshot ของทุกห้อง (121 แถว) — ห้องว่างไม่มีแขก ช่อง Arrival/Departure จึงว่าง ไม่มีคอลัมน์ไหนเท่ากับวันที่เลือก
   coverageColumn: null,
   hasRowCap: false,
   expectedColumns: [
@@ -106,7 +106,7 @@ export const housekeepingAllInOne = dailySnapshot({
   label: 'Housekeeping all-in-one',
   path: 'reports/RoomStatesHSK.aspx',
   grid: 'dgvResult',
-  // ภาพของทุกห้อง — Date from/to คือช่วงพักของแขก ไม่ใช่วันที่เลือก
+  // snapshot ของทุกห้อง — Date from/to คือช่วงพักของแขก ไม่ใช่วันที่เลือก
   coverageColumn: null,
   hasRowCap: false,
   expectedColumns: [
@@ -121,7 +121,7 @@ export const roomsStatusOverview = dailySnapshot({
   label: 'Rooms status overview',
   path: 'reports/RoomUsage.aspx',
   grid: 'dtgItems',
-  // ภาพของทุกห้อง (130 แถว) — ห้องว่างไม่มีการจอง ช่องวันที่จึงว่าง
+  // snapshot ของทุกห้อง (130 แถว) — ห้องว่างไม่มีการจอง ช่องวันที่จึงว่าง
   coverageColumn: null,
   hasRowCap: false,
   // คอลัมน์ที่ 3 ไม่มีชื่อในไฟล์จริง ไม่ใช่พิมพ์ตก

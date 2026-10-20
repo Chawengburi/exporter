@@ -27,12 +27,12 @@ type Fake = { readonly dir: string; readonly launcher: string; readonly argsFile
 
 type FakeFolder = {
   readonly day: string; readonly reports: Readonly<Record<string, ReportState>>; readonly warnings?: readonly string[];
-  /** เวลาเริ่มรอบ (UTC ISO) — โฟลเดอร์ที่วันตรงกับวันที่เริ่มรอบ (เวลาไทย) คือโฟลเดอร์รายงานภาพของวันนี้ */
+  /** เวลาเริ่มรอบ (UTC ISO) — โฟลเดอร์ที่วันตรงกับวันที่เริ่มรอบ (เวลาไทย) คือโฟลเดอร์รายงาน snapshot ของวันนี้ */
   readonly startedAt?: string;
 };
 
 /**
- * `reports` = สถานะล่าสุดรายใบใน `_run.json` ของโฟลเดอร์เมื่อวาน · `folders` = รอบที่เขียนหลายโฟลเดอร์ (เติมวันที่ขาด + ภาพของวันนี้ — ใบ 06)
+ * `reports` = สถานะล่าสุดรายใบใน `_run.json` ของโฟลเดอร์เมื่อวาน · `folders` = รอบที่เขียนหลายโฟลเดอร์ (เติมวันที่ขาด + snapshot ของวันนี้ — ใบ 06)
  * · ไม่ระบุทั้งคู่ = ตัวแทนไม่เขียน `_run.json` เลย
  */
 async function fakeExporter(opts: {
@@ -77,7 +77,7 @@ async function fakeExporter(opts: {
   return { dir, launcher, argsFile };
 }
 
-// 17:00 เวลาไทย 2026-10-14 — รอบที่เติมวันที่ 12, 13 และถ่ายภาพของวันที่ 14
+// 17:00 เวลาไทย 2026-10-14 — รอบที่เติมวันที่ 12, 13 และถ่าย snapshot ของวันที่ 14
 const STARTED = '2026-10-14T10:00:00.000Z';
 
 const all = (n: number, state: ReportState): Record<string, ReportState> =>
@@ -202,7 +202,7 @@ test('ระหว่างรอ "กดปุ่มใดก็ได้" ต�
   }
 });
 
-test('🔴 รอบเดียวเติมหลายวัน + ภาพของวันนี้ (ใบ 06): รวมผลทุกโฟลเดอร์ที่รอบนี้เขียน บอกวันที่ได้ และคำเตือนวันที่ยังขาด', async () => {
+test('🔴 รอบเดียวเติมหลายวัน + snapshot ของวันนี้ (ใบ 06): รวมผลทุกโฟลเดอร์ที่รอบนี้เขียน บอกวันที่ได้ และคำเตือนวันที่ยังขาด', async () => {
   const fake = await fakeExporter({
     folders: [
       { day: '2026-10-12', reports: all(42, { status: 'ok' }), startedAt: STARTED },
@@ -214,7 +214,7 @@ test('🔴 รอบเดียวเติมหลายวัน + ภาพ
   assert.equal(code, 0);
   assert.match(out, /เสร็จเรียบร้อย[\s\S]*91\/91/);
   assert.match(out, /รายงานตามวัน: ข้อมูลวันที่ 2026-10-12, 2026-10-13\n/);
-  assert.match(out, /รายงานภาพ: ถ่าย 7 รายงาน/);
+  assert.match(out, /รายงาน snapshot: ถ่าย 7 รายงาน/);
   assert.match(out, /ยังขาดอีก 2 วัน/);
 });
 
@@ -226,7 +226,7 @@ test('🔴 ไม่มีงานค้าง (exporter จบ 0 โดยไ�
   assert.doesNotMatch(out, /ไม่สำเร็จ/);
 });
 
-test('🔴 ได้บางส่วน: ยังบอกว่าได้ข้อมูลวันไหน ภาพกี่รายงาน และภาพปิดงวด — นับเฉพาะที่ได้จริง วันที่ล้มทั้งวันไม่ขึ้น (code review ใบ 06 — เดิมบอกเฉพาะตอนผ่านครบ)', async () => {
+test('🔴 ได้บางส่วน: ยังบอกว่าได้ข้อมูลวันไหน snapshot กี่รายงาน และ snapshot ปิดงวด — นับเฉพาะที่ได้จริง วันที่ล้มทั้งวันไม่ขึ้น (code review ใบ 06 — เดิมบอกเฉพาะตอนผ่านครบ)', async () => {
   const fake = await fakeExporter({
     folders: [
       { day: '2026-09-30', reports: { a: { status: 'ok' }, 'salebymonthsum@period-close': { status: 'ok' } }, startedAt: STARTED },
@@ -239,5 +239,5 @@ test('🔴 ได้บางส่วน: ยังบอกว่าได้�
   assert.equal(code, 2);
   assert.match(out, /ได้บางส่วน/);
   assert.match(out, /รายงานตามวัน: ข้อมูลวันที่ 2026-09-30, 2026-10-13\n/);
-  assert.match(out, /รายงานภาพ: ถ่าย 1 รายงาน · ภาพปิดงวด 1 รายงาน/);
+  assert.match(out, /รายงาน snapshot: ถ่าย 1 รายงาน · snapshot ปิดงวด 1 รายงาน/);
 });

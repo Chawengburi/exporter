@@ -5,7 +5,7 @@ import { daysToRead, planBaselineRun, planDailyRun, planDateRun, planWarnings, s
 
 /**
  * ตัววางแผนรอบ (seam S1 ของ exporter-daily-per-day-raw) — ตอบว่า "รอบนี้ต้องทำอะไร" จากภาพรวมของที่เก็บข้อมูลอย่างเดียว ไม่แตะเบราว์เซอร์/ดิสก์
- * · ADR-0008: รายงานตามวันดึง **วันของข้อมูล = เมื่อวาน** (เวลาไทย) · รายงานภาพถ่ายวันละครั้งจนกว่าจะสำเร็จ
+ * · ADR-0008: รายงานตามวันดึง **วันของข้อมูล = เมื่อวาน** (เวลาไทย) · รายงาน snapshot ถ่ายวันละครั้งจนกว่าจะสำเร็จ
  */
 
 const REPORTS: readonly PlannedReport[] = [
@@ -19,7 +19,7 @@ const EMPTY_STORE: StoreState = new Map();
 /** เฉพาะรายการงาน (ไม่รวมตัวนับ/ธง) */
 const work = (p: { perDay: unknown; pictures: unknown }) => ({ perDay: p.perDay, pictures: p.pictures });
 
-test('วันปกติ ที่เก็บข้อมูลว่าง — รายงานตามวันดึงเมื่อวาน (13) ทุกตัว และถ่ายรายงานภาพของวันนี้ (14) ทุกตัว', () => {
+test('วันปกติ ที่เก็บข้อมูลว่าง — รายงานตามวันดึงเมื่อวาน (13) ทุกตัว และถ่ายรายงาน snapshot ของวันนี้ (14) ทุกตัว', () => {
   const plan = planDailyRun({ now: NOON_14, reports: REPORTS, state: EMPTY_STORE });
   assert.deepEqual(work(plan), {
     perDay: [
@@ -54,14 +54,14 @@ test('ล้มถูกดึงซ้ำ · ว่าง (ตรวจแล�
   });
 });
 
-test('ภาพที่ถ่ายเมื่อวานไม่นับเป็นภาพของวันนี้ · รายงานตามวันของวันนี้ยังไม่ถึงกำหนด (วันนี้ยังไม่จบ)', () => {
+test('snapshot ที่ถ่ายเมื่อวานไม่นับเป็น snapshot ของวันนี้ · รายงานตามวันของวันนี้ยังไม่ถึงกำหนด (วันนี้ยังไม่จบ)', () => {
   const state: StoreState = new Map([['arrivals@2026-10-13', 'data'], ['trial-balance@2026-10-13', 'data']]);
   const plan = planDailyRun({ now: NOON_14, reports: REPORTS, state });
   assert.deepEqual(plan.pictures.map((p) => p.day), ['2026-10-14', '2026-10-14']);
   assert.ok(plan.perDay.every((p) => p.day === '2026-10-13'));
 });
 
-test('🔴 วันตัดตามเวลาไทย ไม่ใช่ UTC — 00:30 ของวันที่ 14 (ยังเป็น 13 ใน UTC) ภาพเป็นของวันที่ 14', () => {
+test('🔴 วันตัดตามเวลาไทย ไม่ใช่ UTC — 00:30 ของวันที่ 14 (ยังเป็น 13 ใน UTC) snapshot เป็นของวันที่ 14', () => {
   const plan = planDailyRun({ now: new Date('2026-10-13T17:30:00Z'), reports: REPORTS, state: EMPTY_STORE });
   assert.deepEqual([...new Set(plan.pictures.map((p) => p.day))], ['2026-10-14']);
 });
@@ -142,7 +142,7 @@ test('🔴 เพดานต่อรอบ: ขาด 20 วัน เพด�
   assert.equal(plan.backlogDays, 6);
 });
 
-test('ไม่ย้อนก่อนวันเริ่มใช้งาน · วันเริ่มใช้งานเป็นวันนี้ = ยังไม่มีวันของข้อมูลถึงกำหนด (ภาพของวันนี้ยังถ่าย)', () => {
+test('ไม่ย้อนก่อนวันเริ่มใช้งาน · วันเริ่มใช้งานเป็นวันนี้ = ยังไม่มีวันของข้อมูลถึงกำหนด (snapshot ของวันนี้ยังถ่าย)', () => {
   const plan = planDailyRun({ now: NOON_14, reports: REPORTS, state: EMPTY_STORE, goLive: '2026-10-14', cap: 14 });
   assert.deepEqual(plan.perDay, []);
   assert.equal(plan.pictures.length, 2);
@@ -162,7 +162,7 @@ test('ก่อน 07:00 พร้อมวันเริ่มใช้งา�
 
 // ── --date: คนสั่งดึงวันของข้อมูลวันเดียว (ใบ 04) ──
 
-test('--date ดึงรายงานตามวันทุกตัวของวันนั้นใหม่ ไม่สนสถานะเดิม และไม่ถ่ายรายงานภาพ', () => {
+test('--date ดึงรายงานตามวันทุกตัวของวันนั้นใหม่ ไม่สนสถานะเดิม และไม่ถ่ายรายงาน snapshot', () => {
   const plan = planDateRun({ now: NOON_14, reports: REPORTS, day: '2026-10-10' });
   assert.deepEqual(plan.perDay, [
     { report: 'reservations-search', day: '2026-10-10' },
@@ -179,8 +179,8 @@ test('🔴 --date ปฏิเสธวันที่ยังไม่ถึ�
   assert.throws(() => planDateRun({ now: NOON_14, reports: REPORTS, day: '2026-02-30' }), /YYYY-MM-DD/);
 });
 
-test('--date กับรายงานภาพตัวเดียว — ไม่มีอะไรให้ดึง (ภาพของวันที่ผ่านไปแล้วดึงไม่ได้) ล้มดัง ๆ', () => {
-  assert.throws(() => planDateRun({ now: NOON_14, reports: [{ id: 'arrivals', family: 'picture' }], day: '2026-10-10' }), /รายงานภาพ/);
+test('--date กับรายงาน snapshot ตัวเดียว — ไม่มีอะไรให้ดึง (snapshot ของวันที่ผ่านไปแล้วดึงไม่ได้) ล้มดัง ๆ', () => {
+  assert.throws(() => planDateRun({ now: NOON_14, reports: [{ id: 'arrivals', family: 'picture' }], day: '2026-10-10' }), /รายงาน snapshot/);
 });
 
 test('🔴 วันเริ่มใช้งานอยู่ในอนาคต (เช่น พิมพ์ปีผิด) — ไม่ดึงรายงานตามวัน และบอกให้รู้ ไม่หยุดเก็บข้อมูลเงียบ ๆ', () => {
@@ -191,13 +191,13 @@ test('🔴 วันเริ่มใช้งานอยู่ในอนา
 });
 
 test('daysToRead: โฟลเดอร์ที่ตัววางแผนต้องอ่าน = ตั้งแต่วันเริ่มใช้งาน (หรือเมื่อวาน) ถึงวันนี้', () => {
-  // วันที่ 14 พ้น 7 วันแรกของเดือนแล้ว ไม่มีภาพปิดงวดให้ดู — ดูแค่ช่วงวันของข้อมูล (ใบ 05)
+  // วันที่ 14 พ้น 7 วันแรกของเดือนแล้ว ไม่มี snapshot ปิดงวดให้ดู — ดูแค่ช่วงวันของข้อมูล (ใบ 05)
   assert.deepEqual(daysToRead({ now: NOON_14, goLive: '2026-10-11' }), ['2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14']);
   assert.deepEqual(daysToRead({ now: NOON_14, goLive: null }), ['2026-10-13', '2026-10-14']);
   assert.deepEqual(daysToRead({ now: NOON_14, goLive: '2027-01-01' }), ['2026-10-13', '2026-10-14']);
 });
 
-// ── ภาพปิดงวด (ADR-0008, ใบ 05) ──
+// ── snapshot ปิดงวด (ADR-0008, ใบ 05) ──
 
 const WITH_PERIODS: readonly PlannedReport[] = [
   { id: 'reservations-search', family: 'per-day' },
@@ -210,30 +210,30 @@ const closes = (plan: { periodCloses: readonly { report: string; day: string }[]
 
 const OCT_2_NOON = new Date('2026-10-02T05:00:00Z');
 
-test('🔴 ภาพปิดงวด: งวดที่จบล่าสุดยังไม่มีภาพปิดงวด → ถ่าย (วันของงวด = วันสุดท้ายของงวด) · รายงานไม่มีงวดไม่มีภาพปิดงวด', () => {
+test('🔴 snapshot ปิดงวด: งวดที่จบล่าสุดยังไม่มี snapshot ปิดงวด → ถ่าย (วันของงวด = วันสุดท้ายของงวด) · รายงานไม่มีงวดไม่มี snapshot ปิดงวด', () => {
   const plan = planDailyRun({ now: OCT_2_NOON, reports: WITH_PERIODS, state: EMPTY_STORE, goLive: null });
   assert.deepEqual(closes(plan), ['trial-balance@2026-09-30']);
 });
 
-test('ภาพปิดงวดที่มีแล้วไม่ถ่ายซ้ำ', () => {
+test('snapshot ปิดงวดที่มีแล้วไม่ถ่ายซ้ำ', () => {
   const state: StoreState = new Map([['trial-balance@period-close@2026-09-30', 'data']]);
   assert.deepEqual(closes(planDailyRun({ now: OCT_2_NOON, reports: WITH_PERIODS, state, goLive: null })), []);
 });
 
-test('🔴 ภาพปิดงวดถ่ายได้แค่ 7 วันแรกของงวดถัดไป — หลังจากนั้นไม่ใช่ภาพปิดงวดแล้ว (ไม่ย้อนถ่ายปี 2025 ในเดือนตุลาคม)', () => {
+test('🔴 snapshot ปิดงวดถ่ายได้แค่ 7 วันแรกของงวดถัดไป — หลังจากนั้นไม่ใช่ snapshot ปิดงวดแล้ว (ไม่ย้อนถ่ายปี 2025 ในเดือนตุลาคม)', () => {
   assert.deepEqual(closes(planDailyRun({ now: new Date('2026-10-07T05:00:00Z'), reports: WITH_PERIODS, state: EMPTY_STORE, goLive: null })), ['trial-balance@2026-09-30']);
   assert.deepEqual(closes(planDailyRun({ now: new Date('2026-10-08T05:00:00Z'), reports: WITH_PERIODS, state: EMPTY_STORE, goLive: null })), []);
   assert.deepEqual(closes(planDailyRun({ now: NOON_14, reports: WITH_PERIODS, state: EMPTY_STORE, goLive: null })), []);
 });
 
-test('🔴 ภาพปิดงวดที่ล้มถูกลองซ้ำรอบถัดไปภายใน 7 วัน และบอกให้รู้ว่ายังไม่สำเร็จ', () => {
+test('🔴 snapshot ปิดงวดที่ล้มถูกลองซ้ำรอบถัดไปภายใน 7 วัน และบอกให้รู้ว่ายังไม่สำเร็จ', () => {
   const state: StoreState = new Map([['trial-balance@period-close@2026-09-30', 'failed']]);
   const plan = planDailyRun({ now: OCT_2_NOON, reports: WITH_PERIODS, state, goLive: null });
   assert.deepEqual(closes(plan), ['trial-balance@2026-09-30']);
   assert.deepEqual(plan.failingCloses, ['trial-balance@2026-09-30']);
 });
 
-test('1 ม.ค. ได้ทั้งภาพปิดงวดเดือนธันวาคมและปีที่แล้ว (วันสุดท้ายของงวดเดียวกัน)', () => {
+test('1 ม.ค. ได้ทั้ง snapshot ปิดงวดเดือนธันวาคมและปีที่แล้ว (วันสุดท้ายของงวดเดียวกัน)', () => {
   const plan = planDailyRun({ now: new Date('2027-01-01T05:00:00Z'), reports: WITH_PERIODS, state: EMPTY_STORE, goLive: null });
   assert.deepEqual(closes(plan), ['trial-balance@2026-12-31', 'occupancy-annual@2026-12-31']);
 });
@@ -248,12 +248,12 @@ test('ไม่ย้อนไปงวดที่จบก่อนวัน�
   assert.deepEqual(closes(plan), []);
 });
 
-test('daysToRead รวมวันสุดท้ายของงวดที่จบล่าสุดที่ยังอยู่ใน 7 วันแรก — ตัววางแผนต้องเห็นว่าถ่ายภาพปิดงวดไปแล้วหรือยัง', () => {
+test('daysToRead รวมวันสุดท้ายของงวดที่จบล่าสุดที่ยังอยู่ใน 7 วันแรก — ตัววางแผนต้องเห็นว่าถ่าย snapshot ปิดงวดไปแล้วหรือยัง', () => {
   assert.deepEqual(daysToRead({ now: OCT_2_NOON, goLive: null }), ['2026-09-30', '2026-10-01', '2026-10-02']);
   assert.deepEqual(daysToRead({ now: new Date('2027-01-02T05:00:00Z'), goLive: null }), ['2026-12-31', '2027-01-01', '2027-01-02']);
 });
 
-test('ภาพรวมจาก _run.json: ผลภาพปิดงวดบันทึกด้วย id "<รายงาน>@period-close" ในโฟลเดอร์ของวันสุดท้ายของงวด · รายงานนอกแคตตาล็อกไม่นับ', () => {
+test('ภาพรวมจาก _run.json: ผล snapshot ปิดงวดบันทึกด้วย id "<รายงาน>@period-close" ในโฟลเดอร์ของวันสุดท้ายของงวด · รายงานนอกแคตตาล็อกไม่นับ', () => {
   const state = storeStateFrom(
     [{
       day: '2026-09-30',
@@ -300,7 +300,7 @@ test('🔴 รอบรูปแบบเดิมที่ดึงวันน
 
 // ── baseline (ใบ 09) ──
 
-test('🔴 baseline: รายงานตามวันทุกตัว × ทุกวันของข้อมูลในช่วง (ไฟล์ละวัน — key เดียวกับรอบรายวัน) · รายงานภาพข้ามพร้อมเหตุผล', () => {
+test('🔴 baseline: รายงานตามวันทุกตัว × ทุกวันของข้อมูลในช่วง (ไฟล์ละวัน — key เดียวกับรอบรายวัน) · รายงาน snapshot ข้ามพร้อมเหตุผล', () => {
   const plan = planBaselineRun({ reports: REPORTS, from: '2026-10-11', to: '2026-10-13' });
   assert.deepEqual(plan.items, [
     { report: 'reservations-search', day: '2026-10-11' }, { report: 'postings', day: '2026-10-11' },
@@ -308,7 +308,7 @@ test('🔴 baseline: รายงานตามวันทุกตัว × �
     { report: 'reservations-search', day: '2026-10-13' }, { report: 'postings', day: '2026-10-13' },
   ]);
   assert.deepEqual(plan.skipped.map((s) => s.report), ['arrivals', 'trial-balance']);
-  assert.match(plan.skipped[0]!.reason, /รายงานภาพ/);
+  assert.match(plan.skipped[0]!.reason, /รายงาน snapshot/);
 });
 
 test('baseline วันเดียวก็ได้ — ทุกรายงานตามวันของวันนั้น (ไม่รับภาพรวมของที่เก็บข้อมูลเลย: ดึงวันที่เคยดึงแล้วใหม่หมดคือหน้าที่ของมัน)', () => {

@@ -34,7 +34,7 @@ const entry = (overrides: Partial<RawFileEntry> = {}): RawFileEntry => ({
   source: 'https://th07.hoteltime.com/pms/ReservationStats.aspx?type=term',
   sourceName: 'export_forecast_by_parameters.xlsx',
   filterColumn: 'Name',
-  filterNote: 'สถิติรวม เก็บเป็นภาพของวันที่ดึง',
+  filterNote: 'สถิติรวม เก็บเป็น snapshot ของวันที่ดึง',
   ...overrides,
 });
 
@@ -81,7 +81,7 @@ test('buildIngestPayload: map field ตรงจาก RawFileEntry + as_of ท�
     rows: 1,
     report_label: 'Reporting — reservation statistics for a stay period',
     filter_column: 'Name',
-    filter_note: 'สถิติรวม เก็บเป็นภาพของวันที่ดึง',
+    filter_note: 'สถิติรวม เก็บเป็น snapshot ของวันที่ดึง',
   });
 });
 

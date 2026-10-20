@@ -37,7 +37,7 @@ async function makeFolderAt(
   for (const e of entries) await writeFile(path.join(folder, e.file), 'raw bytes');
   await recordPublished(folder, entries, [], new Set(entries.map((e) => e.file)), '2026-10-15T06:00:00.000Z');
   // files[] ต้องอ้างชื่อไฟล์จริงของ entry ที่ report ตรงกัน (ไม่ใช่เดาเป็น `${report}.xlsx`) — upload.ts หา as_of
-  // จากชื่อไฟล์จริงใน files[] (ticket: แก้บั๊ก as_of ของ baseline/ภาพปิดงวด 2026-10-19) ถ้า fixture ใช้ชื่อปลอมจะหาไม่เจอ
+  // จากชื่อไฟล์จริงใน files[] (ticket: แก้บั๊ก as_of ของ baseline/snapshot ปิดงวด 2026-10-19) ถ้า fixture ใช้ชื่อปลอมจะหาไม่เจอ
   const ok = (report: string, rows = 1): ReportOutcome => ({
     report,
     status: 'ok',
@@ -206,7 +206,7 @@ test('uploadFolder: happy path — ส่งไฟล์เดียวสำเ
   }
 });
 
-// พบจาก production จริง 2026-10-19: baseline/ภาพปิดงวดเก็บ key ของ `_run.json` เป็นแบบผสม (`<รายงาน>@<วัน>`,
+// พบจาก production จริง 2026-10-19: baseline/snapshot ปิดงวดเก็บ key ของ `_run.json` เป็นแบบผสม (`<รายงาน>@<วัน>`,
 // `<รายงาน>@period-close`) ไม่ใช่ชื่อรายงานตรง ๆ — ของเดิมเทียบ key ตรงกับ `entry.report` แล้วหา as_of ไม่เจอ
 // ปฏิเสธไฟล์จริง 12 ไฟล์ไปเฉย ๆ ตอนรัน backlog จริง — เทสต์นี้จำลองสถานการณ์เดียวกัน (key ผสม, entry.report สะอาด)
 test('uploadFolder: _run.json ใช้ key แบบผสม (baseline `<รายงาน>@<วัน>`) ยังหา as_of เจอจากชื่อไฟล์จริง ไม่ปฏิเสธผิด ๆ', async () => {
@@ -755,9 +755,9 @@ test('uploadFolder: document_type หาไม่ได้ (FoodStory จนก�
 });
 
 // พบพร้อมกับบั๊ก as_of ของไฟล์จริง 2026-10-19: loop ของ empty array ใช้ key ของ _run.json ตรง ๆ เป็น "ชื่อรายงาน"
-// — ถ้าเป็น key แบบผสม (baseline/ภาพปิดงวด) จะส่ง report ผิดเข้า documentTypeFor/payload ได้ ยังไม่เคยเกิดจริง
+// — ถ้าเป็น key แบบผสม (baseline/snapshot ปิดงวด) จะส่ง report ผิดเข้า documentTypeFor/payload ได้ ยังไม่เคยเกิดจริง
 // (flag ปิดอยู่ ticket 14 ยัง block) แต่กันไว้ล่วงหน้าเพราะรู้ต้นเหตุแล้วและแก้ไฟล์เดียวกับบั๊ก as_of
-test('uploadFolder: รายงานว่างที่ _run.json ใช้ key แบบผสม (ภาพปิดงวด) → ข้ามอย่างปลอดภัย ไม่ส่ง ไม่เดา report', async () => {
+test('uploadFolder: รายงานว่างที่ _run.json ใช้ key แบบผสม (snapshot ปิดงวด) → ข้ามอย่างปลอดภัย ไม่ส่ง ไม่เดา report', async () => {
   const folder = path.join(await mkdtemp(path.join(tmpdir(), 'upload-period-close-')), 'daily', '2026-09', '2026-09-30');
   await mkdir(folder, { recursive: true });
   await recordPublished(folder, [], [], new Set(), '2026-10-14T06:00:00.000Z');

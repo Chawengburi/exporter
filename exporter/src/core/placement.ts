@@ -101,7 +101,7 @@ export function dataFileName(site: SiteId, range: DateRange, reportId: string, e
 }
 
 /**
- * รายงานภาพ: `<site>__<เวลาที่ถ่าย>__<id>.<ext>` เป็น ISO ย่อเวลาไทย `YYYYMMDDTHHMMSS+0700` — ภาพของรายงานเดียวกัน
+ * รายงาน snapshot: `<site>__<เวลาที่ถ่าย>__<id>.<ext>` เป็น ISO ย่อเวลาไทย `YYYYMMDDTHHMMSS+0700` — snapshot ของรายงานเดียวกัน
  * หลายฉบับในวันเดียวไม่ทับกัน · ไม่มี `:` เพราะไฟล์อาจถูกดาวน์โหลดไปเปิดบน Windows (ADR-0008)
  */
 export function pictureFileName(site: SiteId, takenAt: Date, reportId: string, ext: string): string {

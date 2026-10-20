@@ -91,7 +91,7 @@ type ChunkOutcome =
       readonly sourceName: string;
       readonly sha256: string;
       readonly bytes: number;
-      /** เวลาที่ได้ไฟล์มา — เวลาที่ถ่ายของรายงานภาพ */
+      /** เวลาที่ได้ไฟล์มา — เวลาที่ถ่ายของรายงาน snapshot */
       readonly fetchedAt: Date;
     }
   | { readonly kind: 'empty'; readonly range: DateRange };
@@ -222,8 +222,8 @@ function dataRangeOf(report: Report, chunk: DateRange): DateRange {
 }
 
 /**
- * ชื่อไฟล์ ISO ของไฟล์ดิบหนึ่งไฟล์ — รายงานภาพใช้เวลาที่ถ่าย รายงานตามวันใช้ช่วงวันของข้อมูล (ADR-0008) · **ภาพปิดงวด** ใช้ช่วงของงวด
- * (`2026-09-01--2026-09-30__<id>.xlsx`) — ไม่ชนกับภาพปกติในโฟลเดอร์เดียวกันซึ่งใช้เวลาที่ถ่าย
+ * ชื่อไฟล์ ISO ของไฟล์ดิบหนึ่งไฟล์ — รายงาน snapshot ใช้เวลาที่ถ่าย รายงานตามวันใช้ช่วงวันของข้อมูล (ADR-0008) · **snapshot ปิดงวด** ใช้ช่วงของงวด
+ * (`2026-09-01--2026-09-30__<id>.xlsx`) — ไม่ชนกับ snapshot ปกติในโฟลเดอร์เดียวกันซึ่งใช้เวลาที่ถ่าย
  */
 function rawFileName(report: Report, o: DataOutcome, periodClose: boolean): string {
   return report.family === 'picture' && !periodClose
@@ -278,7 +278,7 @@ type ReportJob = {
   readonly range: DateRange;
   readonly runKind: RunKind;
   readonly baselineIntervalDays: number | undefined;
-  /** ภาพปิดงวด (ใบ 05): ชื่อไฟล์เป็นช่วงของงวด และบันทึกผลด้วย id `<รายงาน>@period-close` */
+  /** snapshot ปิดงวด (ใบ 05): ชื่อไฟล์เป็นช่วงของงวด และบันทึกผลด้วย id `<รายงาน>@period-close` */
   readonly periodClose: boolean;
   /** id ที่บันทึกใน `_run.json` แทน id ของรายงาน — baseline (ใบ 09) มีหลายวันของรายงานเดียวในโฟลเดอร์เดียว: `<รายงาน>@<วันของข้อมูล>` */
   readonly recordId?: string;
@@ -298,7 +298,7 @@ function nonDailyJob(report: Report, opts: ExportOptions): ReportJob {
   return { range: plan.range, runKind: plan.kind, baselineIntervalDays: undefined, periodClose: false };
 }
 
-/** id ที่บันทึกผลใน `_run.json` — ภาพปิดงวดแยกจากภาพปกติของรายงานเดียวกัน (`<รายงาน>@period-close`) */
+/** id ที่บันทึกผลใน `_run.json` — snapshot ปิดงวดแยกจาก snapshot ปกติของรายงานเดียวกัน (`<รายงาน>@period-close`) */
 function recordIdOf(report: Report, job: ReportJob): string {
   return job.recordId ?? (job.periodClose ? periodCloseId(report.id) : report.id);
 }
@@ -396,7 +396,7 @@ async function exportOne(ctx: RunContext, report: Report, outDir: string, job: R
   let merged: ReturnType<typeof verifyMerged>;
   try {
     merged = verifyMerged(verdicts, emptyRanges, range);
-    // ชื่อซ้ำกันในชุดเดียว = สองก้อนจะทับกันเอง (เช่น ภาพสองก้อนในวินาทีเดียวกัน) — ล้มก่อนแตะของเดิม
+    // ชื่อซ้ำกันในชุดเดียว = สองก้อนจะทับกันเอง (เช่น snapshot สองก้อนในวินาทีเดียวกัน) — ล้มก่อนแตะของเดิม
     const names = files.map((f) => f.entry.file);
     if (new Set(names).size !== names.length) {
       throw new Error(`ชื่อไฟล์ดิบของ "${report.id}" ซ้ำกันในรอบเดียว: ${names.join(', ')}`);
@@ -533,7 +533,7 @@ function outcomesOf(result: ReportResult): ReportOutcome[] {
 /**
  * รอบรายวัน (ADR-0008/0009) — ตัววางแผนตัดสินว่าต้องทำอะไรจาก `_run.json` ของโฟลเดอร์ที่มันขอให้อ่าน (`daysToRead`): **รายงานตามวัน**
  * ทุกวันของข้อมูลที่ถึงกำหนดแต่ยังไม่สำเร็จ ตั้งแต่วันเริ่มใช้งาน (ไม่เกิน `CATCH_UP_CAP_DAYS` วันต่อรอบ) ลงโฟลเดอร์ของวันนั้น ·
- * **รายงานภาพ** ถ่ายครั้งเดียวต่อวันลงโฟลเดอร์ของวันนี้ (โฟลเดอร์ของวัน D = วันของข้อมูล D ตาม ADR-0005) · `--date` = ดึงวันเดียวใหม่
+ * **รายงาน snapshot** ถ่ายครั้งเดียวต่อวันลงโฟลเดอร์ของวันนี้ (โฟลเดอร์ของวัน D = วันของข้อมูล D ตาม ADR-0005) · `--date` = ดึงวันเดียวใหม่
  * ไม่สนสถานะ · รอบ 15:00/18:00 รันคำสั่งเดียวกัน · ไม่มีงาน = จบโดยไม่เปิดเบราว์เซอร์และไม่โหลด credential
  */
 async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Report[], many: boolean): Promise<number> {
@@ -564,7 +564,7 @@ async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Re
   const items = [...plan.perDay, ...plan.pictures, ...plan.periodCloses.map((i) => ({ ...i, periodClose: true }))];
 
   if (items.length === 0) {
-    const text = 'ไม่มีงานค้าง — รายงานตามวันที่ถึงกำหนดและรายงานภาพของวันนี้สำเร็จแล้ว';
+    const text = 'ไม่มีงานค้าง — รายงานตามวันที่ถึงกำหนดและรายงาน snapshot ของวันนี้สำเร็จแล้ว';
     if (opts.json) {
       console.log(JSON.stringify(
         { ok: true, code: 'nothing_to_do', text, warnings, reports: [], failed: [], skipped: [], totalRows: 0, outDirs: [] },
@@ -590,7 +590,7 @@ async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Re
     const outDir = folderOf(date);
     outDirs.push(outDir);
     if (!opts.json) console.log(`${chalk.dim('ผลรอบนี้')}  ${path.relative(cfg.projectRoot, outDir)}/  ${chalk.dim(`(วัน ${day})`)}\n`);
-    // ทุกงานขอวันเดียว — ภาพปิดงวดขอวันสุดท้ายของงวด ซึ่งรายงานยอดสะสม (dataWindow) แปลงเป็นทั้งงวดเอง
+    // ทุกงานขอวันเดียว — snapshot ปิดงวดขอวันสุดท้ายของงวด ซึ่งรายงานยอดสะสม (dataWindow) แปลงเป็นทั้งงวดเอง
     const startedAt = new Date();
     const result = await runReports(
       ctx, outDir,
@@ -624,7 +624,7 @@ async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Re
  * **baseline** (ใบ 09, ADR-0008) — ดึงวันของข้อมูลในช่วงใหม่หมด ทีละวัน ไฟล์ละวัน `YYYY-MM-DD__<รายงาน>.xlsx` (ชื่อ/key เดียวกับรอบรายวัน) ลงโฟลเดอร์ของ
  * รอบนี้ `baseline/<วันที่รัน>/` (เจ้าของเลือก 2026-10-14): ฉบับรายวันกับฉบับ baseline อยู่คนละโฟลเดอร์ ไม่ลบไม่ทับ (ADR-0005) เทียบกันได้เลย · ตัววางแผนและ
  * status อ่านแค่โฟลเดอร์รายวัน — ผลของ baseline (รวมที่ล้ม) จึงไม่ทำให้รอบรายวันดึงวันนั้นซ้ำ · `_run.json` บันทึกด้วย id `<รายงาน>@<วัน>` ·
- * รายงานภาพไม่มี baseline: สั่งใบเดียว = ปฏิเสธ · `--report all` = ข้ามพร้อมเหตุผล (แบบ ADR-0003)
+ * รายงาน snapshot ไม่มี baseline: สั่งใบเดียว = ปฏิเสธ · `--report all` = ข้ามพร้อมเหตุผล (แบบ ADR-0003)
  */
 async function runBaseline(opts: ExportOptions, cfg: Config, requested: readonly Report[]): Promise<number> {
   const plan = resolveRunPlan(opts, thaiToday()); // flag ที่ขัดกัน / ช่วงถึงวันนี้ โยนจากที่นี่

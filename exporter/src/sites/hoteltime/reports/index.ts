@@ -60,14 +60,14 @@ export const REPORTS: readonly Report[] = [
   inHouseGuests,
   housekeeping,
   arrivalPeriod,
-  // ticket 20 — หน้าภาพของวันนั้นจากการตรวจเบื้องต้น
+  // ticket 20 — หน้า snapshot ของวันนั้นจากการตรวจเบื้องต้น
   reservationsByArrivalDate,
   housekeepingBasic,
   housekeepingAllInOne,
   roomsStatusOverview,
   roomsOutOfOrder,
   roomsAvailable,
-  // ticket 21 — หน้าสถิติ เก็บเป็นภาพของวันที่ดึง
+  // ticket 21 — หน้าสถิติ เก็บเป็น snapshot ของวันที่ดึง
   reservationStatsMonth,
   reservationStatsDay,
   reservationStatsTerm,

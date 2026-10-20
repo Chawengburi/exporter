@@ -26,12 +26,12 @@ import { login, openSession } from './session.ts';
 /**
  * รอบรายวันของ FoodStory ตามโมเดลใหม่ (ADR-0008/0009, ใบ 06) — พนักงานกดปุ่มครั้งเดียว (captcha ครั้งเดียว) แล้วได้:
  * **รายงานตามวัน** ของเมื่อวาน พร้อม**รอบเก็บตก**วันของข้อมูลที่ยังไม่สำเร็จตั้งแต่วันเริ่มใช้งาน (ไม่เกินจำนวนวันสูงสุดต่อรอบ) ลงโฟลเดอร์ของวันนั้น ·
- * **รายงานภาพ** ณ เวลาที่กดลงโฟลเดอร์ของวันนี้ · **ภาพปิดงวด**ของ salebymonthsum ช่วงต้นปี · ชื่อไฟล์ ISO + `_manifest.json` รูปเดียวกับ HotelTime
+ * **รายงาน snapshot** ณ เวลาที่กดลงโฟลเดอร์ของวันนี้ · **snapshot ปิดงวด**ของ salebymonthsum ช่วงต้นปี · ชื่อไฟล์ ISO + `_manifest.json` รูปเดียวกับ HotelTime
  * (ใบ 02) · ไม่มีงาน = จบโดยไม่ login (ไม่ต้องกด captcha) · รอบรายเดือนยังเป็นแบบเดิม (export.ts)
  */
 
 const SESSION_FILTER = 'ช่วงวันที่ระดับ session (วันขาย)';
-const SESSION_FILTER_NOTE = 'FoodStory กรองทุกรายงานด้วยช่วงวันที่ของ session ที่ตั้งครั้งเดียวต่อรอบ (สเปกต้นทาง §4.2) — รายงานภาพไม่กรองตามวัน';
+const SESSION_FILTER_NOTE = 'FoodStory กรองทุกรายงานด้วยช่วงวันที่ของ session ที่ตั้งครั้งเดียวต่อรอบ (สเปกต้นทาง §4.2) — รายงาน snapshot ไม่กรองตามวัน';
 
 /** ผลของรายงานหนึ่งตัวในวันหนึ่ง พร้อมว่าไปลงโฟลเดอร์ไหน */
 type Done = { readonly step: Extract<FoodStoryStep, { kind: 'report' | 'reservation' }>; readonly result: FoodStoryReportResult; readonly fetchedAt: Date };
@@ -69,7 +69,7 @@ export async function runFoodStoryDaily(opts: FoodStoryExportOptions): Promise<n
     if (!opts.json) for (const w of warnings) console.log(`⚠ ${w}`);
 
     if (steps.length === 0) {
-      const text = 'ไม่มีงานค้าง — รายงานของวันที่ถึงกำหนดและรายงานภาพของวันนี้ได้ครบแล้ว ไม่ต้อง login';
+      const text = 'ไม่มีงานค้าง — รายงานของวันที่ถึงกำหนดและรายงาน snapshot ของวันนี้ได้ครบแล้ว ไม่ต้อง login';
       if (opts.json) console.log(JSON.stringify({ ok: true, code: 'nothing_to_do', text, warnings, outDirs: [] }, null, 2));
       else console.log(`✔ ${text}`);
       return 0;
@@ -133,7 +133,7 @@ export async function runFoodStoryDaily(opts: FoodStoryExportOptions): Promise<n
         done.push({ step, result, fetchedAt: new Date() });
         if (!opts.json) {
           const tail = result.status === 'failed' ? (result.note ?? '') : `${String(result.rowsExported ?? '-').padStart(6)} แถว`;
-          const label = step.kind === 'report' && step.periodClose ? `${result.id} (ภาพปิดงวด)` : result.id;
+          const label = step.kind === 'report' && step.periodClose ? `${result.id} (snapshot ปิดงวด)` : result.id;
           console.log(`[${done.length}/${todo}] ${step.day}  ${result.status.padEnd(9)} ${label.padEnd(28)} ${tail.split('\n')[0]}`);
         }
       }
@@ -150,7 +150,7 @@ export async function runFoodStoryDaily(opts: FoodStoryExportOptions): Promise<n
   }
 }
 
-/** ชื่อไฟล์ ISO (ADR-0007): รายงานตามวัน = วันของข้อมูล · ภาพ = เวลาที่ได้ไฟล์ · ภาพปิดงวด = ช่วงของงวด (ปี) · ผ่าครึ่งหลายไฟล์ = `<id>_part<n>` */
+/** ชื่อไฟล์ ISO (ADR-0007): รายงานตามวัน = วันของข้อมูล · snapshot = เวลาที่ได้ไฟล์ · snapshot ปิดงวด = ช่วงของงวด (ปี) · ผ่าครึ่งหลายไฟล์ = `<id>_part<n>` */
 function rawName(d: Done, file: string, index: number, count: number): string {
   const id = d.result.id;
   const slug = count > 1 ? `${id}_part${index + 1}` : id;
