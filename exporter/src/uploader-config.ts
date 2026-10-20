@@ -15,6 +15,13 @@ export class UploaderConfigError extends Error {
 /** ไม่เป็นความลับ — พิมพ์ลง log ได้อย่างปลอดภัย (เหมือน `Config` ของ `sites/hoteltime/config.ts`) */
 export type UploaderConfig = {
   readonly url: string;
+  /**
+   * ticket 11 (`empty` array contract) — default **ปิด** เพราะยืนยันสดกับ production แล้ว (2026-10-19) ว่า
+   * ทีม uploader ยังไม่ deploy contract นี้ (ยิง `empty` เข้าไปตอนนี้ได้ 400) เปิดได้ด้วย
+   * `UPLOADER_SEND_EMPTY=true` หลังยืนยัน deploy แล้วเท่านั้น (ticket 14) — ไม่มีก็ไม่ใช่ error (ต่างจาก
+   * url/email/password) เพราะปิดคือค่าที่ปลอดภัยเสมอ
+   */
+  readonly sendEmpty: boolean;
 };
 
 /**
@@ -61,5 +68,6 @@ export function loadUploaderSetup(): UploaderSetup {
         '  UPLOADER_PASSWORD=...',
     );
   }
-  return { config: { url }, credentials: { email, password } };
+  const sendEmpty = envStr('UPLOADER_SEND_EMPTY').toLowerCase() === 'true';
+  return { config: { url, sendEmpty }, credentials: { email, password } };
 }

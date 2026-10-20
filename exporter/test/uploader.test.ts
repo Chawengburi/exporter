@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   asOfStateKey,
+  buildEmptyPayload,
   buildIngestPayload,
+  classifyEmptyBatchResponse,
   classifyIngestResponse,
   documentTypeFor,
   finalizeAfterRetries,
+  finalizeEmptyAfterRetries,
   isAsOfRegression,
   isEmptyReportOutcome,
   selectPendingFiles,
@@ -47,13 +50,23 @@ test('documentTypeFor: 3 ข้อยกเว้นที่ชื่อต่�
   assert.equal(documentTypeFor('hoteltime', 'reservations-cancelled'), 'hoteltime_reservation_cancelled');
 });
 
-test('documentTypeFor: FoodStory ยังไม่มีตาราง — คืน undefined ไม่เดา (ticket 08)', () => {
-  assert.equal(documentTypeFor('foodstory', 'salebysumdate'), undefined);
+test('documentTypeFor: FoodStory จับคู่ตามตาราง (ยังไม่ยืนยันจากทีม uploader, ticket 08)', () => {
+  assert.equal(documentTypeFor('foodstory', 'salebysumdate'), 'foodstory_sales_by_day');
+  assert.equal(documentTypeFor('foodstory', 'crm'), 'foodstory_customer_spend_by_phone');
 });
 
-test('SOURCE_SYSTEM: hoteltime ตรง ๆ, FoodStory คือ wongnai_pos', () => {
+test('documentTypeFor: FoodStory purchase/stock ปลดบล็อกแล้ว (เทียบคอลัมน์จริงกับทีม uploader 2026-10-19)', () => {
+  assert.equal(documentTypeFor('foodstory', 'purchase-detail'), 'foodstory_purchase_request_lines');
+  assert.equal(documentTypeFor('foodstory', 'purchase_stock'), 'foodstory_purchase_orders');
+});
+
+test('documentTypeFor: FoodStory รายงานที่ไม่อยู่ในตาราง — คืน undefined ไม่เดา (ไม่ throw)', () => {
+  assert.equal(documentTypeFor('foodstory', 'no-such-report'), undefined);
+});
+
+test('SOURCE_SYSTEM: hoteltime ตรง ๆ, FoodStory คือ foodstory (เปลี่ยนจาก wongnai_pos 2026-10-19)', () => {
   assert.equal(SOURCE_SYSTEM.hoteltime, 'hoteltime');
-  assert.equal(SOURCE_SYSTEM.foodstory, 'wongnai_pos');
+  assert.equal(SOURCE_SYSTEM.foodstory, 'foodstory');
 });
 
 test('buildIngestPayload: map field ตรงจาก RawFileEntry + as_of ที่ส่งเข้ามา', () => {
@@ -212,4 +225,101 @@ test('isEmptyReportOutcome: ok + มีแถว/มีไฟล์ → ไม�
 
 test('isEmptyReportOutcome: status ล้ม → ไม่ใช่ "ว่าง" (เป็นแค่ยังไม่รู้)', () => {
   assert.equal(isEmptyReportOutcome({ report: 'x', status: 'failed', error: 'timeout', attempts: 1, finishedAt: '2026-10-15T06:00:00.000Z' } as RecordedOutcome), false);
+});
+
+// ── empty array contract (ticket 11) ──
+
+test('asOfStateKey: ใช้กับ item ที่ไม่มี RawFileEntry เต็ม (แค่ report/range) ได้เหมือนกัน — key format เดียวกับไฟล์', () => {
+  assert.equal(asOfStateKey({ report: 'arrivals', range: { from: '2026-10-15', to: '2026-10-15' } }), 'arrivals@2026-10-15@2026-10-15');
+});
+
+test('buildEmptyPayload: map field ตาม contract ครบ 6 ตัว', () => {
+  const payload = buildEmptyPayload('hoteltime', 'departures', { from: '2026-10-12', to: '2026-10-12' }, '2026-10-12T05:11:31Z', 'hoteltime_departures');
+  assert.deepEqual(payload, {
+    source_system: 'hoteltime',
+    document_type: 'hoteltime_departures',
+    report: 'departures',
+    range_from: '2026-10-12',
+    range_to: '2026-10-12',
+    as_of: '2026-10-12T05:11:31Z',
+  });
+});
+
+test('buildEmptyPayload: FoodStory ใช้ source_system foodstory เหมือน buildIngestPayload', () => {
+  assert.equal(buildEmptyPayload('foodstory', 'x', { from: '2026-10-12', to: '2026-10-12' }, 'a', 'foodstory_x').source_system, 'foodstory');
+});
+
+// request ที่มี `empty` รายการเดียว — เรียก classifyEmptyBatchResponse ด้วย count=1 แล้วเอารายการแรก (ไม่มี
+// ฟังก์ชัน single-item แยกต่างหากในซอร์ส — ไม่มี production caller ที่ต้องใช้ ตัดออกตาม code review ของ ticket 11)
+const classifyOneEmpty = (httpStatus: number, body: unknown, retryAfterHeader?: string | null) => classifyEmptyBatchResponse(httpStatus, body, 1, retryAfterHeader)[0];
+
+test('classifyEmptyBatchResponse (count=1): ok:true, superseded ไม่ว่าง → announced พร้อมรายการที่ถูกซ่อน', () => {
+  const body = { empty_results: [{ index: 0, report: 'departures', ok: true, superseded: ['old456'] }] };
+  assert.deepEqual(classifyOneEmpty(200, body), { kind: 'announced', superseded: ['old456'] });
+});
+
+test('classifyEmptyBatchResponse (count=1): ok:true, superseded ว่าง → announced เหมือนกัน (ไม่มีไฟล์เก่าให้ซ่อน ไม่ใช่ error)', () => {
+  const body = { empty_results: [{ index: 0, ok: true, superseded: [] }] };
+  assert.deepEqual(classifyOneEmpty(200, body), { kind: 'announced', superseded: [] });
+});
+
+test('classifyEmptyBatchResponse (count=1): ok:false, stage:"save" → retryable ตาม manual', () => {
+  const body = { empty_results: [{ index: 0, ok: false, stage: 'save', error: 'บันทึกไม่ได้' }] };
+  assert.deepEqual(classifyOneEmpty(200, body), { kind: 'retryable', message: 'บันทึกไม่ได้' });
+});
+
+test('classifyEmptyBatchResponse (count=1): ok:false, stage อื่น/ไม่มี stage → rejected (ปลอดภัยไว้ก่อน ไม่เดาว่า retry ได้)', () => {
+  assert.equal(classifyOneEmpty(200, { empty_results: [{ index: 0, ok: false, stage: 'convert', error: 'x' }] })?.kind, 'rejected');
+  assert.equal(classifyOneEmpty(200, { empty_results: [{ index: 0, ok: false }] })?.kind, 'rejected');
+});
+
+test('classifyEmptyBatchResponse (count=1): 400 → rejected พร้อมข้อความจาก body.message (เหมือนไฟล์)', () => {
+  const body = { message: 'At least one file is required in field "files".', status: 400 };
+  assert.deepEqual(classifyOneEmpty(400, body), { kind: 'rejected', reason: 'At least one file is required in field "files".' });
+});
+
+test('classifyEmptyBatchResponse (count=1): 429 → retryable พร้อม retryAfterMs จาก header', () => {
+  assert.deepEqual(classifyOneEmpty(429, { message: 'rate limited' }, '60'), { kind: 'retryable', message: 'rate limited', retryAfterMs: 60_000 });
+});
+
+test('classifyEmptyBatchResponse (count=1): 5xx → retryable', () => {
+  assert.deepEqual(classifyOneEmpty(503, { message: 'service unavailable' }), { kind: 'retryable', message: 'service unavailable' });
+});
+
+test('classifyEmptyBatchResponse (count=1): body ผิดรูปแบบ (ไม่มี empty_results) → rejected แทนการ throw', () => {
+  assert.equal(classifyOneEmpty(200, { succeeded: 0 })?.kind, 'rejected');
+});
+
+test('finalizeEmptyAfterRetries: retryable ที่ลองครบแล้ว → stuck', () => {
+  assert.deepEqual(finalizeEmptyAfterRetries({ kind: 'retryable', message: 'timeout' }, 3), { kind: 'stuck', attempts: 3, lastMessage: 'timeout' });
+});
+
+test('finalizeEmptyAfterRetries: announced/rejected ผ่านตรง ไม่แปลงเป็น stuck', () => {
+  assert.deepEqual(finalizeEmptyAfterRetries({ kind: 'announced', superseded: [] }, 1), { kind: 'announced', superseded: [] });
+  assert.deepEqual(finalizeEmptyAfterRetries({ kind: 'rejected', reason: 'x' }, 1), { kind: 'rejected', reason: 'x' });
+});
+
+test('classifyEmptyBatchResponse: 200 — จับคู่ empty_results[i] กับแต่ละรายการตามลำดับ index', () => {
+  const body = {
+    empty_results: [
+      { index: 0, report: 'departures', ok: true, superseded: ['old1'] },
+      { index: 1, report: 'arrivals', ok: false, stage: 'save', error: 'บันทึกไม่ได้' },
+    ],
+  };
+  assert.deepEqual(classifyEmptyBatchResponse(200, body, 2), [
+    { kind: 'announced', superseded: ['old1'] },
+    { kind: 'retryable', message: 'บันทึกไม่ได้' },
+  ]);
+});
+
+test('classifyEmptyBatchResponse: 400/429/5xx กระทบทุกรายการใน batch เท่ากัน (ยังไม่มีใครถูกบันทึกเลย)', () => {
+  assert.deepEqual(classifyEmptyBatchResponse(400, { message: 'bad' }, 3), [
+    { kind: 'rejected', reason: 'bad' },
+    { kind: 'rejected', reason: 'bad' },
+    { kind: 'rejected', reason: 'bad' },
+  ]);
+  assert.deepEqual(classifyEmptyBatchResponse(503, { message: 'down' }, 2), [
+    { kind: 'retryable', message: 'down' },
+    { kind: 'retryable', message: 'down' },
+  ]);
 });

@@ -25,7 +25,7 @@ const FS: readonly PlannedReport[] = [
   { id: 'salebybill', family: 'per-day' }, { id: 'pay', family: 'per-day' },
   { id: 'current_stock', family: 'picture', period: 'none' }, { id: 'salebymonthsum', family: 'picture', period: 'year' },
 ];
-const SETUP: StatusSetup = { catalog: { hoteltime: HT, foodstory: FS }, goLive: '2026-10-08', webhook: true };
+const SETUP: StatusSetup = { catalog: { hoteltime: HT, foodstory: FS }, goLive: '2026-10-08', webhookExport: true, webhookUpload: true };
 
 type Result = 'data' | 'empty' | readonly ['failed', string];
 const outcome = (id: string, r: Result, from: string, to: string): RunRecord['reports'][string] =>
@@ -150,7 +150,7 @@ test('FoodStory ดึงแล้วแต่มีรายงานล้ม 
 
 test('🔴 สิ่งที่ต้องทำ: ยังไม่ตั้งวันเริ่มใช้งาน · ยังไม่ตั้ง URL ของ webhook · วันขาดเกินที่รอบเดียวเติมได้', () => {
   const s = healthy();
-  const unset = buildStatus(s, EVENING_14, { ...SETUP, goLive: null, webhook: false });
+  const unset = buildStatus(s, EVENING_14, { ...SETUP, goLive: null, webhookExport: false, webhookUpload: false });
   assert.equal(unset.verdict, 'action');
   assert.match(unset.actions.join('\n'), /EXPORTER_GO_LIVE/);
   assert.match(unset.actions.join('\n'), /DISCORD_WEBHOOK_URL/);
@@ -193,7 +193,7 @@ test('🔴 --json: ต่อ Site × วันของข้อมูล มี
   assert.deepEqual(d13.perDay, { total: 3, data: 1, empty: [], failed: [{ report: 'postings', error: 'x' }], notFetched: ['cancelled'] });
   assert.deepEqual(d13.pictures, { total: 2, taken: 1, empty: [], failed: [], missing: ['trial-balance'] });
   assert.equal(ht.days.find((d) => d.day === '2026-10-14')!.perDay, null); // วันนี้ยังไม่ถึงกำหนด
-  assert.deepEqual(r.setup, { goLive: '2026-10-08', webhook: true });
+  assert.deepEqual(r.setup, { goLive: '2026-10-08', webhookExport: true, webhookUpload: true });
 });
 
 test('FoodStory รายเดือนของเดือนที่แล้ว: ยังไม่มีก่อนวันที่ 5 = แสดงเฉย ๆ · หลังวันที่ 5 = ต้องทำ · มีแต่ล้ม = ปัญหา', () => {
@@ -226,7 +226,7 @@ test('ยังไม่เคยมีรอบ HotelTime เลย = ปัญ
 });
 
 test('มีทั้งปัญหาและสิ่งที่ต้องทำ: บรรทัดสุดท้ายต้องเป็น ✘ (คนอ่านแค่บรรทัดท้ายต้องไม่พลาดปัญหา)', () => {
-  const out = renderStatus(buildStatus({ hoteltime: [], foodstoryDaily: [], foodstoryMonthly: [] }, EVENING_14, { ...SETUP, webhook: false })).trimEnd().split('\n');
+  const out = renderStatus(buildStatus({ hoteltime: [], foodstoryDaily: [], foodstoryMonthly: [] }, EVENING_14, { ...SETUP, webhookExport: false, webhookUpload: false })).trimEnd().split('\n');
   assert.match(out.at(-1)!, /^✘/);
 });
 
@@ -243,7 +243,7 @@ async function writeFolder(dataDir: string, site: string, f: Folder): Promise<vo
 }
 function status(dataDir: string, at: string, env: Record<string, string>, json = false) {
   const r = spawnSync(process.execPath, ['src/index.ts', 'status', '--data', dataDir, '--at', at, ...(json ? ['--json'] : [])],
-    { cwd: EXPORTER, encoding: 'utf8', env: { ...process.env, EXPORTER_GO_LIVE: '', DISCORD_WEBHOOK_URL: '', ...env } });
+    { cwd: EXPORTER, encoding: 'utf8', env: { ...process.env, EXPORTER_GO_LIVE: '', DISCORD_WEBHOOK_URL_EXPORT: '', DISCORD_WEBHOOK_URL_UPLOAD: '', ...env } });
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
 }
 
@@ -251,11 +251,11 @@ test('exporter status กับคลังปลอม: แคตตาล็�
   const dataDir = await mkdtemp(path.join(tmpdir(), 'status-data-'));
   dirs.push(dataDir);
   await writeFolder(dataDir, 'hoteltime', folder('2026-10-13', { perDay: { postings: 'data' } }));
-  const env = { EXPORTER_GO_LIVE: '2026-10-13', DISCORD_WEBHOOK_URL: 'https://discord.com/api/webhooks/1/secret-token' };
+  const env = { EXPORTER_GO_LIVE: '2026-10-13', DISCORD_WEBHOOK_URL_EXPORT: 'https://discord.com/api/webhooks/1/secret-token' };
   const r = status(dataDir, '2026-10-14T20:00', env, true);
   assert.equal(r.code, 1, r.out); // HotelTime วันที่ 13 ยังไม่ได้ดึงเกือบทุกรายงานของแคตตาล็อกจริง
   const parsed = JSON.parse(r.out);
-  assert.deepEqual(parsed.setup, { goLive: '2026-10-13', webhook: true });
+  assert.deepEqual(parsed.setup, { goLive: '2026-10-13', webhookExport: true, webhookUpload: false });
   assert.doesNotMatch(r.out, /secret-token/);
   const d13 = parsed.sites[0].days.find((d: { day: string }) => d.day === '2026-10-13');
   assert.equal(d13.perDay.total, 22);
@@ -366,4 +366,61 @@ test('🔴 ภาพปิดงวดแบบรายงานตามวั
   assert.equal(close('2026-10-03T10:00').level, 'problem');
   const lost = buildStatus(s, thai('2026-10-09T10:00'), setup);
   assert.match(lost.problems.join('\n'), /ภาพปิดงวดเดือน 2026-09[^\n]*หายถาวร/);
+});
+
+// ticket 06 ของ exporter-upload-to-uploader: backlog ของขาอัปโหลด — `opts.uploadBacklog` เป็น optional โดยตั้งใจ
+// (เรียกแบบเดิมไม่ใส่ต้องให้ผลเหมือนเดิมทุกตัวอักษร ไม่ใช่แค่ไม่พัง)
+
+test('ไม่ใส่ uploadBacklog เลย (เรียกแบบเดิม) → ไม่มี section ใหม่ ผลเหมือนก่อนมี ticket 06 ทุกตัวอักษร', () => {
+  const withOpt = buildStatus(healthy(), EVENING_14, SETUP, {});
+  const withoutOpt = buildStatus(healthy(), EVENING_14, SETUP);
+  assert.deepEqual(withOpt, withoutOpt);
+  assert.doesNotMatch(text(withOpt), /อัปโหลด/);
+});
+
+test('uploadBacklog: ไม่มีไฟล์ค้างเลยทั้งสอง site → section บอกว่าไม่มีไฟล์ค้าง ไม่กระทบ verdict', () => {
+  const r = buildStatus(healthy(), EVENING_14, SETUP, {
+    uploadBacklog: [
+      { site: 'hoteltime', pending: 0, blocked: 0, stuck: 0, empty: 0 },
+      { site: 'foodstory', pending: 0, blocked: 0, stuck: 0, empty: 0 },
+    ],
+  });
+  assert.equal(r.verdict, 'ok');
+  assert.match(text(r), /HotelTime: ไม่มีไฟล์ค้าง/);
+  assert.match(text(r), /FoodStory: ไม่มีไฟล์ค้าง/);
+});
+
+test('uploadBacklog: มีไฟล์รอส่ง/ว่างเฉย ๆ (ไม่ผิดปกติ) → โชว์ตัวเลขแยกกัน แต่ไม่ดึง verdict ให้แย่ลง', () => {
+  const r = buildStatus(healthy(), EVENING_14, SETUP, {
+    uploadBacklog: [
+      { site: 'hoteltime', pending: 5, blocked: 0, stuck: 0, empty: 3 },
+      { site: 'foodstory', pending: 0, blocked: 0, stuck: 0, empty: 0 },
+    ],
+  });
+  assert.equal(r.verdict, 'ok');
+  assert.deepEqual([r.problems, r.actions], [[], []]);
+  assert.match(text(r), /HotelTime: รอส่ง 5[^\n]*ว่าง-ยังไม่ประกาศ 3/);
+});
+
+test('uploadBacklog: ไฟล์ค้างถาวร (stuck) → เป็นปัญหา (ปนไปที่ verdict) แยกตัวเลขจากรอส่งชัดเจน', () => {
+  const r = buildStatus(healthy(), EVENING_14, SETUP, {
+    uploadBacklog: [
+      { site: 'hoteltime', pending: 2, blocked: 0, stuck: 1, empty: 0 },
+      { site: 'foodstory', pending: 0, blocked: 0, stuck: 0, empty: 0 },
+    ],
+  });
+  assert.equal(r.verdict, 'problem');
+  assert.match(r.problems.join('\n'), /HotelTime[^\n]*ค้างถาวร 1/);
+  assert.match(text(r), /รอส่ง 2[^\n]*ค้างถาวร 1/); // ตัวเลขแยกกัน ไม่ปนเป็นก้อนเดียว
+});
+
+test('uploadBacklog: ไฟล์ถูกบล็อกเพราะ as_of ย้อนหลัง (ไม่มี stuck) → เป็นสิ่งที่ต้องทำ ไม่ใช่ปัญหาหนักสุด', () => {
+  const r = buildStatus(healthy(), EVENING_14, SETUP, {
+    uploadBacklog: [
+      { site: 'hoteltime', pending: 0, blocked: 2, stuck: 0, empty: 0 },
+      { site: 'foodstory', pending: 0, blocked: 0, stuck: 0, empty: 0 },
+    ],
+  });
+  assert.equal(r.verdict, 'action');
+  assert.match(r.actions.join('\n'), /HotelTime[^\n]*บล็อก\(as_of\) 2[^\n]*คุยกับทีม uploader/);
 });

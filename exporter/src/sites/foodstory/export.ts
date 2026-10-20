@@ -341,7 +341,7 @@ async function finalizeFile(
   slug: string,
 ): Promise<string> {
   await mkdir(outDir, { recursive: true });
-  const destPath = path.join(outDir, foodstoryFileName(period, group, slug, 'xlsx'));
+  const destPath = path.join(outDir, foodstoryFileName('foodstory', period, group, slug, 'xlsx'));
   await rename(rawPath, destPath);
   return destPath;
 }
@@ -405,7 +405,7 @@ export function mergeManifest(previous: FoodStoryManifest | null, current: FoodS
  * ลงโฟลเดอร์วันเดียวกัน)
  */
 async function previousOutputOf(outDir: string, period: string, group: string, reportId: string): Promise<string[]> {
-  const prefix = foodstoryFileName(period, group, reportId, '').slice(0, -1);
+  const prefix = foodstoryFileName('foodstory', period, group, reportId, '').slice(0, -1);
   const entries = await readdir(outDir).catch(() => [] as string[]); // ยังไม่มีโฟลเดอร์ = ไม่มีของเดิม
   // เจาะจงด้วย `${prefix}.` หรือ `${prefix}_part` กันไม่ให้โดนรายงานอื่นที่ id ขึ้นต้นด้วยกัน (เช่น `order` กับ `order_by_employee`)
   return entries.filter((e) => e === `${prefix}.xlsx` || e === `${prefix}.csv` || e.startsWith(`${prefix}_part`));
@@ -635,7 +635,7 @@ export async function exportSaleByChannel(
 
   const mismatch = SALEBYCHANNEL_COLUMNS.some((c, i) => sheet.header[i] !== c);
   await mkdir(stagingDir, { recursive: true });
-  const destPath = path.join(stagingDir, foodstoryFileName(period, group, SALEBYCHANNEL_ID, 'csv'));
+  const destPath = path.join(stagingDir, foodstoryFileName('foodstory', period, group, SALEBYCHANNEL_ID, 'csv'));
   await rename(tmpPath, destPath);
 
   return {

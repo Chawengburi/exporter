@@ -79,30 +79,33 @@ export function monthlyRoot(root: string, site: SiteId): string {
 }
 
 /**
- * FoodStory: `<ช่วง>__<กลุ่ม>__<id>.<ext>` — คงกลุ่มรายงานไว้ในชื่อตามแบบเดิม (spec) · `label` = `YYYY-MM` (รายเดือน) หรือ
- * `YYYY-MM-DD` (รายวัน = เมื่อวาน, ticket 10) · `slug` = id หรือ `<id>_part<n>`
+ * FoodStory: `<site>__<ช่วง>__<กลุ่ม>__<id>.<ext>` — คงกลุ่มรายงานไว้ในชื่อตามแบบเดิม (spec) · `label` = `YYYY-MM`
+ * (รายเดือน) หรือ `YYYY-MM-DD` (รายวัน = เมื่อวาน, ticket 10) · `slug` = id หรือ `<id>_part<n>` · `site` นำหน้าเสมอ
+ * (เจ้าของระบบขอ 2026-10-18 — ไฟล์ที่ถูกก๊อปออกไปจากโฟลเดอร์ `<site>/` เดิม เช่น ไฟล์ที่ส่งเข้า uploader แล้ว
+ * ยังบอกได้เองว่ามาจาก source system ไหนโดยไม่ต้องดูโฟลเดอร์ประกอบ)
  */
-export function foodstoryFileName(label: string, group: string, slug: string, ext: string): string {
-  return `${label}__${group}__${slug}.${ext}`;
+export function foodstoryFileName(site: SiteId, label: string, group: string, slug: string, ext: string): string {
+  return `${site}__${label}__${group}__${slug}.${ext}`;
 }
 
 /**
- * `<ช่วงข้อมูล>__<id>.<ext>` — ไฟล์ที่ถูกก๊อปออกไปส่งต่อยังบอกได้เองว่าเป็นข้อมูลของวันไหน · วันเดียว `YYYY-MM-DD`
- * หลายวัน `YYYY-MM-DD--YYYY-MM-DD` (ตัวคั่นช่วงที่ ISO 8601 อนุญาตแทน `/` ซึ่งใช้ในชื่อไฟล์ไม่ได้) — ชื่อบนดิสก์เป็นชื่อเดียวกับที่ส่งต่อ
+ * `<site>__<ช่วงข้อมูล>__<id>.<ext>` — ไฟล์ที่ถูกก๊อปออกไปส่งต่อยังบอกได้เองว่าเป็นของ site ไหนและข้อมูลวันไหน ·
+ * วันเดียว `YYYY-MM-DD` หลายวัน `YYYY-MM-DD--YYYY-MM-DD` (ตัวคั่นช่วงที่ ISO 8601 อนุญาตแทน `/` ซึ่งใช้ในชื่อไฟล์
+ * ไม่ได้) — ชื่อบนดิสก์เป็นชื่อเดียวกับที่ส่งต่อ
  */
-export function dataFileName(range: DateRange, reportId: string, ext: string): string {
+export function dataFileName(site: SiteId, range: DateRange, reportId: string, ext: string): string {
   const from = formatISO(range.from);
   const to = formatISO(range.to);
   const span = from === to ? from : `${from}--${to}`;
-  return `${span}__${reportId}.${ext}`;
+  return `${site}__${span}__${reportId}.${ext}`;
 }
 
 /**
- * รายงานภาพ: `<เวลาที่ถ่าย>__<id>.<ext>` เป็น ISO ย่อเวลาไทย `YYYYMMDDTHHMMSS+0700` — ภาพของรายงานเดียวกันหลายฉบับในวันเดียว
- * ไม่ทับกัน · ไม่มี `:` เพราะไฟล์อาจถูกดาวน์โหลดไปเปิดบน Windows (ADR-0008)
+ * รายงานภาพ: `<site>__<เวลาที่ถ่าย>__<id>.<ext>` เป็น ISO ย่อเวลาไทย `YYYYMMDDTHHMMSS+0700` — ภาพของรายงานเดียวกัน
+ * หลายฉบับในวันเดียวไม่ทับกัน · ไม่มี `:` เพราะไฟล์อาจถูกดาวน์โหลดไปเปิดบน Windows (ADR-0008)
  */
-export function pictureFileName(takenAt: Date, reportId: string, ext: string): string {
-  return `${basicStamp(takenAt)}__${reportId}.${ext}`;
+export function pictureFileName(site: SiteId, takenAt: Date, reportId: string, ext: string): string {
+  return `${site}__${basicStamp(takenAt)}__${reportId}.${ext}`;
 }
 
 /**

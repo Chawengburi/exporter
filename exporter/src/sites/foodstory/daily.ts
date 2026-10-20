@@ -157,9 +157,9 @@ function rawName(d: Done, file: string, index: number, count: number): string {
   const ext = path.extname(file).slice(1) || 'xlsx';
   const day = parseISODate(d.step.day)!;
   if (d.step.kind === 'report' && d.step.periodClose) {
-    return dataFileName({ from: parseISODate(`${d.step.day.slice(0, 4)}-01-01`)!, to: day }, slug, ext);
+    return dataFileName('foodstory', { from: parseISODate(`${d.step.day.slice(0, 4)}-01-01`)!, to: day }, slug, ext);
   }
-  return familyOf(id) === 'picture' ? pictureFileName(d.fetchedAt, slug, ext) : dataFileName({ from: day, to: day }, slug, ext);
+  return familyOf(id) === 'picture' ? pictureFileName('foodstory', d.fetchedAt, slug, ext) : dataFileName('foodstory', { from: day, to: day }, slug, ext);
 }
 
 async function entryOf(d: Done, file: string, name: string, cfg: Config): Promise<RawFileEntry> {

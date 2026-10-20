@@ -10,6 +10,7 @@ import {
 } from './run-planner.ts';
 import type { RunRecord } from './run-record.ts';
 import { thaiClock, thaiDateOf, thaiToday, type ThaiClock } from './thai-time.ts';
+import type { UploadBacklogView } from './uploader.ts';
 
 /**
  * `exporter status` (Ubuntu ticket 05 → ใบ 07 ของ exporter-daily-per-day-raw) — สรุปภาษาไทยหน้าเดียวว่าระบบปกติไหม สำหรับเครื่องที่ไม่มี AI
@@ -32,8 +33,15 @@ import { thaiClock, thaiDateOf, thaiToday, type ThaiClock } from './thai-time.ts
  * โดยไม่ต้องคิดกติกาเวลาซ้ำ
  */
 
-/** ชื่อตัวแปรใน `.env` ของ URL webhook ของ Discord (ใบ 08 ใช้ชื่อนี้) — status บอกแค่ว่าตั้งแล้วหรือยัง ไม่เคยแสดงค่า */
-export const WEBHOOK_ENV = 'DISCORD_WEBHOOK_URL';
+/**
+ * ชื่อตัวแปรใน `.env` ของ URL webhook ของ Discord — แยก channel ระหว่างการ export กับการ upload (เจ้าของระบบขอ
+ * 2026-10-18) ใบ 08 ใช้ชื่อนี้ · status บอกแค่ว่าตั้งแล้วหรือยัง ไม่เคยแสดงค่า
+ */
+export const WEBHOOK_ENV_EXPORT = 'DISCORD_WEBHOOK_URL_EXPORT';
+export const WEBHOOK_ENV_UPLOAD = 'DISCORD_WEBHOOK_URL_UPLOAD';
+/** ชนิดของ webhook — ตัวส่ง (ใบ 08) ใช้เลือกว่าจะอ่าน URL ของ channel ไหน */
+export type WebhookChannel = 'export' | 'upload';
+const WEBHOOK_ENV: Readonly<Record<WebhookChannel, string>> = { export: WEBHOOK_ENV_EXPORT, upload: WEBHOOK_ENV_UPLOAD };
 
 export type FailedReport = { readonly report: string; readonly error: string };
 /** `running` = มีโฟลเดอร์แต่ยังไม่มี `_run.json` (กำลังรัน หรือรอบนั้นตายกลางทาง) · `unreadable` = `_run.json` เสีย/ผิดรูป */
@@ -60,7 +68,8 @@ export type StatusSetup = {
   readonly catalog: { readonly hoteltime: readonly PlannedReport[]; readonly foodstory: readonly PlannedReport[] };
   readonly goLive: string | null;
   readonly goLiveError?: string;
-  readonly webhook: boolean;
+  readonly webhookExport: boolean;
+  readonly webhookUpload: boolean;
 };
 
 export type StatusLevel = 'ok' | 'info' | 'wait' | 'action' | 'problem';
@@ -125,7 +134,7 @@ export type StatusReport = {
   readonly actions: readonly string[];
   readonly sections: readonly StatusSection[];
   readonly sites: readonly SiteView[];
-  readonly setup: { readonly goLive: string | null; readonly goLiveError?: string; readonly webhook: boolean };
+  readonly setup: { readonly goLive: string | null; readonly goLiveError?: string; readonly webhookExport: boolean; readonly webhookUpload: boolean };
 };
 
 const WINDMILL_RUNS = 'http://localhost:8000/runs';
@@ -457,11 +466,47 @@ function setupSection(setup: StatusSetup, now: Clock, out: SectionBuilder): void
   } else if (setup.goLive > now.today) {
     out.add('action', `วันเริ่มใช้งาน ${setup.goLive} อยู่หลังวันนี้ — ยังไม่ดึงรายงานตามวันเลยจนถึงวันนั้น ตรวจ ${GO_LIVE_ENV} ใน exporter/.env ว่าพิมพ์ถูก`);
   } else out.add('ok', `วันเริ่มใช้งาน ${setup.goLive}`);
-  if (!setup.webhook) out.add('action', `ยังไม่ได้ตั้ง URL ของ Discord webhook (${WEBHOOK_ENV} ใน exporter/.env) — ไม่มีสรุปรายวัน/แจ้งเตือนทาง Discord`);
-  else out.add('ok', 'ตั้ง Discord webhook แล้ว');
+  if (!setup.webhookExport) out.add('action', `ยังไม่ได้ตั้ง URL ของ Discord webhook ขา export (${WEBHOOK_ENV_EXPORT} ใน exporter/.env) — ไม่มีสรุปรายวัน/แจ้งเตือนทาง Discord`);
+  else out.add('ok', 'ตั้ง Discord webhook ขา export แล้ว');
+  if (!setup.webhookUpload) out.add('action', `ยังไม่ได้ตั้ง URL ของ Discord webhook ขา upload (${WEBHOOK_ENV_UPLOAD} ใน exporter/.env) — ไม่มีแจ้งเตือนขาอัปโหลดทาง Discord`);
+  else out.add('ok', 'ตั้ง Discord webhook ขา upload แล้ว');
 }
 
-export function buildStatus(snapshot: StoreSnapshot, at: Date, setup: StatusSetup, opts: { readonly windowDays?: number } = {}): StatusReport {
+const UPLOAD_SITE_LABEL: Readonly<Record<UploadBacklogView['site'], string>> = { hoteltime: 'HotelTime', foodstory: 'FoodStory' };
+
+/**
+ * ticket 06 ของ exporter-upload-to-uploader — แยกตัวเลขตามสถานะ ไม่ปนเป็นก้อนเดียว เพื่อให้รู้ว่าต้องทำอะไรต่อ:
+ * รอส่ง/ว่าง = ปล่อยไว้เฉย ๆ (ไม่กระทบ verdict) · บล็อกเพราะ as_of ย้อนหลัง = ต้องคุยกับทีม uploader (action) ·
+ * ค้างถาวร = ต้องดูสาเหตุ (problem — หนักสุดในสาม)
+ *
+ * ticket 13: `b.empty` ไม่ได้แปลว่า "ไม่ต้องส่ง" เสมอไปอีกแล้วตั้งแต่มีทางประกาศจริง (ticket 11) — อาจเป็นได้ทั้ง
+ * flag ปิด/document_type ยัง resolve ไม่ได้ (จริง ๆ "ไม่ต้องส่ง" ตอนนี้) **หรือ** ลองส่งแล้วแต่ uploader ปฏิเสธ
+ * ถาวร (400 — ลองแล้วแต่ไม่ผ่าน ไม่เหมือนกับ "ไม่ต้องส่ง" เสีย แต่ยังไม่มี state แยกให้บอกต่างจากกันได้ ณ จุดนี้ —
+ * ช่องโหว่เดียวกับที่ไฟล์ rejected ก็ไม่มี state แยกเหมือนกัน) จึงใช้คำกลาง ๆ "ยังไม่ประกาศ" แทน
+ */
+function uploadBacklogSection(backlog: readonly UploadBacklogView[], out: SectionBuilder): void {
+  for (const b of backlog) {
+    const label = UPLOAD_SITE_LABEL[b.site];
+    if (b.pending === 0 && b.blocked === 0 && b.stuck === 0 && b.empty === 0) {
+      out.add('ok', `${label}: ไม่มีไฟล์ค้าง`);
+      continue;
+    }
+    const parts: string[] = [];
+    const levels: StatusLevel[] = [];
+    if (b.pending > 0) { parts.push(`รอส่ง ${b.pending}`); levels.push('info'); }
+    if (b.empty > 0) { parts.push(`ว่าง-ยังไม่ประกาศ ${b.empty}`); levels.push('info'); }
+    if (b.blocked > 0) { parts.push(`บล็อก(as_of) ${b.blocked} — คุยกับทีม uploader ก่อนถ้าตั้งใจส่งจริง`); levels.push('action'); }
+    if (b.stuck > 0) { parts.push(`ค้างถาวร ${b.stuck} — ดูสาเหตุที่ data/_upload/${b.site}.json`); levels.push('problem'); }
+    out.add(worst(levels), `${label}: ${parts.join(' · ')}`);
+  }
+}
+
+export function buildStatus(
+  snapshot: StoreSnapshot,
+  at: Date,
+  setup: StatusSetup,
+  opts: { readonly windowDays?: number; readonly uploadBacklog?: readonly UploadBacklogView[] } = {},
+): StatusReport {
   const windowDays = opts.windowDays ?? 7;
   const clock = thaiClock(at);
   const now: Clock = { clock, today: formatISO(thaiToday(at)), due: lastDueDay(at), minutes: clock.hour * 60 + clock.minute };
@@ -479,6 +524,9 @@ export function buildStatus(snapshot: StoreSnapshot, at: Date, setup: StatusSetu
     section('FoodStory รายวัน (พนักงานกด) — ต่อวันของข้อมูล', (out) => foodstoryDailySection(foodstory, now, out)),
     section('FoodStory รายเดือน', (out) => foodstoryMonthlySection(snapshot.foodstoryMonthly, now, out)),
     section('ค่าตั้งของเครื่องนี้', (out) => setupSection(setup, now, out)),
+    // ticket 06 ของ exporter-upload-to-uploader — ไม่ใส่ `opts.uploadBacklog` = ไม่มี section นี้เลย (เผื่อผู้เรียกเดิม
+    // ที่ยังไม่พร้อมอ่านดิสก์ของขาอัปโหลด เช่นเทสต์เก่า)
+    ...(opts.uploadBacklog !== undefined ? [section('ขาอัปโหลด (uploader)', (out) => uploadBacklogSection(opts.uploadBacklog!, out))] : []),
   ];
   return {
     at: `${now.today} ${pad2(clock.hour)}:${pad2(clock.minute)}`,
@@ -487,7 +535,10 @@ export function buildStatus(snapshot: StoreSnapshot, at: Date, setup: StatusSetu
     actions,
     sections,
     sites: [hoteltime, foodstory],
-    setup: { goLive: setup.goLive, ...(setup.goLiveError !== undefined ? { goLiveError: setup.goLiveError } : {}), webhook: setup.webhook },
+    setup: {
+      goLive: setup.goLive, ...(setup.goLiveError !== undefined ? { goLiveError: setup.goLiveError } : {}),
+      webhookExport: setup.webhookExport, webhookUpload: setup.webhookUpload,
+    },
   };
 }
 
@@ -515,18 +566,21 @@ export function defaultDataDir(): string {
  * ค่าตั้งสองค่าที่ status ต้องรู้ — env ของ shell ชนะ `exporter/.env` (เหมือน dotenv ของ Site) · อ่านเฉพาะสองคีย์นี้ ไม่โหลดทั้งไฟล์เข้า env
  * (ไม่แตะรหัสผ่าน) · URL ของ webhook คืนแค่ว่ามีหรือไม่ ไม่เคยคืนค่า
  */
-export function readSetupValues(envFile: string, env: NodeJS.ProcessEnv = process.env): Pick<StatusSetup, 'goLive' | 'goLiveError' | 'webhook'> {
+export function readSetupValues(
+  envFile: string, env: NodeJS.ProcessEnv = process.env,
+): Pick<StatusSetup, 'goLive' | 'goLiveError' | 'webhookExport' | 'webhookUpload'> {
   const pick = envPicker(envFile, env);
   const goLive = parseGoLive(pick(GO_LIVE_ENV));
   return {
     ...('error' in goLive ? { goLive: null, goLiveError: goLive.error } : { goLive: goLive.goLive }),
-    webhook: (pick(WEBHOOK_ENV) ?? '').trim() !== '',
+    webhookExport: (pick(WEBHOOK_ENV.export) ?? '').trim() !== '',
+    webhookUpload: (pick(WEBHOOK_ENV.upload) ?? '').trim() !== '',
   };
 }
 
-/** URL ของ webhook สำหรับตัวส่ง (ใบ 08) — ความลับ: ผู้เรียกห้ามพิมพ์/บันทึก ใช้ส่งอย่างเดียว · ไม่ได้ตั้ง = null */
-export function readWebhookUrl(envFile: string, env: NodeJS.ProcessEnv = process.env): string | null {
-  const url = (envPicker(envFile, env)(WEBHOOK_ENV) ?? '').trim();
+/** URL ของ webhook สำหรับตัวส่ง (ใบ 08) ของ channel ที่ระบุ — ความลับ: ผู้เรียกห้ามพิมพ์/บันทึก ใช้ส่งอย่างเดียว · ไม่ได้ตั้ง = null */
+export function readWebhookUrl(envFile: string, channel: WebhookChannel, env: NodeJS.ProcessEnv = process.env): string | null {
+  const url = (envPicker(envFile, env)(WEBHOOK_ENV[channel]) ?? '').trim();
   return url === '' ? null : url;
 }
 

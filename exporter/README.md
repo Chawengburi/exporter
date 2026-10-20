@@ -88,7 +88,8 @@ npm link                            # ทำให้เรียก `exporter` 
   `--json` คือโครงสร้างที่ใช้สร้างข้อความ Discord · exit 0 ปกติ/มีสิ่งต้องทำ · 1 มีปัญหา · 2 ใช้ผิด
 - `notify`: ส่ง Discord เอง (`--summary` ส่งสรุปของวันนี้ · `--dry-run` แค่แสดง) — รอบรายวันเรียกเองอยู่แล้ว: สรุปวันละครั้งหลังรอบ
   HotelTime ที่จบหลัง 18:00 · แจ้งเตือนทันทีเมื่อ status มีปัญหา/ขาดเกินเพดาน/FoodStory ไม่ได้กดมา 2 วัน · ไม่ซ้ำในวันเดียว ·
-  URL อยู่ใน `.env` (`DISCORD_WEBHOOK_URL`) ไม่มี = ข้าม · ส่งไม่ได้ไม่ทำให้รอบล้ม (บันทึกใน `data/_notify/discord.json`)
+  URL อยู่ใน `.env` — แยก channel ขา export (`DISCORD_WEBHOOK_URL_EXPORT`) กับขา upload (`DISCORD_WEBHOOK_URL_UPLOAD`) ไม่มี = ข้ามขานั้น ·
+  ส่งไม่ได้ไม่ทำให้รอบล้ม (บันทึกใน `data/_notify/discord.json`)
 - flag ที่เลิกใช้ (ใส่มา = exit 1 พร้อมเหตุผล): `--format`, `--overlap-days`, `--retry-failed`
 
 ```bash

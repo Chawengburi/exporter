@@ -171,6 +171,18 @@ export async function currentBaselineFor(baselineDir: string, reportId: string, 
   return null;
 }
 
+/**
+ * หา `RecordedOutcome` ที่ `files[]` มีไฟล์นี้อยู่จริง — ใช้ชื่อไฟล์จับคู่ ไม่ใช่เทียบ key ของ `reports` ตรง ๆ กับ
+ * ชื่อรายงาน เพราะ key ไม่ใช่ชื่อรายงานเสมอไป (baseline เก็บเป็น `<รายงาน>@<วัน>`, ภาพปิดงวดเก็บเป็น
+ * `<รายงาน>@period-close` — ดู `currentBaselineFor`/`PERIOD_CLOSE_SUFFIX`) ชื่อไฟล์เองไม่มีวันชนกันในโฟลเดอร์
+ * เดียว จึงจับคู่ตรงได้เสมอไม่ว่า key จะอยู่ในรูปไหน (ขาอัปโหลด — ticket 11 ของ exporter-upload-to-uploader,
+ * พบจากของจริง 2026-10-19: 12 ไฟล์ของ baseline/ภาพปิดงวดถูกปฏิเสธเพราะโค้ดเดิมเทียบ key ตรงกับชื่อรายงาน)
+ * เฉพาะ entry ที่ `status: 'ok'` เท่านั้นที่มี `files[]` ให้เทียบ (`'failed'` ไม่มี field นี้ตาม type อยู่แล้ว)
+ */
+export function findOutcomeForFile(runRecord: RunRecord, file: string): RecordedOutcome | undefined {
+  return Object.values(runRecord.reports).find((o) => o.status === 'ok' && o.files.some((f) => f.file === file));
+}
+
 /** รายการที่ข้ามสะสมข้ามรอบเหมือนผลรายใบ — ใบที่รอบนี้รันจริงหลุดออกจากรายการ ใบที่ข้ามใหม่แทนเหตุผลเดิม */
 function mergeSkipped(
   previous: readonly SkippedReport[],

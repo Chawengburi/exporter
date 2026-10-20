@@ -172,27 +172,33 @@ else
   append_env "EXPORTER_GO_LIVE=$GO_LIVE"
   ok "ตั้งวันเริ่มใช้งานเป็นวันนี้ $GO_LIVE — ตั้งแต่วันนี้ วันไหนขาด ระบบเติมให้เอง (เปลี่ยนได้ที่ EXPORTER_GO_LIVE ใน exporter/.env)"
 fi
-WEBHOOK_TODO="ตั้งการแจ้งเตือน Discord: nano exporter/.env แล้วเพิ่มบรรทัด DISCORD_WEBHOOK_URL=<URL ของ webhook>"
-if env_has DISCORD_WEBHOOK_URL; then
-  ok "มี URL ของ Discord webhook แล้ว ไม่แตะ"
-else
+# เจ้าของระบบขอ 2026-10-18: แยก channel Discord ระหว่างขา export กับขา upload — ถามทีละตัว คนละตัวแปร
+# ask_webhook <ENV_KEY> <ป้ายชื่อขา>
+ask_webhook() {
+  local key="$1" label="$2"
+  local todo="ตั้งการแจ้งเตือน Discord ขา $label: nano exporter/.env แล้วเพิ่มบรรทัด $key=<URL ของ webhook>"
+  if env_has "$key"; then
+    ok "มี URL ของ Discord webhook ขา $label แล้ว ไม่แตะ"
+    return
+  fi
   # URL ของ webhook = ความลับ (ใครมีก็โพสต์เข้าห้องได้) — ไม่แสดงบนจอระหว่างพิมพ์และไม่พิมพ์กลับ
-  WEBHOOK=""
-  IFS= read -r -s -p "   URL ของ Discord webhook (วางแล้วกด Enter — ไม่แสดงบนจอ · กด Enter เฉย ๆ = ข้ามไปก่อน): " WEBHOOK || true
+  local webhook=""
+  IFS= read -r -s -p "   URL ของ Discord webhook ขา $label (วางแล้วกด Enter — ไม่แสดงบนจอ · กด Enter เฉย ๆ = ข้ามไปก่อน): " webhook || true
   echo
-  WEBHOOK="$(printf '%s' "$WEBHOOK" | tr -d '[:space:]')"
-  if [ -z "$WEBHOOK" ]; then
-    warn "ข้ามไปก่อน — ยังไม่มีสรุปรายวัน/แจ้งเตือนทาง Discord"
-    PENDING+=("$WEBHOOK_TODO")
-  elif printf '%s' "$WEBHOOK" | grep -qE '^https://((ptb|canary)\.)?(discord|discordapp)\.com/api/(v[0-9]+/)?webhooks/[0-9]+/[A-Za-z0-9_-]+$'; then
-    append_env "DISCORD_WEBHOOK_URL=$WEBHOOK"
-    ok "บันทึก URL ของ Discord webhook แล้ว (ไม่แสดงบนจอ)"
+  webhook="$(printf '%s' "$webhook" | tr -d '[:space:]')"
+  if [ -z "$webhook" ]; then
+    warn "ข้ามไปก่อน — ยังไม่มีการแจ้งเตือนขา $label ทาง Discord"
+    PENDING+=("$todo")
+  elif printf '%s' "$webhook" | grep -qE '^https://((ptb|canary)\.)?(discord|discordapp)\.com/api/(v[0-9]+/)?webhooks/[0-9]+/[A-Za-z0-9_-]+$'; then
+    append_env "$key=$webhook"
+    ok "บันทึก URL ของ Discord webhook ขา $label แล้ว (ไม่แสดงบนจอ)"
   else
     warn "ไม่ใช่ URL webhook ของ Discord (ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/) — ไม่บันทึก"
-    PENDING+=("$WEBHOOK_TODO")
+    PENDING+=("$todo")
   fi
-  WEBHOOK=""
-fi
+}
+ask_webhook DISCORD_WEBHOOK_URL_EXPORT "export"
+ask_webhook DISCORD_WEBHOOK_URL_UPLOAD "upload"
 keep_private "$EXPORTER/.env"
 
 # ── 5. windmill/.env ──

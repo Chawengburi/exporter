@@ -190,8 +190,8 @@ async function publishFixture() {
   const staging = path.join(root, '_downloads', 'salebybilldetail');
   await mkdir(outDir, { recursive: true });
   await mkdir(staging, { recursive: true });
-  for (const f of ['2026-09__sales__salebybilldetail_part1.xlsx', '2026-09__sales__salebybilldetail_part2.xlsx',
-    '2026-09__sales__salebybill.xlsx']) await writeFile(path.join(outDir, f), 'old');
+  for (const f of ['foodstory__2026-09__sales__salebybilldetail_part1.xlsx', 'foodstory__2026-09__sales__salebybilldetail_part2.xlsx',
+    'foodstory__2026-09__sales__salebybill.xlsx']) await writeFile(path.join(outDir, f), 'old');
   return { outDir, staging, path };
 }
 const detailBase = { id: 'salebybilldetail', label: 'x', group: 'sales', path: '/th/x', rowCountReported: 10, note: null };
@@ -200,11 +200,11 @@ test('publishReport: ผ่าน → ไฟล์เก่าของราย
   const { publishReport } = await import('../src/sites/foodstory/export.ts');
   const { readdir, writeFile } = await import('node:fs/promises');
   const { outDir, staging, path } = await publishFixture();
-  const staged = path.join(staging, '2026-09__sales__salebybilldetail.xlsx');
+  const staged = path.join(staging, 'foodstory__2026-09__sales__salebybilldetail.xlsx');
   await writeFile(staged, 'new');
   const got = await publishReport({ ...detailBase, status: 'ok', rowsExported: 10, files: [staged] }, outDir, '2026-09');
-  assert.deepEqual(got.files, [path.join(outDir, '2026-09__sales__salebybilldetail.xlsx')]);
-  assert.deepEqual((await readdir(outDir)).sort(), ['2026-09__sales__salebybill.xlsx', '2026-09__sales__salebybilldetail.xlsx']);
+  assert.deepEqual(got.files, [path.join(outDir, 'foodstory__2026-09__sales__salebybilldetail.xlsx')]);
+  assert.deepEqual((await readdir(outDir)).sort(), ['foodstory__2026-09__sales__salebybill.xlsx', 'foodstory__2026-09__sales__salebybilldetail.xlsx']);
   assert.deepEqual(await readdir(staging), []);
 });
 
@@ -239,19 +239,19 @@ test('publishReport: truncated มีไฟล์เดิมของใบน�
   const { publishReport } = await import('../src/sites/foodstory/export.ts');
   const { readdir, readFile, writeFile } = await import('node:fs/promises');
   const { outDir, staging, path } = await publishFixture();
-  const staged = path.join(staging, '2026-09__sales__salebybilldetail.xlsx');
+  const staged = path.join(staging, 'foodstory__2026-09__sales__salebybilldetail.xlsx');
   await writeFile(staged, 'capped');
   const truncated = { ...detailBase, status: 'truncated' as const, rowsExported: 5000, files: [staged], note: 'ชนเพดาน' };
   const got = await publishReport(truncated, outDir, '2026-09');
   assert.equal(got.status, 'failed');
   assert.deepEqual(got.files, []);
   assert.match(got.note ?? '', /ชนเพดาน[\s\S]*ไม่แทนไฟล์เดิม/);
-  assert.equal(await readFile(path.join(outDir, '2026-09__sales__salebybilldetail_part1.xlsx'), 'utf8'), 'old');
+  assert.equal(await readFile(path.join(outDir, 'foodstory__2026-09__sales__salebybilldetail_part1.xlsx'), 'utf8'), 'old');
 
   const fresh = path.join(path.dirname(outDir), '2026-10');
   const kept = await publishReport({ ...truncated, id: 'order', files: [staged] }, fresh, '2026-09');
   assert.equal(kept.status, 'truncated');
-  assert.deepEqual(await readdir(fresh), ['2026-09__sales__salebybilldetail.xlsx']);
+  assert.deepEqual(await readdir(fresh), ['foodstory__2026-09__sales__salebybilldetail.xlsx']);
 });
 
 test('mergeManifest: ใบที่รันซ้ำแล้วล้มแต่เดิมผ่าน → คงรายการเดิม (ไฟล์เดิมยังอยู่) และเช็คไขว้เดิมใช้ต่อ', async () => {
@@ -297,6 +297,6 @@ test('publishReport: empty มีไฟล์เดิมของใบนี�
   const got = await publishReport(empty, outDir, '2026-09');
   assert.equal(got.status, 'failed');
   assert.match(got.note ?? '', /0 แถว[\s\S]*ไม่แทนไฟล์เดิม/);
-  assert.equal(await readFile(path.join(outDir, '2026-09__sales__salebybilldetail_part1.xlsx'), 'utf8'), 'old');
+  assert.equal(await readFile(path.join(outDir, 'foodstory__2026-09__sales__salebybilldetail_part1.xlsx'), 'utf8'), 'old');
   assert.equal((await publishReport({ ...empty, id: 'order' }, outDir, '2026-09')).status, 'empty');
 });

@@ -246,8 +246,10 @@ program
     if (Number.isNaN(at.getTime())) return usage('--at อ่านไม่ออก — ใช้แบบ 2026-10-12T20:00 (เวลาไทย) หรือ 2026-10-12T13:00:00Z');
     const dataDir = opts.data ?? defaultDataDir();
     if (!existsSync(dataDir)) return usage(`ไม่พบโฟลเดอร์คลัง ${dataDir} — ใส่ --data ให้ถูก หรือรันจากโฟลเดอร์ exporter ที่ติดตั้งแล้ว`);
+    const { readUploadBacklog } = await import('./upload.ts');
+    const uploadBacklog = await Promise.all((['hoteltime', 'foodstory'] as const).map((site) => readUploadBacklog(dataDir, site)));
     // ค่าตั้งอ่านจาก exporter/.env ของโค้ดชุดนี้ (ไม่ใช่ของ --data) — อ่านแค่วันเริ่มใช้งานกับว่ามี URL webhook ไหม
-    const report = buildStatus(await readStoreSnapshot(dataDir), at, statusSetup(), { windowDays: days });
+    const report = buildStatus(await readStoreSnapshot(dataDir), at, statusSetup(), { windowDays: days, uploadBacklog });
     process.stdout.write(opts.json ? `${JSON.stringify(report, null, 2)}\n` : renderStatus(report));
     process.exitCode = report.verdict === 'problem' ? 1 : 0;
   });
@@ -269,17 +271,30 @@ program
 program
   .command('upload')
   .description(
-    'ส่งไฟล์ดิบของโฟลเดอร์รอบหนึ่งเข้า uploader จริง (ticket 01-04 ของ exporter-upload-to-uploader — HotelTime เท่านั้นตอนนี้ ' +
-      'retry ความล้มเหลวชั่วคราวเอง กัน as_of ย้อนหลัง และข้ามรายงานว่าง — ดู ticket 05-08 สำหรับแจ้งเตือน/status/Windmill/FoodStory)',
+    'ส่งไฟล์ดิบเข้า uploader จริง (ticket 01-07 ของ exporter-upload-to-uploader — HotelTime เท่านั้นตอนนี้ ' +
+      'retry ความล้มเหลวชั่วคราวเอง กัน as_of ย้อนหลัง ข้ามรายงานว่าง และแจ้ง Discord — ดู ticket 08 สำหรับ FoodStory) ' +
+      'ใส่ --folder สำหรับโฟลเดอร์เดียว หรือ --site สำหรับทุกโฟลเดอร์ที่ยังค้างของ site นั้น (แบบที่ Windmill เรียก)',
   )
-  .requiredOption('--folder <path>', 'โฟลเดอร์รอบที่มี _manifest.json/_run.json เช่น data/hoteltime/daily/2026-10/2026-10-15')
+  .option('--folder <path>', 'โฟลเดอร์รอบเดียวที่มี _manifest.json/_run.json เช่น data/hoteltime/daily/2026-10/2026-10-15 — ใช้คู่กับ --site ไม่ได้')
+  .addOption(new Option('--site <id>', 'ส่งทุกโฟลเดอร์ที่ยังค้างของ site นี้ (ticket 07) — ใช้คู่กับ --folder ไม่ได้').choices(KNOWN_SITES))
   .option('--data <dir>', 'โฟลเดอร์คลัง (ค่าเริ่มต้น exporter/data) — เก็บ state ของ as_of/รายงานว่างไว้ที่นี่')
   .option('--json', 'พิมพ์ผลเป็น JSON', false)
-  .action(async (opts: { folder: string; data?: string; json: boolean }) => {
-    const { describeUploadResult, uploadFolder } = await import('./upload.ts');
+  .action(async (opts: { folder?: string; site?: string; data?: string; json: boolean }) => {
+    const usage = (message: string) => {
+      console.error(message);
+      process.exitCode = 2; // แยกจาก 1 (= มีไฟล์ค้าง/ปฏิเสธ) ให้รู้ว่าเป็นแค่สั่งผิด เหมือนคำสั่ง status
+    };
+    if (opts.folder !== undefined && opts.site !== undefined) return usage('ใส่ --folder หรือ --site อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งคู่');
+    if (opts.folder === undefined && opts.site === undefined) return usage('ต้องใส่ --folder <path> หรือ --site <hoteltime|foodstory>');
+    const { describeUploadResult, uploadFolder, uploadSite } = await import('./upload.ts');
+    const { notifyUpload, describeNotify } = await import('./notify.ts');
     try {
-      const result = await uploadFolder({ folder: opts.folder, ...(opts.data ? { dataDir: opts.data } : {}) });
+      const result = opts.folder !== undefined
+        ? await uploadFolder({ folder: opts.folder, ...(opts.data ? { dataDir: opts.data } : {}) })
+        : await uploadSite({ site: opts.site as 'hoteltime' | 'foodstory', ...(opts.data ? { dataDir: opts.data } : {}) });
       process.stdout.write(opts.json ? `${JSON.stringify(result, null, 2)}\n` : describeUploadResult(result));
+      const notified = await notifyUpload({ result, ...(opts.data ? { dataDir: opts.data } : {}) });
+      if (!opts.json) console.log(describeNotify(notified)); // Discord ไม่ทำให้รอบอัปโหลดล้ม — แค่รายงานไว้
       process.exitCode = result.stuck > 0 || result.rejected > 0 ? 1 : 0;
     } catch (err) {
       console.error(err instanceof Error ? err.message : String(err));

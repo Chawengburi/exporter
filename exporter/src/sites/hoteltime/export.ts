@@ -227,8 +227,8 @@ function dataRangeOf(report: Report, chunk: DateRange): DateRange {
  */
 function rawFileName(report: Report, o: DataOutcome, periodClose: boolean): string {
   return report.family === 'picture' && !periodClose
-    ? pictureFileName(o.fetchedAt, report.id, 'xlsx')
-    : dataFileName(dataRangeOf(report, o.verdict.range), report.id, 'xlsx');
+    ? pictureFileName('hoteltime', o.fetchedAt, report.id, 'xlsx')
+    : dataFileName('hoteltime', dataRangeOf(report, o.verdict.range), report.id, 'xlsx');
 }
 
 /**

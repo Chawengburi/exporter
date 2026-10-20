@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import {
   currentBaselineFor,
   exitCodeFor,
+  findOutcomeForFile,
   readRunRecord,
   recordRun,
   type ReportOutcome,
@@ -153,6 +154,41 @@ test('baseline รันซ้ำวันเดียวกันแล้ว�
 
 test('ยังไม่เคยมี baseline เลย → null', async () => {
   assert.equal(await currentBaselineFor(path.join(tmpdir(), 'no-such-baseline-dir'), 'x', '2026-10-01'), null);
+});
+
+// พบจากของจริง 2026-10-19 (ขาอัปโหลด ticket 11): key ของ baseline/ภาพปิดงวดเป็นแบบผสม (`<รายงาน>@<วัน>`,
+// `<รายงาน>@period-close`) ไม่ใช่ชื่อรายงานตรง ๆ — เทียบ key ตรงกับชื่อรายงานแล้วหา as_of ไม่เจอ ปฏิเสธไฟล์จริงไปเฉย ๆ
+test('findOutcomeForFile: key ตรงชื่อรายงานปกติ → หาเจอจากชื่อไฟล์', async () => {
+  const { folder } = await dayFolder();
+  await recordRun(folder, { ...BASE, outcomes: [ok('arrivals')] });
+  const record = await readRunRecord(folder);
+  const found = findOutcomeForFile(record!, '2026-10-05_2026-10-07__arrivals.csv');
+  assert.equal(found?.report, 'arrivals');
+});
+
+test('findOutcomeForFile: key แบบผสม (baseline `<รายงาน>@<วัน>`) → ยังหาเจอจากชื่อไฟล์จริง ไม่ใช่เทียบ key ตรง ๆ', async () => {
+  const baselineDir = path.join(await mkdtemp(path.join(tmpdir(), 'baseline-')), 'baseline');
+  const folder = path.join(baselineDir, '2026-10-01');
+  await recordRun(folder, { ...BASE, kind: 'baseline', outcomes: [ok('postings@2026-08-30')] });
+  const record = await readRunRecord(folder);
+  // entry.report ของไฟล์จริง (RawFileEntry) คือ "postings" เฉย ๆ — ไม่มี "@2026-08-30" ต่อท้ายเหมือน key ของ _run.json
+  const found = findOutcomeForFile(record!, '2026-10-05_2026-10-07__postings@2026-08-30.csv');
+  assert.equal(found?.report, 'postings@2026-08-30'); // key ที่เจอยังเป็น key ผสม แต่หาเจอถูกต้อง — ผู้เรียกใช้ finishedAt ได้ ไม่ต้องสน key
+});
+
+test('findOutcomeForFile: ไม่มีไฟล์นี้ใน _run.json เลย → undefined', async () => {
+  const { folder } = await dayFolder();
+  await recordRun(folder, { ...BASE, outcomes: [ok('arrivals')] });
+  const record = await readRunRecord(folder);
+  assert.equal(findOutcomeForFile(record!, 'ไม่มีไฟล์นี้.xlsx'), undefined);
+});
+
+test('findOutcomeForFile: entry ที่ล้ม (status: failed) ไม่มี files[] ให้เทียบ — ไม่ทำให้หาไฟล์ของใบอื่นผิด', async () => {
+  const { folder } = await dayFolder();
+  await recordRun(folder, { ...BASE, outcomes: [ok('arrivals'), failed('departures')] });
+  const record = await readRunRecord(folder);
+  assert.equal(findOutcomeForFile(record!, '2026-10-05_2026-10-07__arrivals.csv')?.report, 'arrivals');
+  assert.equal(findOutcomeForFile(record!, '2026-10-05_2026-10-07__departures.csv'), undefined);
 });
 
 test('รันซ้ำในโฟลเดอร์เดิม: ใบที่รันใหม่แทนผลเดิมของใบนั้น ใบอื่นคงเดิม', async () => {

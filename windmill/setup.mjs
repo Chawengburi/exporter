@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PASSWORD_FILE = path.join(HERE, '.admin-password');
-const ADMIN_EMAIL = 'admin@windmill.dev';
+const ADMIN_EMAIL = 'admin@email.com'; // ของจริงในเครื่องนี้ไม่ใช่ default — เปลี่ยนมาก่อนหน้านี้แล้ว (เจอ 2026-10-19)
 const DEFAULT_PASSWORD = 'changeme';
 const WORKSPACE = 'admins';
 const WORKER_GROUP = 'worker__custom';

@@ -22,24 +22,24 @@ test('ข้อมูลข้ามปีอยู่ในเดือนข�
   assert.equal(dailyFolder(ROOT, 'hoteltime', range), '/p/data/hoteltime/daily/2026-01/2026-01-01');
 });
 
-test('ชื่อไฟล์ของวันของข้อมูลวันเดียว: YYYY-MM-DD__<รายงาน> (ISO)', () => {
+test('ชื่อไฟล์ของวันของข้อมูลวันเดียว: <site>__YYYY-MM-DD__<รายงาน> (ISO) — เจ้าของระบบขอ 2026-10-18 ให้มีชื่อ site', () => {
   const day = { from: utcDate(2026, 10, 12), to: utcDate(2026, 10, 12) };
-  assert.equal(dataFileName(day, 'reservations-search', 'xlsx'), '2026-10-12__reservations-search.xlsx');
+  assert.equal(dataFileName('hoteltime', day, 'reservations-search', 'xlsx'), 'hoteltime__2026-10-12__reservations-search.xlsx');
 });
 
 test('🔴 ชื่อไฟล์หลายวันใช้ตัวคั่นช่วงแบบ ISO 8601 "--" (แทน "/" ที่ใช้ในชื่อไฟล์ไม่ได้) ไม่ใช่ "_"', () => {
   const range = { from: utcDate(2026, 10, 1), to: utcDate(2026, 10, 31) };
-  assert.equal(dataFileName(range, 'reservations-search', 'xlsx'), '2026-10-01--2026-10-31__reservations-search.xlsx');
+  assert.equal(dataFileName('hoteltime', range, 'reservations-search', 'xlsx'), 'hoteltime__2026-10-01--2026-10-31__reservations-search.xlsx');
 });
 
-test('🔴 ชื่อไฟล์รายงานภาพ: เวลาที่ถ่ายแบบ ISO ย่อ YYYYMMDDTHHMMSS+0700 (ไม่มี ":" — เปิดบน Windows ได้)', () => {
+test('🔴 ชื่อไฟล์รายงานภาพ: <site>__เวลาที่ถ่ายแบบ ISO ย่อ YYYYMMDDTHHMMSS+0700 (ไม่มี ":" — เปิดบน Windows ได้)', () => {
   // 05:00:00Z = เที่ยงวันเวลาไทย
-  assert.equal(pictureFileName(new Date('2026-10-13T05:00:00Z'), 'arrivals', 'xlsx'), '20261013T120000+0700__arrivals.xlsx');
+  assert.equal(pictureFileName('hoteltime', new Date('2026-10-13T05:00:00Z'), 'arrivals', 'xlsx'), 'hoteltime__20261013T120000+0700__arrivals.xlsx');
 });
 
 test('🔴 ชื่อไฟล์รายงานภาพตัดวันตามเวลาไทย — 17:00Z คือเที่ยงคืนของวันถัดไปในไทย', () => {
-  assert.equal(pictureFileName(new Date('2026-10-12T17:00:00Z'), 'arrivals', 'xlsx'), '20261013T000000+0700__arrivals.xlsx');
-  assert.equal(pictureFileName(new Date('2026-10-12T16:59:59Z'), 'arrivals', 'xlsx'), '20261012T235959+0700__arrivals.xlsx');
+  assert.equal(pictureFileName('foodstory', new Date('2026-10-12T17:00:00Z'), 'arrivals', 'xlsx'), 'foodstory__20261013T000000+0700__arrivals.xlsx');
+  assert.equal(pictureFileName('foodstory', new Date('2026-10-12T16:59:59Z'), 'arrivals', 'xlsx'), 'foodstory__20261012T235959+0700__arrivals.xlsx');
 });
 
 test('ตัวชี้ latest ของรอบรายวันอยู่ที่ data/<site>/daily/latest', () => {
@@ -99,10 +99,10 @@ test('FoodStory รายเดือน: เลยเที่ยงคืน�
   assert.equal(monthlyFolder(ROOT, 'foodstory', '2026-08', at, ['2026-08']), '/p/data/foodstory/monthly/2026-08__2026-10-08');
 });
 
-test('FoodStory รายเดือน: รากของรอบรายเดือนและชื่อไฟล์ <ช่วง>__<กลุ่ม>__<id>.<ext> มาจากตัววางไฟล์ที่เดียว', () => {
+test('FoodStory รายเดือน: รากของรอบรายเดือนและชื่อไฟล์ <site>__<ช่วง>__<กลุ่ม>__<id>.<ext> มาจากตัววางไฟล์ที่เดียว', () => {
   assert.equal(monthlyRoot(ROOT, 'foodstory'), '/p/data/foodstory/monthly');
-  assert.equal(foodstoryFileName('2026-09', 'sales', 'salebybilldetail_part2', 'xlsx'), '2026-09__sales__salebybilldetail_part2.xlsx');
-  assert.equal(foodstoryFileName('2026-10-11', 'sales', 'salebysumdate', 'xlsx'), '2026-10-11__sales__salebysumdate.xlsx');
+  assert.equal(foodstoryFileName('foodstory', '2026-09', 'sales', 'salebybilldetail_part2', 'xlsx'), 'foodstory__2026-09__sales__salebybilldetail_part2.xlsx');
+  assert.equal(foodstoryFileName('foodstory', '2026-10-11', 'sales', 'salebysumdate', 'xlsx'), 'foodstory__2026-10-11__sales__salebysumdate.xlsx');
 });
 
 // เจ้าของระบบตัดสิน 2026-10-08: รอบแรกของเดือนเป็นวันนี้ → ดึงซ้ำวันนี้เขียนกลับ <YYYY-MM>/ (รวมผลกับรอบแรก แทนเฉพาะใบที่ผ่าน)
