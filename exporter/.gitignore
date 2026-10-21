@@ -8,23 +8,9 @@
 # คลังผลลัพธ์ (ADR-0005) — ข้อมูลจริงของธุรกิจ มีชื่อแขก ห้าม commit
 data/*
 !data/.gitkeep
-downloads/*
-!downloads/.gitkeep
-
-# snapshot รายวันของ downloads/ — safety net ชั่วคราวจาก windmill/INSTALL.md § 5 (2026-09-22)
-# มีข้อมูลส่วนบุคคลเหมือนกัน ห้าม commit เช่นเดียวกับ downloads/
-downloads-archive/*
-!downloads-archive/.gitkeep
-
-# ผลของรอบที่ไม่ใช่ --daily — back-fill/--from/--to/--last-days โฟลเดอร์ละรอบ, --baseline ที่เดียว
-# แยกจาก downloads/ กันรอบ 12:00 ของ Windmill เขียนทับ · ข้อมูลส่วนบุคคลเหมือนกัน ห้าม commit
-downloads-backfill/*
-!downloads-backfill/.gitkeep
-downloads-baseline/*
-!downloads-baseline/.gitkeep
-# โฟลเดอร์พัก/สำรองระหว่างสลับ baseline (sites/hoteltime/baseline.ts) — ปกติหายไปเองหลังจบรอบ
-downloads-baseline.staging/
-downloads-baseline.old/
+# โฟลเดอร์ downloads* เดิม (ก่อน ADR-0005) เลิกใช้แล้ว — ย้ายเข้า data/ ครบและลบทิ้ง 2026-10-21 · `migrate-legacy` ยังอ่านได้ถ้าเจอโฟลเดอร์เก่าจากเครื่องอื่น
+# กฎข้างล่างกันของค้างจากเครื่องที่ยังไม่ได้ย้าย ไม่ให้เผลอ commit ข้อมูลส่วนบุคคล
+downloads*/
 
 # ของที่เก็บระหว่างสำรวจ — screenshot/snapshot อาจติดข้อมูลลูกค้ามาด้วย
 recon/captures/*
