@@ -186,10 +186,11 @@ function appendFileGroups(first: DiscordMessage, groups: readonly FileGroup[], k
 
 /** คำสรุปท้ายข้อความ: ปกติ/สิ่งที่ต้องทำ/ปัญหา + รายการจริง (ไม่ต้องให้คนไปรัน `exporter status` เอง) */
 function statusVerdict(report: StatusReport): string {
-  if (report.verdict === 'ok') return 'All good';
+  // ขอบเขตของคำตัดสินคือทั้งเครื่อง (ทุก Site) ไม่ใช่แค่รอบนี้ — ขึ้นต้น "System status" ให้ต่างจาก "Upload status" ของขา upload
+  if (report.verdict === 'ok') return 'System status: all clear';
   const kinds = [
-    { count: report.problems.length, notes: report.notes.problems, head: (n: number) => `${plural(n, 'problem')} to check` },
-    { count: report.actions.length, notes: report.notes.actions, head: (n: number) => `${plural(n, 'action')} needed` },
+    { count: report.problems.length, notes: report.notes.problems, head: (n: number) => `System status: ${plural(n, 'problem')} to check` },
+    { count: report.actions.length, notes: report.notes.actions, head: (n: number) => `System status: ${plural(n, 'action')} needed` },
   ];
   return kinds
     .filter((k) => k.count > 0)
@@ -392,9 +393,9 @@ function pendingDocumentTypeCount(r: UploadRunResult): number {
 
 function uploadVerdictLine(r: UploadRunResult): string {
   const genuineRejected = genuineRejectedCount(r);
-  if (genuineRejected > 0 || r.stuck > 0) return `${plural(genuineRejected + r.stuck, 'problem')} to check — ${STATUS_HINT}`;
-  if (r.blocked > 0) return `${plural(r.blocked, 'file')} blocked because as_of is in the past — check with the uploader team if you meant to send them`;
-  return 'All good';
+  if (genuineRejected > 0 || r.stuck > 0) return `Upload status: ${plural(genuineRejected + r.stuck, 'problem')} to check — ${STATUS_HINT}`;
+  if (r.blocked > 0) return `Upload status: ${plural(r.blocked, 'file')} blocked because as_of is in the past — check with the uploader team if you meant to send them`;
+  return 'Upload status: no problems';
 }
 
 /** สีแถบซ้าย — มีไฟล์ปฏิเสธถาวร (ไม่รวม "รอ document_type")/ค้างถาวร = แดง · บล็อก(as_of) ยังไม่ใช่ปัญหาแต่ต้องดู = เหลือง · ปกติ = เขียว */

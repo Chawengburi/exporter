@@ -65,7 +65,7 @@ test('🔴 สรุปรอบ: แต่ละ Site บรรทัดเด�
   assert.match(summary!.content, /Data date 2026-10-13/); // วันของข้อมูลที่สรุป — บรรทัดของมันเอง แยกจากเวลาที่ดำเนินการ
   assert.match(summary!.content, /\*\*HotelTime\*\* 3\/3 ok · 1 empty \(cancelled\) · 0 failed · snapshots 2\/2/);
   assert.match(summary!.content, /\*\*FoodStory\*\* 2\/2 ok · 1 empty \(pay\) · 0 failed · snapshots 1\/1/);
-  assert.match(summary!.content, /All good/);
+  assert.match(summary!.content, /System status: all clear/);
   assert.ok(summary!.content.length < 2000);
   // เจ้าของระบบขอ 2026-10-19/21: header H3 + subtext แบบ log เป็น section แยกจากรายละเอียดของแต่ละ site ด้วย Separator จริง
   assert.match(summary!.content, /^### Export done · 18:30\n-# Data date 2026-10-13\n-# 14 Oct 2026/);

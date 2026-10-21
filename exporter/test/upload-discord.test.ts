@@ -34,7 +34,7 @@ test('uploadDiscordMessages: มีไฟล์ถูกประมวลผล
   assert.match(messages[0]!.content, /HotelTime/);
   assert.match(messages[0]!.content, /3\/\d+ sent/);
   assert.match(messages[0]!.content, /1 duplicate/);
-  assert.match(messages[0]!.content, /All good/); // ไม่มีปัญหาเลย
+  assert.match(messages[0]!.content, /Upload status: no problems/); // ไม่มีปัญหาเลย
 });
 
 test('uploadDiscordMessages: โชว์ชื่อรายงานที่อัปโหลดสำเร็จเป็นลิสต์แนวตั้ง (ไม่มีนามสกุล)', () => {
@@ -184,7 +184,7 @@ test('uploadDiscordMessages: rejected เพราะ document_type ยัง re
   assert.equal(messages.length, 1); // แค่สรุป — ไม่มี "เรื่องที่ต้องดู" แยกเลย ไม่ว่าจะกี่ไฟล์
   assert.doesNotMatch(messages[0]!.content, /Failed:/); // ไม่ใช่ความล้มเหลว ไม่เข้า section นี้
   assert.match(messages[0]!.content, /3 waiting for document_type/); // ยังเห็น backlog ได้ แบบไม่ตกใจ
-  assert.match(messages[0]!.content, /All good/); // verdict ไม่ใช่ "มีเรื่องต้องดู"
+  assert.match(messages[0]!.content, /Upload status: no problems/); // verdict ไม่ใช่ "มีเรื่องต้องดู"
 });
 
 test('uploadDiscordMessages: rejected แบบจริง (catalog ไม่ตรง) ยังแจ้งเตือนและขึ้น "ไม่สำเร็จ"/"เรื่องต้องดู" เหมือนเดิม — ไม่ได้ปิดกั้นไปด้วย', () => {
