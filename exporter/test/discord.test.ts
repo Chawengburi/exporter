@@ -63,22 +63,23 @@ test('🔴 สรุปรอบ: แต่ละ Site บรรทัดเด�
   const [summary] = ms;
   assert.deepEqual(summary!.keys, ['summary@2026-10-14 18:30']); // กุญแจต่อรอบ (เวลาของรอบ) ไม่ใช่ต่อวัน
   assert.match(summary!.content, /Data date 2026-10-13/); // วันของข้อมูลที่สรุป — บรรทัดของมันเอง แยกจากเวลาที่ดำเนินการ
-  assert.match(summary!.content, /\*\*HotelTime\*\* 3\/3 ok · 1 empty \(cancelled\) · 0 failed · snapshots 2\/2/);
-  assert.match(summary!.content, /\*\*FoodStory\*\* 2\/2 ok · 1 empty \(pay\) · 0 failed · snapshots 1\/1/);
-  assert.match(summary!.content, /System status: all clear/);
+  assert.match(summary!.content, /\*\*HotelTime\*\* · 2 ok · 1 empty · snapshots 2\/2/);
+  assert.match(summary!.content, /\*\*FoodStory\*\* · 1 ok · 1 empty · snapshots 1\/1/);
+  assert.doesNotMatch(summary!.content, /Problems|Action needed|status/); // ปกติ = ไม่มีบรรทัดสถานะท้ายข้อความ (สีของ container กับหัวข้อบอกอยู่แล้ว)
+  assert.match(summary!.content, /\*\*Empty · HotelTime\*\* \(1\)\n```\ncancelled\n```/); // ชื่อรายงานที่ว่างอยู่ในกลุ่มของตัวเอง
   assert.ok(summary!.content.length < 2000);
   // เจ้าของระบบขอ 2026-10-19/21: header H3 + subtext แบบ log เป็น section แยกจากรายละเอียดของแต่ละ site ด้วย Separator จริง
   assert.match(summary!.content, /^### Export done · 18:30\n-# Data date 2026-10-13\n-# 14 Oct 2026/);
-  assert.doesNotMatch(summary!.content, /Failed:/); // วันนี้ไม่มีอะไรล้ม — section นี้ไม่โชว์เลย
+  assert.doesNotMatch(summary!.content, /Failed \(/); // วันนี้ไม่มีอะไรล้ม — section นี้ไม่โชว์เลย
 });
 
 test('🔴 สรุปรอบ: โชว์ชื่อรายงานที่ export (ไม่มี site/วัน/นามสกุล) เป็นลิสต์แนวตั้ง แยกข้อมูลรายวันกับ snapshot', () => {
   const r = buildStatus(healthy(), thai('2026-10-14T18:30'), SETUP);
   const files = { hoteltime: ['hoteltime__2026-10-13__postings.xlsx', 'hoteltime__2026-10-13__invoices.xlsx', 'hoteltime__20261014T120000+0700__arrivals.xlsx'], foodstory: ['foodstory__2026-10-12__salebybill.xlsx', 'foodstory__2026-10-13__salebybill.xlsx'] };
   const [m] = discordMessages(r, { summary: true, alreadySent: NONE, run: { files } });
-  assert.match(m!.content, /\*\*Exported data · HotelTime\*\* \(2\)\n• postings\n• invoices/);
-  assert.match(m!.content, /\*\*Exported snapshots · HotelTime\*\* \(1\)\n• arrivals/);
-  assert.match(m!.content, /\*\*Exported data · FoodStory\*\* \(1\)\n• salebybill ×2/); // ชื่อเดียวกันหลายวันรวมกัน
+  assert.match(m!.content, /\*\*Exported data · HotelTime\*\* \(2\)\n```\npostings\ninvoices\n```/);
+  assert.match(m!.content, /\*\*Exported snapshots · HotelTime\*\* \(1\)\n```\narrivals\n```/);
+  assert.match(m!.content, /\*\*Exported data · FoodStory\*\* \(1\)\n```\nsalebybill ×2\n```/); // ชื่อเดียวกันหลายวันรวมกัน
   assert.doesNotMatch(m!.content, /\.xlsx|2026-10-13__/);
 });
 
@@ -89,7 +90,7 @@ test('🔴 สรุปรอบ: รายชื่อยาวเกินเ�
   assert.ok(ms.length > 1, String(ms.length));
   for (const m of ms) assert.ok(m.content.split(SECTION_BREAK).join('\n').length <= 2000, String(m.content.length));
   const all = ms.map((m) => m.content).join('\n');
-  for (let i = 0; i < 200; i++) assert.match(all, new RegExp(`• report-number-${i}\\n|• report-number-${i}$`, 'm'), String(i));
+  for (let i = 0; i < 200; i++) assert.match(all, new RegExp(`^report-number-${i}$`, 'm'), String(i));
   assert.match(ms[1]!.content, /^### Exported files \(continued\)/);
   assert.match(all, /\*\*Exported data · FoodStory\*\* \(200, continued\)/);
   assert.equal(new Set(ms.flatMap((m) => m.keys)).size, ms.flatMap((m) => m.keys).length); // กุญแจไม่ซ้ำ
@@ -109,9 +110,9 @@ test('🔴 สรุปรอบ: รายงานที่ล้มขึ้�
   const failing = { ...s, hoteltime: [s.hoteltime[0]!, folder('2026-10-13', { postings: ['failed', 'Timeout 60000ms exceeded'], invoices: 'data', cancelled: 'empty' }, { arrivals: 'data', 'trial-balance': 'data' }), s.hoteltime[2]!] };
   const r = buildStatus(failing, thai('2026-10-14T18:30'), SETUP);
   const [summary] = discordMessages(r, { summary: true, alreadySent: NONE });
-  assert.match(summary!.content, /Failed: 1 file\n• HotelTime: postings: Timeout 60000ms exceeded/);
+  assert.match(summary!.content, /\*\*Failed \(1\)\*\*\n• HotelTime: postings: Timeout 60000ms exceeded/);
   // บรรทัดของ site มีแค่ตัวเลข "1 failed" — ชื่อรายงานและเหตุผลอยู่ใน section Failed เท่านั้น
-  assert.doesNotMatch(summary!.content.split('Failed:')[0]!, /Timeout/);
+  assert.doesNotMatch(summary!.content.split('Failed (')[0]!, /Timeout/);
 });
 
 test('🔴 แจ้งเตือนเมื่อรายงานยังล้มหลังรอบเก็บตกสุดท้าย — บอก Site วันของข้อมูล ชื่อรายงาน สาเหตุ · ก่อน 18:30 (ยังรอรอบเก็บตก) ไม่แจ้ง', () => {

@@ -103,14 +103,15 @@ const latestDataDay = (site: SiteView): DayView | undefined => [...site.days].re
  */
 function summarySiteBlock(site: SiteView, today: string): string {
   const label = SITE_LABEL[site.site];
-  if (site.lastRunDay !== today) return `**${label}** not run today (${site.lastRunDay ? `last run ${site.lastRunDay}` : 'never run'})`;
+  if (site.lastRunDay !== today) return `**${label}** · not run today${site.lastRunDay ? ` (last run ${site.lastRunDay})` : ''}`;
   const day = latestDataDay(site);
   const parts: string[] = [];
+  // ตัวเลขที่เป็นศูนย์ไม่โชว์ (เงียบตอนปกติ) — ชื่อรายงานที่ว่างอยู่ในกลุ่ม "Empty" ท้ายข้อความ
   if (day?.perDay) {
     const v = day.perDay;
-    parts.push(`${v.data + v.empty.length}/${v.total} ok`);
-    parts.push(v.empty.length > 0 ? `${v.empty.length} empty (${names(v.empty)})` : '0 empty');
-    parts.push(`${v.failed.length} failed`);
+    parts.push(`${v.data} ok`);
+    if (v.empty.length > 0) parts.push(`${v.empty.length} empty`);
+    if (v.failed.length > 0) parts.push(`${v.failed.length} failed`);
     if (v.notFetched.length > 0) parts.push(`${v.notFetched.length} not fetched`);
   } else if (day?.state) parts.push(day.state === 'running' ? 'run did not finish' : '_run.json unreadable');
   else parts.push('no data fetched yet');
@@ -119,7 +120,7 @@ function summarySiteBlock(site: SiteView, today: string): string {
     const bad = pictures.failed.length + pictures.missing.length;
     parts.push(bad === 0 ? `snapshots ${pictures.taken}/${pictures.total}` : `snapshots ${pictures.taken}/${pictures.total} (${bad} missing)`);
   }
-  return `**${label}** ${parts.join(' · ')}`;
+  return `**${label}** · ${parts.join(' · ')}`;
 }
 
 const FAILURE_SHOWN = 8;
@@ -127,9 +128,11 @@ type FileGroup = { readonly title: string; readonly names: readonly string[] };
 
 /**
  * ชื่อไฟล์ → ชื่อรายงานล้วน ๆ (เจ้าของระบบขอ 2026-10-21): ตัดชื่อ Site, วัน/เวลา และนามสกุลออก — วันของข้อมูลอยู่ที่หัวข้อแล้ว ·
- * ไฟล์ที่ชื่อเดียวกันหลายวัน (FoodStory กดเก็บตกหลายวัน) รวมเป็น `name ×N` · แยก 2 กลุ่มตามรูปชื่อไฟล์: snapshot (ขึ้นต้นด้วยเวลา `YYYYMMDDThhmmss`) กับรายงานตามวัน
+ * ไฟล์ที่ชื่อเดียวกันหลายวัน (FoodStory กดเก็บตกหลายวัน) รวมเป็น `name ×N` · แยกตามรูปชื่อไฟล์: snapshot (ขึ้นต้นด้วยเวลา
+ * `YYYYMMDDThhmmss`) กับรายงานตามวัน · `empty` = รายงานที่ว่าง (ไม่มีไฟล์ ชื่อมาจาก status) เป็นกลุ่มของตัวเองระหว่างสอง
+ * กลุ่มนั้น เพราะข้อความนี้ทำหน้าที่เป็น log ด้วย
  */
-function fileGroups(verb: 'Exported' | 'Uploaded', label: string, files: readonly string[]): FileGroup[] {
+function fileGroups(verb: 'Exported' | 'Uploaded', label: string, files: readonly string[], empty: readonly string[] = []): FileGroup[] {
   const tally = (list: readonly string[]) => {
     const counts = new Map<string, number>();
     for (const raw of list) {
@@ -143,40 +146,47 @@ function fileGroups(verb: 'Exported' | 'Uploaded', label: string, files: readonl
   const snapshots = tally(files.filter(isSnapshot));
   return [
     ...(data.length > 0 ? [{ title: `${verb} data · ${label}`, names: data }] : []),
+    ...(empty.length > 0 ? [{ title: `Empty · ${label}`, names: empty }] : []),
     ...(snapshots.length > 0 ? [{ title: `${verb} snapshots · ${label}`, names: snapshots }] : []),
   ];
 }
 
 /**
- * ต่อรายชื่อไฟล์แนวตั้งท้ายข้อความแรก ล้นเพดานก็ขึ้นข้อความใหม่ต่อไปจนครบ (เจ้าของระบบขอ 2026-10-21) — กลุ่มที่ถูกตัดกลางทางขึ้นหัว
- * "(continued)" ในข้อความถัดไป · ข้อความต่อเนื่องมีกุญแจของตัวเอง `${keyBase}#N` (ส่งไปพร้อมสรุปรอบเดียวกัน)
+ * ต่อรายชื่อแนวตั้งในกล่องโค้ดท้ายข้อความแรก (เจ้าของระบบขอลองกล่องโค้ด 2026-10-21 — ตัวอักษรเท่ากัน คัดลอกไปวางได้) ล้นเพดานก็ขึ้น
+ * ข้อความใหม่ต่อไปจนครบ — กลุ่มที่ถูกตัดกลางทางขึ้นหัว "(continued)" ในข้อความถัดไป · ข้อความต่อเนื่องมีกุญแจของตัวเอง `${keyBase}#N`
+ * (ส่งไปพร้อมสรุปรอบเดียวกัน)
  */
 function appendFileGroups(first: DiscordMessage, groups: readonly FileGroup[], keyBase: string, restHeader: string): DiscordMessage[] {
   const len = (c: string) => c.split(SECTION_BREAK).join('\n').length;
+  const block = (head: string, lines: readonly string[]) => `${head}\n\`\`\`\n${lines.join('\n')}\n\`\`\``;
   const out: DiscordMessage[] = [];
   let cur: DiscordMessage = first;
   let part = 1;
+  let groupsInCur = 0;
   const flush = () => {
     out.push(cur);
     part += 1;
     cur = { keys: [`${keyBase}#${part}`], content: restHeader, accentColor: first.accentColor };
+    groupsInCur = 0;
   };
   for (const g of groups) {
     let i = 0;
     while (i < g.names.length) {
       const head = `**${g.title}** (${g.names.length}${i > 0 ? ', continued' : ''})`;
-      const start = `${cur.content}${SECTION_BREAK}${head}\n• ${g.names[i]}`;
-      if (len(start) > MAX_CONTENT && cur.content !== restHeader) {
+      // กลุ่มแรกของข้อความคั่นด้วยเส้นจริง กลุ่มถัดไปต่อด้วยบรรทัดว่าง
+      const glue = groupsInCur === 0 ? SECTION_BREAK : '\n';
+      let lines = [g.names[i]!];
+      if (len(`${cur.content}${glue}${block(head, lines)}`) > MAX_CONTENT && cur.content !== restHeader) {
         flush();
         continue;
       }
-      let content = start;
       i += 1;
-      while (i < g.names.length && len(`${content}\n• ${g.names[i]}`) <= MAX_CONTENT) {
-        content = `${content}\n• ${g.names[i]}`;
+      while (i < g.names.length && len(`${cur.content}${glue}${block(head, [...lines, g.names[i]!])}`) <= MAX_CONTENT) {
+        lines = [...lines, g.names[i]!];
         i += 1;
       }
-      cur = { ...cur, content };
+      cur = { ...cur, content: `${cur.content}${glue}${block(head, lines)}` };
+      groupsInCur += 1;
       if (i < g.names.length) flush();
     }
   }
@@ -185,19 +195,18 @@ function appendFileGroups(first: DiscordMessage, groups: readonly FileGroup[], k
 }
 
 /** คำสรุปท้ายข้อความ: ปกติ/สิ่งที่ต้องทำ/ปัญหา + รายการจริง (ไม่ต้องให้คนไปรัน `exporter status` เอง) */
-function statusVerdict(report: StatusReport): string {
-  // ขอบเขตของคำตัดสินคือทั้งเครื่อง (ทุก Site) ไม่ใช่แค่รอบนี้ — ขึ้นต้น "System status" ให้ต่างจาก "Upload status" ของขา upload
-  if (report.verdict === 'ok') return 'System status: all clear';
+function attentionBlock(report: StatusReport): string | undefined {
+  if (report.verdict === 'ok') return undefined;
   const kinds = [
-    { count: report.problems.length, notes: report.notes.problems, head: (n: number) => `System status: ${plural(n, 'problem')} to check` },
-    { count: report.actions.length, notes: report.notes.actions, head: (n: number) => `System status: ${plural(n, 'action')} needed` },
+    { count: report.problems.length, notes: report.notes.problems, head: 'Problems' },
+    { count: report.actions.length, notes: report.notes.actions, head: 'Action needed' },
   ];
   return kinds
     .filter((k) => k.count > 0)
     .map((k) => {
       // รายการที่ไม่มีคำอังกฤษ (ปัญหารายวัน/snapshot ปิดงวด) ขึ้นเป็น alert "Needs attention" แยกอยู่แล้ว
       const uncovered = k.count - k.notes.length;
-      return [k.head(k.count), ...k.notes.map((n) => `• ${n}`), ...(uncovered > 0 ? [`(${uncovered} more listed under "Needs attention"; details: "exporter status")`] : [])].join('\n');
+      return [`**${k.head} (${k.count})**`, ...k.notes.map((n) => `• ${n}`), ...(uncovered > 0 ? [`• ${uncovered} more under "Needs attention" below`] : [])].join('\n');
     })
     .join('\n\n');
 }
@@ -206,7 +215,7 @@ function statusVerdict(report: StatusReport): string {
 function failuresBlock(failures: readonly { readonly label: string; readonly reason: string }[]): string {
   const shown = failures.slice(0, FAILURE_SHOWN).map((f) => `• ${f.label}: ${f.reason}`);
   const more = failures.length > FAILURE_SHOWN ? [`... and ${failures.length - FAILURE_SHOWN} more`] : [];
-  return [`Failed: ${plural(failures.length, 'file')}`, ...shown, ...more].join('\n');
+  return [`**Failed (${failures.length})**`, ...shown, ...more].join('\n');
 }
 
 /** รายงานตามวัน + รายงาน snapshot ของวันนี้ที่ล้มจริง (ไม่รวม "ยังไม่ได้ดึง"/"ยังไม่ได้ถ่าย" ที่เป็นแค่ยังไม่ถึงตา ไม่ใช่ความล้มเหลว) */
@@ -224,9 +233,12 @@ function exportFailures(report: StatusReport, today: string): { readonly label: 
 
 const STATUS_HINT = 'run "exporter status" on the machine for details';
 
+/** เส้นคั่นของข้อความ: ส่วนที่ไม่มี (undefined/ว่าง) ข้ามไป ไม่เหลือเส้นคู่ */
+const sections = (parts: readonly (string | undefined)[]): string[] => parts.filter((p): p is string => p !== undefined && p !== '');
+
 function summaryOf(report: StatusReport, today: string, run: RunInfo | undefined): string {
   const dataDay = report.sites.map(latestDataDay).filter((d) => d !== undefined).map((d) => d.day).sort().at(-1);
-  const verdictLine = statusVerdict(report);
+  const attention = attentionBlock(report);
   const title = report.verdict === 'problem' ? 'Export finished with problems' : report.verdict === 'action' ? 'Export done · action needed' : 'Export done';
 
   const at = run?.at ?? report.at;
@@ -235,8 +247,7 @@ function summaryOf(report: StatusReport, today: string, run: RunInfo | undefined
   const sitesBlock = report.sites.map((s) => summarySiteBlock(s, today)).join('\n');
   const failures = exportFailures(report, today);
 
-  const blocks = [sitesBlock, failures.length > 0 ? `${failuresBlock(failures)}\n\n${verdictLine}` : verdictLine];
-  return [header, ...blocks].join(SECTION_BREAK);
+  return [header, sitesBlock, ...sections([failures.length > 0 ? failuresBlock(failures) : undefined, attention])].join(SECTION_BREAK);
 }
 
 function alertsOf(report: StatusReport, today: string): Alert[] {
@@ -361,7 +372,10 @@ export function discordMessages(report: StatusReport, opts: { readonly summary: 
   const at = opts.run?.at ?? report.at;
   const alertMsgs = pack(alertHeaders(summaryMsg !== undefined, `### Needs attention\n${subtext(at, undefined)}`), fresh, DISCORD_COLOR.problem);
   const merged = mergeFirstMessages(summaryMsg, alertMsgs);
-  const groups = report.sites.flatMap((site) => fileGroups('Exported', SITE_LABEL[site.site], opts.run?.files?.[site.site] ?? []));
+  const groups = report.sites.flatMap((site) => {
+    const empty = site.lastRunDay === today ? latestDataDay(site)?.perDay?.empty ?? [] : [];
+    return fileGroups('Exported', SITE_LABEL[site.site], opts.run?.files?.[site.site] ?? [], empty);
+  });
   if (summaryMsg === undefined || groups.length === 0) return merged;
   const [first, ...rest] = merged as [DiscordMessage, ...DiscordMessage[]];
   return [...appendFileGroups(first, groups, summaryKey, `### Exported files (continued)\n${subtext(at, undefined)}`), ...rest];
@@ -391,11 +405,10 @@ function pendingDocumentTypeCount(r: UploadRunResult): number {
   return r.results.filter(isPendingDocumentType).length;
 }
 
-function uploadVerdictLine(r: UploadRunResult): string {
-  const genuineRejected = genuineRejectedCount(r);
-  if (genuineRejected > 0 || r.stuck > 0) return `Upload status: ${plural(genuineRejected + r.stuck, 'problem')} to check — ${STATUS_HINT}`;
-  if (r.blocked > 0) return `Upload status: ${plural(r.blocked, 'file')} blocked because as_of is in the past — check with the uploader team if you meant to send them`;
-  return 'Upload status: no problems';
+function uploadAttention(r: UploadRunResult): string | undefined {
+  // ไฟล์ที่ปฏิเสธ/ค้างถาวรอยู่ใน section "Failed" ของข้อความอยู่แล้ว ที่นี่เหลือแค่เรื่องที่ไม่มีรายชื่อไฟล์ให้ดู
+  if (r.blocked > 0) return `**Action needed (1)**\n• ${plural(r.blocked, 'file')} blocked because as_of is in the past — check with the uploader team if you meant to send them`;
+  return undefined;
 }
 
 /** สีแถบซ้าย — มีไฟล์ปฏิเสธถาวร (ไม่รวม "รอ document_type")/ค้างถาวร = แดง · บล็อก(as_of) ยังไม่ใช่ปัญหาแต่ต้องดู = เหลือง · ปกติ = เขียว */
@@ -409,7 +422,9 @@ function uploadAccentColor(r: UploadRunResult): number {
 function uploadSiteBlock(r: UploadRunResult): string {
   const label = SITE_LABEL[r.site];
   const failed = genuineRejectedCount(r) + r.stuck;
-  const parts = [`${r.sent}/${r.results.length} sent`, `${r.duplicate} duplicate`, `${failed} failed`];
+  const parts = [`${r.sent}/${r.results.length} sent`];
+  if (r.duplicate > 0) parts.push(`${r.duplicate} duplicate`);
+  if (failed > 0) parts.push(`${failed} failed`);
   // rows_mismatch คือคำเตือน ไม่ใช่ความล้มเหลว แต่ก็ไม่ใช่ sent เฉย ๆ
   if (r.rowsMismatch > 0) parts.push(`${r.rowsMismatch} rows mismatch`);
   // ticket 13: แยก "ประกาศรายงานว่างสำเร็จแล้ว" (ไม่ต้องทำอะไร) กับ "ยังไม่ประกาศ" (ยัง backlog — flag ปิด/document_type ยัง resolve ไม่ได้/ลองแล้วไม่ผ่าน)
@@ -422,7 +437,7 @@ function uploadSiteBlock(r: UploadRunResult): string {
   if (pendingDocType > 0) parts.push(`${pendingDocType} waiting for document_type`);
   // ไฟล์ที่ติ๊ก "ยังรอส่ง (pending)" ใน ticket 05 — สาเหตุคือ as_of ย้อนหลัง ไม่ใช่แค่ยังไม่ถึงตา
   if (r.blocked > 0) parts.push(`${r.blocked} blocked (as_of)`);
-  return `**${label}** ${parts.join(' · ')}`;
+  return `**${label}** · ${parts.join(' · ')}`;
 }
 
 /** ข้อความเหตุผลของ `rejected`/`stuck` หนึ่งรายการ — ใช้ร่วมกันทั้งไฟล์ปกติและ `empty` (คนละ type แต่ shape ของสอง kind นี้เหมือนกัน) */
@@ -443,12 +458,12 @@ function uploadFailures(r: UploadRunResult): { readonly label: string; readonly 
 }
 
 function uploadSummaryOf(r: UploadRunResult, at: string, run: RunInfo | undefined): string {
-  const header = [`### Upload done · ${clockParts(at).time}`, subtext(at, run)].join('\n');
+  const title = genuineRejectedCount(r) > 0 || r.stuck > 0 ? 'Upload finished with problems' : r.blocked > 0 ? 'Upload done · action needed' : 'Upload done';
+  const header = [`### ${title} · ${clockParts(at).time}`, subtext(at, run)].join('\n');
   const siteBlock = uploadSiteBlock(r);
   const failures = uploadFailures(r);
-  const verdictLine = uploadVerdictLine(r);
-  const blocks = [siteBlock, failures.length > 0 ? `${failuresBlock(failures)}\n\n${verdictLine}` : verdictLine];
-  return [header, ...blocks].join(SECTION_BREAK);
+  const attention = uploadAttention(r);
+  return [header, siteBlock, ...sections([failures.length > 0 ? failuresBlock(failures) : undefined, attention])].join(SECTION_BREAK);
 }
 
 /** แจ้งทันทีเฉพาะ `rejected` ที่ "ผิดปกติจริง" — ไม่รวม "รอ document_type" (เจ้าของระบบขอ 2026-10-19 หลังเจอ spam 57 ข้อความ) */

@@ -218,7 +218,7 @@ test('notifyUpload: ไฟล์ปฏิเสธถาวร → แจ้ง�
     // โดยตั้งใจ ไม่ใช่กันซ้ำแบบแจ้งเตือน) แต่ข้อความ "เรื่องที่ต้องดู" (แจ้งเตือนแยก) ต้องไม่ส่งซ้ำ
     await notifyUpload({ result: withRejected, now: thai('2026-10-15T15:00'), dataDir: s.dataDir, envFile });
     const newBodies = discord.bodies.slice(countAfterFirst).map((b) => b.content);
-    assert.match(newBodies.join('\n'), /Upload done/); // มีสรุปรอบใหม่ (มี c.xlsx ในนี้ได้ ตามที่ตั้งใจ)
+    assert.match(newBodies.join('\n'), /### Upload /); // มีสรุปรอบใหม่ (มี c.xlsx ในนี้ได้ ตามที่ตั้งใจ)
     assert.ok(!newBodies.some((b) => b.includes('Needs attention'))); // ไม่มีแจ้งเตือนแยกซ้ำ
   } finally {
     await discord.close();

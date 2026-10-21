@@ -34,12 +34,12 @@ test('uploadDiscordMessages: มีไฟล์ถูกประมวลผล
   assert.match(messages[0]!.content, /HotelTime/);
   assert.match(messages[0]!.content, /3\/\d+ sent/);
   assert.match(messages[0]!.content, /1 duplicate/);
-  assert.match(messages[0]!.content, /Upload status: no problems/); // ไม่มีปัญหาเลย
+  assert.doesNotMatch(messages[0]!.content, /Problems|Action needed|finished with problems/); // ไม่มีปัญหาเลย = ไม่มีบรรทัดสถานะ
 });
 
 test('uploadDiscordMessages: โชว์ชื่อรายงานที่อัปโหลดสำเร็จเป็นลิสต์แนวตั้ง (ไม่มีนามสกุล)', () => {
   const messages = uploadDiscordMessages(base, { at: AT, alreadySent: noneSent });
-  assert.match(messages[0]!.content, /\*\*Uploaded data · HotelTime\*\* \(\d+\)\n• [a-z]/);
+  assert.match(messages[0]!.content, /\*\*Uploaded data · HotelTime\*\* \(\d+\)\n```\n[a-z]/);
 });
 
 test('uploadDiscordMessages: ไม่มีไฟล์ไหนถูกประมวลผลเลย (รันซ้ำแบบ no-op) → ไม่ส่งอะไรเลย ไม่ใช่สรุปตัวเลขศูนย์', () => {
@@ -85,7 +85,7 @@ test('uploadDiscordMessages: empty item ที่ปฏิเสธถาวร/
   };
   const messages = uploadDiscordMessages(withEmptyFailures, { at: AT, alreadySent: noneSent });
   assert.equal(messages.length, 1); // emptyResults ที่ rejected/stuck ไม่ใช่ 'rejected'/'stuck' ของไฟล์ปกติ ไม่เข้าเกณฑ์แจ้งเตือนแยกทันที
-  assert.match(messages[0]!.content, /Failed: 2 files/);
+  assert.match(messages[0]!.content, /\*\*Failed \(2\)\*\*/);
   assert.match(messages[0]!.content, /• HotelTime: x \(empty\): unknown document_type/);
   assert.match(messages[0]!.content, /• HotelTime: y \(empty\): stuck after 3 attempts — timeout/);
 });
@@ -100,11 +100,11 @@ test('uploadDiscordMessages: มี rejected → verdict เป็นปัญ�
   const messages = uploadDiscordMessages(withRejected, { at: AT, alreadySent: noneSent });
   assert.equal(messages.length, 1); // รวมเป็นข้อความเดียว
   const [message] = messages;
-  assert.match(message!.content, /Upload done/);
-  assert.match(message!.content, /to check/);
+  assert.match(message!.content, /### Upload /);
+  assert.match(message!.content, /Upload finished with problems/);
   assert.match(message!.content, /e\.xlsx.*document_type ไม่อยู่ใน catalog/);
   // สรุป+แจ้งเตือนรวมกันแล้ว ชื่อไฟล์จริงต้องอยู่ทั้ง section "ไม่สำเร็จ" (ของสรุป) และ "เรื่องที่ต้องดู" (ของแจ้งเตือน)
-  assert.match(message!.content, /Failed: 1 file\n• HotelTime: e\.xlsx \(e\): document_type ไม่อยู่ใน catalog/);
+  assert.match(message!.content, /\*\*Failed \(1\)\*\*\n• HotelTime: e\.xlsx \(e\): document_type ไม่อยู่ใน catalog/);
   assert.match(message!.content, /\*\*Needs attention\*\*/); // หัวข้อย่อย ไม่ใช่หัวข้อเต็ม เพราะมีสรุปอยู่แล้วในข้อความเดียวกัน
   // key ของทั้งสรุปและแจ้งเตือนต้องอยู่ในข้อความรวมนี้ ให้ sendAndLog บันทึก dedup ถูกทั้งคู่
   assert.ok(message!.keys.some((k) => k.startsWith('upload-summary@')));
@@ -150,7 +150,7 @@ test('uploadDiscordMessages: rejected ซ้ำไฟล์เดิมในว
   const alertKey = first[0]!.keys.find((k) => k.startsWith('upload-rejected@'))!;
   const second = uploadDiscordMessages(withRejected, { at: '2026-10-15T15:00:00.000Z', alreadySent: new Set([alertKey]) });
   assert.equal(second.some((m) => m.content.includes('Needs attention')), false); // แจ้งแล้ววันนี้ ไม่แจ้งซ้ำ (รวมเป็นข้อความเดียวแล้ว — ไม่มี section นี้เลยตอนที่ไม่มีอะไรใหม่)
-  assert.equal(second.some((m) => m.content.includes('Upload done')), true); // สรุปยังส่งตามปกติทุกรอบ
+  assert.equal(second.some((m) => m.content.includes('### Upload ')), true); // สรุปยังส่งตามปกติทุกรอบ
 });
 
 test('uploadDiscordMessages: คนละวัน rejected ไฟล์เดิมแจ้งซ้ำได้ (ยังไม่ได้แก้จริง ต้องรู้ทุกวัน)', () => {
@@ -182,9 +182,9 @@ test('uploadDiscordMessages: rejected เพราะ document_type ยัง re
   };
   const messages = uploadDiscordMessages(foodstoryPending, { at: AT, alreadySent: noneSent });
   assert.equal(messages.length, 1); // แค่สรุป — ไม่มี "เรื่องที่ต้องดู" แยกเลย ไม่ว่าจะกี่ไฟล์
-  assert.doesNotMatch(messages[0]!.content, /Failed:/); // ไม่ใช่ความล้มเหลว ไม่เข้า section นี้
+  assert.doesNotMatch(messages[0]!.content, /Failed \(/); // ไม่ใช่ความล้มเหลว ไม่เข้า section นี้
   assert.match(messages[0]!.content, /3 waiting for document_type/); // ยังเห็น backlog ได้ แบบไม่ตกใจ
-  assert.match(messages[0]!.content, /Upload status: no problems/); // verdict ไม่ใช่ "มีเรื่องต้องดู"
+  assert.doesNotMatch(messages[0]!.content, /Upload finished with problems/); // verdict ไม่ใช่ "มีเรื่องต้องดู"
 });
 
 test('uploadDiscordMessages: rejected แบบจริง (catalog ไม่ตรง) ยังแจ้งเตือนและขึ้น "ไม่สำเร็จ"/"เรื่องต้องดู" เหมือนเดิม — ไม่ได้ปิดกั้นไปด้วย', () => {
@@ -197,6 +197,6 @@ test('uploadDiscordMessages: rejected แบบจริง (catalog ไม่�
   };
   const messages = uploadDiscordMessages(genuineRejected, { at: AT, alreadySent: noneSent });
   assert.equal(messages.length, 1); // สรุป+แจ้งเตือนรวมเป็นข้อความเดียว (เจ้าของระบบขอ 2026-10-19 รอบสอง)
-  assert.match(messages[0]!.content, /Failed: 1 file/);
-  assert.match(messages[0]!.content, /1 problem to check/);
+  assert.match(messages[0]!.content, /\*\*Failed \(1\)\*\*/);
+  assert.match(messages[0]!.content, /Upload finished with problems/);
 });
