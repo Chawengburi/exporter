@@ -86,7 +86,7 @@ test('🔴 รอบ HotelTime ที่จบหลัง 18:00 = รอบส�
     assert.match(all, /### Export finished with problems · 18:10/); // เวลาในหัวข้อ = เวลาจริงของรอบ ไม่ใช่เวลาประเมิน 18:30
     assert.match(all, /HotelTime daily run/);
     assert.match(all, /Data date 2026-10-13/);
-    assert.match(all, /HotelTime[^\n]*2026-10-13[^\n]*postings failed[^\n]*Timeout/);
+    assert.match(all, /\*\*Failed \(1\)\*\*\n• HotelTime: postings: Timeout/);
     const count = discord.bodies.length;
     // รอบเดิมเวลาเดิมซ้ำ (เช่น Windmill ยิงซ้ำในนาทีเดียวกัน) ไม่ส่งซ้ำ — รอบใหม่ต่างเวลาได้สรุปของตัวเอง
     const again = await notifyDiscord({ trigger: 'hoteltime-daily', now: thai('2026-10-14T18:10'), dataDir: s.dataDir, envFile });
@@ -211,7 +211,7 @@ test('notifyUpload: ไฟล์ปฏิเสธถาวร → แจ้ง�
     const withRejected = uploadResult({ rejected: 1, results: [{ file: 'c.xlsx', report: 'c', kind: 'rejected', reason: 'document_type ไม่รู้จัก' }] });
     const first = await notifyUpload({ result: withRejected, now: thai('2026-10-15T12:00'), dataDir: s.dataDir, envFile });
     assert.equal(first.status, 'sent');
-    assert.match(discord.bodies.map((b) => b.content).join('\n'), /c\.xlsx.*document_type ไม่รู้จัก/);
+    assert.match(discord.bodies.map((b) => b.content).join('\n'), /• c: document_type ไม่รู้จัก/);
     const countAfterFirst = discord.bodies.length;
 
     // เรียกซ้ำวันเดียวกัน ไฟล์เดิมเหตุผลเดิม — สรุปยังส่ง (เป็นรอบใหม่ มี c.xlsx ซ้ำได้ เพราะสรุปบอกสถานะปัจจุบันทุกรอบ

@@ -86,8 +86,8 @@ test('uploadDiscordMessages: empty item ที่ปฏิเสธถาวร/
   const messages = uploadDiscordMessages(withEmptyFailures, { at: AT, alreadySent: noneSent });
   assert.equal(messages.length, 1); // emptyResults ที่ rejected/stuck ไม่ใช่ 'rejected'/'stuck' ของไฟล์ปกติ ไม่เข้าเกณฑ์แจ้งเตือนแยกทันที
   assert.match(messages[0]!.content, /\*\*Failed \(2\)\*\*/);
-  assert.match(messages[0]!.content, /• HotelTime: x \(empty\): unknown document_type/);
-  assert.match(messages[0]!.content, /• HotelTime: y \(empty\): stuck after 3 attempts — timeout/);
+  assert.match(messages[0]!.content, /• x \(empty\): unknown document_type/);
+  assert.match(messages[0]!.content, /• y \(empty\): stuck after 3 attempts — timeout/);
 });
 
 // เจ้าของระบบขอ 2026-10-19 (รอบสอง): รวมสรุป+แจ้งเตือนเป็นข้อความเดียว ไม่ต้องมี heartbeat/ข้อความแยกอีกต่อไป
@@ -102,13 +102,12 @@ test('uploadDiscordMessages: มี rejected → verdict เป็นปัญ�
   const [message] = messages;
   assert.match(message!.content, /### Upload /);
   assert.match(message!.content, /Upload finished with problems/);
-  assert.match(message!.content, /e\.xlsx.*document_type ไม่อยู่ใน catalog/);
+  assert.match(message!.content, /• e: document_type ไม่อยู่ใน catalog/);
   // สรุป+แจ้งเตือนรวมกันแล้ว ชื่อไฟล์จริงต้องอยู่ทั้ง section "ไม่สำเร็จ" (ของสรุป) และ "เรื่องที่ต้องดู" (ของแจ้งเตือน)
-  assert.match(message!.content, /\*\*Failed \(1\)\*\*\n• HotelTime: e\.xlsx \(e\): document_type ไม่อยู่ใน catalog/);
-  assert.match(message!.content, /\*\*Needs attention\*\*/); // หัวข้อย่อย ไม่ใช่หัวข้อเต็ม เพราะมีสรุปอยู่แล้วในข้อความเดียวกัน
-  // key ของทั้งสรุปและแจ้งเตือนต้องอยู่ในข้อความรวมนี้ ให้ sendAndLog บันทึก dedup ถูกทั้งคู่
-  assert.ok(message!.keys.some((k) => k.startsWith('upload-summary@')));
-  assert.ok(message!.keys.some((k) => k.startsWith('upload-rejected@')));
+  assert.match(message!.content, /\*\*Failed \(1\)\*\*\n• e: document_type ไม่อยู่ใน catalog/);
+  // ไฟล์ที่ปฏิเสธอยู่ในก้อน Failed ของสรุปแล้ว → ไม่ขึ้นซ้ำเป็น "Needs attention" (อ่านยากบนมือถือ เจ้าของระบบแจ้ง 2026-10-21)
+  assert.doesNotMatch(message!.content, /Needs attention/);
+  assert.deepEqual(message!.keys.filter((k) => !k.startsWith('upload-summary@')), []);
 });
 
 test('uploadDiscordMessages: stuck/blocked ไม่ส่งแจ้งเตือนทันที (เห็นแค่ในสรุป) — เฉพาะ rejected ที่ไม่ retry ได้เท่านั้นที่ด่วน', () => {
@@ -125,7 +124,7 @@ test('uploadDiscordMessages: stuck/blocked ไม่ส่งแจ้งเต�
   const messages = uploadDiscordMessages(withStuckAndBlocked, { at: AT, alreadySent: noneSent });
   assert.equal(messages.length, 1); // แค่สรุป ไม่มีแจ้งเตือนแยก
   // ticket (notification redesign 2026-10-19): ค้างถาวรไม่ใช่ตัวเลขเปล่า ๆ อีกต่อไป — ขึ้นเป็นรายชื่อไฟล์จริงใน section "ไม่สำเร็จ"
-  assert.match(messages[0]!.content, /f\.xlsx.*stuck after 3 attempts/);
+  assert.match(messages[0]!.content, /• f: stuck after 3 attempts/);
   assert.match(messages[0]!.content, /1 blocked/);
 });
 
@@ -153,16 +152,16 @@ test('uploadDiscordMessages: rejected ซ้ำไฟล์เดิมในว
   assert.equal(second.some((m) => m.content.includes('### Upload ')), true); // สรุปยังส่งตามปกติทุกรอบ
 });
 
-test('uploadDiscordMessages: คนละวัน rejected ไฟล์เดิมแจ้งซ้ำได้ (ยังไม่ได้แก้จริง ต้องรู้ทุกวัน)', () => {
+test('uploadDiscordMessages: rejected ไฟล์เดิมขึ้นในก้อน Failed ของสรุปทุกรอบทุกวัน (ยังไม่ได้แก้จริง ต้องรู้ทุกวัน)', () => {
   const withRejected: UploadRunResult = {
     ...base,
     rejected: 1,
     results: [{ file: 'e.xlsx', report: 'e', kind: 'rejected', reason: 'x' }],
   };
   const day1 = uploadDiscordMessages(withRejected, { at: '2026-10-15T12:00:00.000Z', alreadySent: noneSent });
-  const key1 = day1[0]!.keys.find((k) => k.startsWith('upload-rejected@'))!;
-  const day2 = uploadDiscordMessages(withRejected, { at: '2026-10-16T12:00:00.000Z', alreadySent: new Set([key1]) });
-  assert.equal(day2.some((m) => m.content.includes('Needs attention')), true);
+  const keys1 = day1.flatMap((m) => m.keys);
+  const day2 = uploadDiscordMessages(withRejected, { at: '2026-10-16T12:00:00.000Z', alreadySent: new Set(keys1) });
+  assert.match(day2[0]!.content, /\*\*Failed \(1\)\*\*\n• e: x/);
 });
 
 // พบจริง 2026-10-19: FoodStory 57 ไฟล์ rejected เพราะ document_type ยัง resolve ไม่ได้ (รู้สาเหตุอยู่แล้ว ticket 08

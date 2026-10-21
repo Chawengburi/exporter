@@ -33,7 +33,8 @@ const MANUAL_PICTURE_ALERT_AT = '18:30';
 export const DISCORD_COLOR = { ok: 0x57f287, action: 0xfaa61a, problem: 0xed4245 } as const;
 
 export type DiscordMessage = { readonly keys: readonly string[]; readonly content: string; readonly accentColor: number };
-type Alert = { readonly key: string; readonly line: string };
+/** `covered` = เรื่องนี้ขึ้นในก้อน "Failed" ของสรุปอยู่แล้ว — ไม่ขึ้นซ้ำเป็น "Needs attention" ในรอบที่ส่งสรุป */
+type Alert = { readonly key: string; readonly line: string; readonly covered?: boolean };
 /**
  * ข้อมูลของรอบที่เพิ่งรัน สำหรับบรรทัด subtext แบบ log — `at` = เวลาจริงของรอบ (export: "YYYY-MM-DD HH:MM" เวลาไทย ·
  * upload: ISO) ไม่ใช่เวลาประเมิน status ที่อาจถูกเลื่อนเป็น 18:30 · ไม่ใส่ = ไม่โชว์ส่วนนั้น
@@ -263,14 +264,14 @@ function alertsOf(report: StatusReport, today: string): Alert[] {
         continue;
       }
       for (const f of d.perDay?.failed ?? []) {
-        out.push({ key: `failed@${site.site}@${d.day}@${f.report}`, line: `${at}: ${f.report} failed — ${firstLine(f.error)}` });
+        out.push({ key: `failed@${site.site}@${d.day}@${f.report}`, line: `${at}: ${f.report} failed — ${firstLine(f.error)}`, covered: d === latestDataDay(site) });
       }
       // FoodStory ที่ยังไม่ได้ดึง = เรื่อง "ไม่ได้กด" (เตือนแยก) ไม่ใช่ปัญหาของวันนั้น
       if (site.site === 'hoteltime') {
         for (const id of d.perDay?.notFetched ?? []) out.push({ key: `missing@${site.site}@${d.day}@${id}`, line: `${at}: ${id} not fetched` });
       }
       if (d.day === today && d.pictures && (site.site === 'hoteltime' || time >= MANUAL_PICTURE_ALERT_AT)) {
-        for (const f of d.pictures.failed) out.push({ key: `picture@${site.site}@${d.day}@${f.report}`, line: `${at}: snapshot ${f.report} could not be taken — ${firstLine(f.error)}` });
+        for (const f of d.pictures.failed) out.push({ key: `picture@${site.site}@${d.day}@${f.report}`, line: `${at}: snapshot ${f.report} could not be taken — ${firstLine(f.error)}`, covered: true });
         for (const id of d.pictures.missing) out.push({ key: `picture@${site.site}@${d.day}@${id}`, line: `${at}: snapshot ${id} not taken yet` });
       }
     }
@@ -364,9 +365,9 @@ export function discordMessages(report: StatusReport, opts: { readonly summary: 
 
   const seen = new Set<string>();
   // เรื่องเดียวกันไม่ซ้ำในวันเดียวกัน — วันนี้อยู่ในกุญแจทุกตัว (กุญแจที่มีวันนี้อยู่แล้วไม่ต่อซ้ำ)
-  // "ไม่ได้กด"/"ขาดเกินเพดาน" มีคำอังกฤษอยู่ในรายการสิ่งที่ต้องทำของสรุปแล้ว — ไม่ขึ้นซ้ำเป็น alert ในรอบที่ส่งสรุป (opts.summary) — รวมรอบที่สรุปเคยส่งไปแล้ว
+  // "ไม่ได้กด"/"ขาดเกินเพดาน" มีคำอังกฤษอยู่ในรายการสิ่งที่ต้องทำของสรุปแล้ว — และเรื่องที่ขึ้นในก้อน "Failed" ของสรุปแล้ว — ไม่ขึ้นซ้ำเป็น alert ในรอบที่ส่งสรุป (opts.summary) รวมรอบที่สรุปเคยส่งไปแล้ว
   const fresh = alertsOf(report, today)
-    .filter((a) => !opts.summary || !/^(not-pressed|backlog)@/.test(a.key))
+    .filter((a) => !opts.summary || (a.covered !== true && !/^(not-pressed|backlog)@/.test(a.key)))
     .map((a) => (a.key.endsWith(`@${today}`) ? a : { ...a, key: `${a.key}@${today}` }))
     .filter((a) => !opts.alreadySent.has(a.key) && !seen.has(a.key) && seen.add(a.key));
   const at = opts.run?.at ?? report.at;
@@ -447,13 +448,12 @@ function failureReason(item: { readonly kind: 'rejected'; readonly reason: strin
 
 /** ไฟล์/รายงาน (ปกติและ `empty`) ที่ปฏิเสธถาวรหรือค้างถาวรของรอบนี้ มีชื่อจริงต่อรายการ — ไม่รวม "รอ document_type" (ดู `isPendingDocumentType`) */
 function uploadFailures(r: UploadRunResult): { readonly label: string; readonly reason: string }[] {
-  const label = SITE_LABEL[r.site];
   const fromFiles = r.results
     .filter((item): item is UploadFileResult & ({ readonly kind: 'rejected' } | { readonly kind: 'stuck' }) => (item.kind === 'rejected' && !isPendingDocumentType(item)) || item.kind === 'stuck')
-    .map((item) => ({ label: `${label}: ${item.file} (${item.report})`, reason: failureReason(item) }));
+    .map((item) => ({ label: item.report, reason: failureReason(item) })); // ชื่อรายงานสั้น ๆ อ่านง่ายบนมือถือ (ข้อความขา upload มี Site เดียวอยู่แล้ว)
   const fromEmpty = r.emptyResults
     .filter((item): item is EmptyResultEntry & ({ readonly kind: 'rejected' } | { readonly kind: 'stuck' }) => item.kind === 'rejected' || item.kind === 'stuck')
-    .map((item) => ({ label: `${label}: ${item.report} (empty)`, reason: failureReason(item) }));
+    .map((item) => ({ label: `${item.report} (empty)`, reason: failureReason(item) }));
   return [...fromFiles, ...fromEmpty];
 }
 
@@ -471,7 +471,7 @@ function uploadAlertsOf(r: UploadRunResult): Alert[] {
   const label = SITE_LABEL[r.site];
   return r.results
     .filter((item): item is UploadFileResult & { readonly kind: 'rejected' } => item.kind === 'rejected' && !isPendingDocumentType(item))
-    .map((item) => ({ key: `upload-rejected@${r.site}@${item.file}`, line: `${label}: ${item.file} (${item.report}) rejected, not sent — ${item.reason}` }));
+    .map((item) => ({ key: `upload-rejected@${r.site}@${item.file}`, line: `${label}: ${item.report} rejected, not sent — ${item.reason}`, covered: true }));
 }
 
 /**
@@ -488,7 +488,9 @@ export function uploadDiscordMessages(result: UploadRunResult, opts: { readonly 
     : undefined;
 
   const seen = new Set<string>();
+  // ไฟล์ที่ปฏิเสธขึ้นในก้อน "Failed" ของสรุปทุกรอบอยู่แล้ว (สรุปขา upload ส่งทุกครั้งที่เรียก) — alert แยกเหลือเฉพาะตอนไม่มีสรุป
   const fresh = uploadAlertsOf(result)
+    .filter((a) => summaryMsg === undefined || a.covered !== true)
     .map((a) => (a.key.endsWith(`@${today}`) ? a : { ...a, key: `${a.key}@${today}` }))
     .filter((a) => !opts.alreadySent.has(a.key) && !seen.has(a.key) && seen.add(a.key));
   const alertMsgs = pack(alertHeaders(summaryMsg !== undefined, `### Needs attention\n${subtext(opts.at, undefined)}`), fresh, DISCORD_COLOR.problem);

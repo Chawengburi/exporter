@@ -146,13 +146,18 @@ test('🔴 เรื่องเดียวกันไม่ส่งซ้ำ
   const s = healthy();
   const failing = { ...s, hoteltime: [s.hoteltime[0]!, folder('2026-10-13', { postings: ['failed', 'x'], invoices: ['failed', 'y'], cancelled: 'empty' }, { arrivals: 'data', 'trial-balance': 'data' }), s.hoteltime[2]!] };
   const r = buildStatus(failing, thai('2026-10-14T18:30'), SETUP);
-  const first = discordMessages(r, { summary: true, alreadySent: NONE });
-  assert.deepEqual(keysOf(first).sort(), ['failed@hoteltime@2026-10-13@invoices@2026-10-14', 'failed@hoteltime@2026-10-13@postings@2026-10-14', 'summary@2026-10-14 18:30']);
-  const again = discordMessages(r, { summary: true, alreadySent: new Set(keysOf(first)) });
+  // ไม่มีสรุป (เช่น `exporter notify` เปล่า ๆ) → แจ้งเตือนรายตัว · มีสรุป → ความล้มของวันล่าสุดอยู่ในก้อน "Failed" ไม่ขึ้นซ้ำเป็น alert
+  const first = discordMessages(r, { summary: false, alreadySent: NONE });
+  assert.deepEqual(keysOf(first).sort(), ['failed@hoteltime@2026-10-13@invoices@2026-10-14', 'failed@hoteltime@2026-10-13@postings@2026-10-14']);
+  const again = discordMessages(r, { summary: false, alreadySent: new Set(keysOf(first)) });
   assert.deepEqual(again, []);
-  const partly = discordMessages(r, { summary: true, alreadySent: new Set(['summary@2026-10-14 18:30', 'failed@hoteltime@2026-10-13@postings@2026-10-14']) });
+  const partly = discordMessages(r, { summary: false, alreadySent: new Set(['failed@hoteltime@2026-10-13@postings@2026-10-14']) });
   assert.deepEqual(keysOf(partly), ['failed@hoteltime@2026-10-13@invoices@2026-10-14']);
   assert.doesNotMatch(partly[0]!.content, /postings/);
+  const withSummary = discordMessages(r, { summary: true, alreadySent: NONE });
+  assert.deepEqual(keysOf(withSummary), ['summary@2026-10-14 18:30']);
+  assert.match(withSummary[0]!.content, /\*\*Failed \(2\)\*\*/);
+  assert.deepEqual(discordMessages(r, { summary: true, alreadySent: new Set(['summary@2026-10-14 18:30']) }), []);
 });
 
 // เจ้าของระบบขอ 2026-10-19 (รอบสอง): รวมสรุป+แจ้งเตือนเป็นข้อความเดียวเมื่อมีทั้งสองอย่างในการเรียกเดียวกัน — ไม่ต้องมี
@@ -160,7 +165,8 @@ test('🔴 เรื่องเดียวกันไม่ส่งซ้ำ
 // คำนวณจากการเรียกเดียวกันอยู่แล้ว)
 test('🔴 discordMessages: มีทั้งสรุปและเรื่องที่ต้องดูในการเรียกเดียวกัน → รวมเป็นข้อความเดียว ไม่แยก 2 ข้อความอีกต่อไป', () => {
   const s = healthy();
-  const failing = { ...s, hoteltime: [s.hoteltime[0]!, folder('2026-10-13', { postings: ['failed', 'Timeout 60000ms exceeded'], invoices: 'data', cancelled: 'empty' }, { arrivals: 'data', 'trial-balance': 'data' }), s.hoteltime[2]!] };
+  // ความล้มของวันเก่า (10-12) ไม่ใช่วันของข้อมูลล่าสุด → ไม่อยู่ในก้อน "Failed" ของสรุป จึงขึ้นเป็น "Needs attention" ในข้อความเดียวกัน
+  const failing = { ...s, hoteltime: [folder('2026-10-12', { postings: ['failed', 'Timeout 60000ms exceeded'], invoices: 'data', cancelled: 'empty' }, { arrivals: 'data', 'trial-balance': 'data' }), s.hoteltime[1]!, s.hoteltime[2]!] };
   const r = buildStatus(failing, thai('2026-10-14T18:30'), SETUP);
   const messages = discordMessages(r, { summary: true, alreadySent: NONE });
   assert.equal(messages.length, 1); // ไม่ใช่ 2
@@ -168,10 +174,10 @@ test('🔴 discordMessages: มีทั้งสรุปและเรื่�
   assert.match(message!.content, /### Export finished with problems/); // ส่วนสรุป (H3 เต็ม)
   assert.match(message!.content, /\*\*Needs attention\*\*/); // ส่วนแจ้งเตือน — แค่หัวข้อย่อย ไม่ใช่ H3 ซ้ำ เพราะมี H3 ของสรุปอยู่แล้ว
   assert.doesNotMatch(message!.content, /### Needs attention/); // ไม่มีหัวข้อใหญ่ซ้ำสองอันในข้อความเดียว
-  assert.match(message!.content, /HotelTime data for 2026-10-13.*postings.*Timeout/);
+  assert.match(message!.content, /HotelTime data for 2026-10-12.*postings.*Timeout/);
   // key ของทั้งสรุปและแจ้งเตือนต้องรวมอยู่ในข้อความเดียวกันนี้ ให้ dedup ถูกทั้งคู่
   assert.ok(message!.keys.includes('summary@2026-10-14 18:30'));
-  assert.ok(message!.keys.includes('failed@hoteltime@2026-10-13@postings@2026-10-14'));
+  assert.ok(message!.keys.includes('failed@hoteltime@2026-10-12@postings@2026-10-14'));
 });
 
 test('🔴 discordMessages: ไม่มีสรุปในการเรียกนี้ (summary:false หรือส่งไปแล้ว) → แจ้งเตือนเดี่ยว ๆ ยังมี H3 เต็มของตัวเอง', () => {
@@ -200,7 +206,8 @@ test('ข้อความยาวเกิน Discord (2000 ตัวอั�
 test('🔴 discordMessages: มีทั้งสรุปและแจ้งเตือนที่ยาวเกินจนแบ่งหลายข้อความ → ก้อนแรกรวมกับสรุป ก้อนที่ 2+ มี H2 เต็มของตัวเอง ไม่ใช่หัวข้อย่อยที่ยืมมา', () => {
   const many: PlannedReport[] = Array.from({ length: 120 }, (_, i) => ({ id: `report-with-a-long-name-${i}`, family: 'per-day' }));
   const results = Object.fromEntries(many.map((r) => [r.id, ['failed', 'Timeout 60000ms exceeded while waiting for the table'] as const]));
-  const store: StoreSnapshot = { hoteltime: [folder('2026-10-13', results)], foodstoryDaily: [], foodstoryMonthly: [] };
+  const okResults = Object.fromEntries(many.map((r) => [r.id, 'data' as const]));
+  const store: StoreSnapshot = { hoteltime: [folder('2026-10-12', results), folder('2026-10-13', okResults)], foodstoryDaily: [], foodstoryMonthly: [] };
   const r = buildStatus(store, thai('2026-10-14T18:30'), { ...SETUP, catalog: { hoteltime: many, foodstory: FS } });
   const ms = discordMessages(r, { summary: true, alreadySent: NONE });
   assert.ok(ms.length > 1, String(ms.length)); // แจ้งเตือนยาวจนต้องแบ่งแน่นอน
