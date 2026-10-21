@@ -37,6 +37,11 @@ test('uploadDiscordMessages: มีไฟล์ถูกประมวลผล
   assert.match(messages[0]!.content, /All good/); // ไม่มีปัญหาเลย
 });
 
+test('uploadDiscordMessages: โชว์ชื่อไฟล์ที่อัปโหลดสำเร็จ', () => {
+  const messages = uploadDiscordMessages(base, { at: AT, alreadySent: noneSent });
+  assert.match(messages[0]!.content, /\*\*Uploaded · HotelTime\*\* \(\d+\)\n[^\n]*\.xlsx/);
+});
+
 test('uploadDiscordMessages: ไม่มีไฟล์ไหนถูกประมวลผลเลย (รันซ้ำแบบ no-op) → ไม่ส่งอะไรเลย ไม่ใช่สรุปตัวเลขศูนย์', () => {
   const empty: UploadRunResult = { ...base, sent: 0, duplicate: 0, results: [], emptyReports: [] };
   assert.deepEqual(uploadDiscordMessages(empty, { at: AT, alreadySent: noneSent }), []);

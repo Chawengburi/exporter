@@ -8,7 +8,7 @@ import {
   writeNotifyLog,
   type DiscordMessage,
 } from './core/discord.ts';
-import { buildStatus, defaultDataDir, readStoreSnapshot, readWebhookUrl } from './core/status.ts';
+import { buildStatus, defaultDataDir, readStoreSnapshot, readWebhookUrl, type Folder } from './core/status.ts';
 import { formatISO } from './core/order.ts';
 import { thaiClock, thaiToday } from './core/thai-time.ts';
 import { defaultEnvFile, statusSetup } from './status-setup.ts';
@@ -68,6 +68,19 @@ async function sendAndLog(dataDir: string, url: string, messages: readonly Disco
   return failure ? { status: 'failed', sent: done, error: failure.error } : { status: 'sent', messages: done };
 }
 
+/** ชื่อไฟล์ที่รอบนี้เขียนลงดิสก์ (รายงานที่ `finishedAt` อยู่ในช่วงของรอบ) — ไม่รู้ระยะเวลารอบ (`since` ว่าง) = ไม่โชว์ชื่อไฟล์ */
+function filesOfRun(folders: readonly Folder[], since: number): string[] {
+  const out: string[] = [];
+  for (const f of folders) {
+    if (typeof f.record === 'string') continue;
+    for (const o of Object.values(f.record.reports)) {
+      if (o.status !== 'ok' || Date.parse(o.finishedAt) < since) continue;
+      for (const file of o.files) out.push(file.file);
+    }
+  }
+  return out.sort();
+}
+
 export async function notifyDiscord(opts: {
   readonly trigger: NotifyTrigger;
   readonly now?: Date;
@@ -91,13 +104,17 @@ export async function notifyDiscord(opts: {
     const log = await readNotifyLog(dataDir);
     // สรุปทุกรอบรายวัน (2026-10-21) · `exporter notify` เปล่า ๆ ไม่ส่งสรุป ต้องสั่ง --summary
     const summary = opts.summary ?? opts.trigger !== 'manual';
-    const report = buildStatus(await readStoreSnapshot(dataDir), evaluationTime(now, opts.trigger), statusSetup(envFile));
+    const snapshot = await readStoreSnapshot(dataDir);
+    const report = buildStatus(snapshot, evaluationTime(now, opts.trigger), statusSetup(envFile));
+    // เผื่อ 60 วินาทีก่อนเริ่มรอบ (นาฬิกา/เวลาเริ่มโปรเซส) — เส้นแบ่งว่าไฟล์ไหนเป็นของรอบนี้
+    const since = opts.durationMs !== undefined ? now.getTime() - opts.durationMs - 60_000 : undefined;
     const c = thaiClock(now);
     const p = (n: number) => String(n).padStart(2, '0');
     const run = {
       at: `${formatISO(thaiToday(now))} ${p(c.hour)}:${p(c.minute)}`,
       label: TRIGGER_LABEL[opts.trigger],
       ...(opts.durationMs !== undefined ? { durationMs: opts.durationMs } : {}),
+      ...(since !== undefined ? { files: { hoteltime: filesOfRun(snapshot.hoteltime, since), foodstory: filesOfRun(snapshot.foodstoryDaily, since) } } : {}),
     };
     const messages = discordMessages(report, { summary, alreadySent: new Set(Object.keys(log.sent)), run });
     if (opts.dryRun) return { status: 'dry-run', messages };

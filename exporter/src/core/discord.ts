@@ -38,7 +38,13 @@ type Alert = { readonly key: string; readonly line: string };
  * ข้อมูลของรอบที่เพิ่งรัน สำหรับบรรทัด subtext แบบ log — `at` = เวลาจริงของรอบ (export: "YYYY-MM-DD HH:MM" เวลาไทย ·
  * upload: ISO) ไม่ใช่เวลาประเมิน status ที่อาจถูกเลื่อนเป็น 18:30 · ไม่ใส่ = ไม่โชว์ส่วนนั้น
  */
-export type RunInfo = { readonly at?: string; readonly label?: string; readonly durationMs?: number };
+export type RunInfo = {
+  readonly at?: string;
+  readonly label?: string;
+  readonly durationMs?: number;
+  /** ชื่อไฟล์ที่รอบนี้ export ได้ แยกตาม Site (ขา export เท่านั้น — ขา upload อ่านชื่อจากผลอัปโหลดเอง) */
+  readonly files?: Readonly<Partial<Record<SiteView['site'], readonly string[]>>>;
+};
 
 // ข้อความ Discord เป็นภาษาอังกฤษทั้งหมด (เจ้าของระบบขอ 2026-10-21) — ข้อความที่ staff อ่านบนเครื่อง (`exporter status`, CLI) ยังเป็นไทยตามเดิม
 const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
@@ -117,6 +123,36 @@ function summarySiteBlock(site: SiteView, today: string): string {
 }
 
 const FAILURE_SHOWN = 8;
+/** งบความยาวของรายชื่อไฟล์ต่อก้อน — รายชื่อยาวเกินถูกตัดเป็น "… and N more" ไม่ให้ข้อความทะลุเพดานของ Discord */
+const FILES_BUDGET = 1200;
+
+/** "**Exported · HotelTime** (22)\na.xlsx, b.xlsx, …" — ว่าง = ไม่มีก้อนนี้ */
+function filesBlock(title: string, files: readonly string[]): string | undefined {
+  if (files.length === 0) return undefined;
+  const shown: string[] = [];
+  let used = 0;
+  for (const raw of files) {
+    const f = raw.replace(/^(hoteltime|foodstory)__/, ''); // ชื่อ Site อยู่ในหัวข้อก้อนแล้ว — ตัดออกให้รายชื่อสั้นลงจะได้โชว์ได้มากไฟล์ขึ้น
+    if (used + f.length + 2 > FILES_BUDGET) break;
+    shown.push(f);
+    used += f.length + 2;
+  }
+  const more = files.length - shown.length;
+  return `**${title}** (${files.length})\n${shown.join(', ')}${more > 0 ? ` … and ${more} more` : ''}`;
+}
+
+/** คำสรุปท้ายข้อความ: ปกติ/สิ่งที่ต้องทำ/ปัญหา + รายการจริง (ไม่ต้องให้คนไปรัน `exporter status` เอง) */
+function statusVerdict(report: StatusReport): string {
+  if (report.verdict === 'ok') return 'All good';
+  const isProblem = report.verdict === 'problem';
+  const count = isProblem ? report.problems.length : report.actions.length;
+  const notes = [...report.notes.problems, ...report.notes.actions];
+  // รายการที่ไม่มีคำอังกฤษ (ปัญหารายวัน/snapshot ปิดงวด) ขึ้นเป็น alert "Needs attention" แยกอยู่แล้ว
+  const uncovered = report.problems.length + report.actions.length - notes.length;
+  const head = isProblem ? `${plural(count, 'problem')} to check` : `${plural(count, 'action')} needed`;
+  const tail = uncovered > 0 ? [`(${uncovered} more listed under "Needs attention"; details: "exporter status")`] : [];
+  return [head, ...notes.map((n) => `• ${n}`), ...tail].join('\n');
+}
 
 /** ก้อน "Failed" — ใช้ร่วมกันทั้งขา export/upload: ชื่อรายงาน/ไฟล์ + เหตุผลสั้น ๆ ต่อรายการ ไม่ใช่แค่ตัวเลข */
 function failuresBlock(failures: readonly { readonly label: string; readonly reason: string }[]): string {
@@ -142,9 +178,7 @@ const STATUS_HINT = 'run "exporter status" on the machine for details';
 
 function summaryOf(report: StatusReport, today: string, run: RunInfo | undefined): string {
   const dataDay = report.sites.map(latestDataDay).filter((d) => d !== undefined).map((d) => d.day).sort().at(-1);
-  const verdictLine = report.verdict === 'ok' ? 'All good'
-    : report.verdict === 'action' ? `${plural(report.actions.length, 'action')} needed — ${STATUS_HINT}`
-    : `${plural(report.problems.length, 'problem')} to check — ${STATUS_HINT}`;
+  const verdictLine = statusVerdict(report);
   const title = report.verdict === 'problem' ? 'Export finished with problems' : report.verdict === 'action' ? 'Export done · action needed' : 'Export done';
 
   const at = run?.at ?? report.at;
@@ -152,7 +186,8 @@ function summaryOf(report: StatusReport, today: string, run: RunInfo | undefined
   const sitesBlock = report.sites.map((s) => summarySiteBlock(s, today)).join('\n');
   const failures = exportFailures(report, today);
 
-  const blocks = failures.length > 0 ? [sitesBlock, `${failuresBlock(failures)}\n\n${verdictLine}`] : [`${sitesBlock}\n\n${verdictLine}`];
+  const files = report.sites.map((s) => filesBlock(`Exported · ${SITE_LABEL[s.site]}`, run?.files?.[s.site] ?? [])).filter((b) => b !== undefined);
+  const blocks = [sitesBlock, ...files, failures.length > 0 ? `${failuresBlock(failures)}\n\n${verdictLine}` : verdictLine];
   return [header, ...blocks].join(SECTION_BREAK);
 }
 
@@ -270,7 +305,9 @@ export function discordMessages(report: StatusReport, opts: { readonly summary: 
 
   const seen = new Set<string>();
   // เรื่องเดียวกันไม่ซ้ำในวันเดียวกัน — วันนี้อยู่ในกุญแจทุกตัว (กุญแจที่มีวันนี้อยู่แล้วไม่ต่อซ้ำ)
+  // "ไม่ได้กด"/"ขาดเกินเพดาน" มีคำอังกฤษอยู่ในรายการสิ่งที่ต้องทำของสรุปแล้ว — ไม่ขึ้นซ้ำเป็น alert ในรอบที่ส่งสรุป (opts.summary) — รวมรอบที่สรุปเคยส่งไปแล้ว
   const fresh = alertsOf(report, today)
+    .filter((a) => !opts.summary || !/^(not-pressed|backlog)@/.test(a.key))
     .map((a) => (a.key.endsWith(`@${today}`) ? a : { ...a, key: `${a.key}@${today}` }))
     .filter((a) => !opts.alreadySent.has(a.key) && !seen.has(a.key) && seen.add(a.key));
   const at = opts.run?.at ?? report.at;
@@ -358,7 +395,9 @@ function uploadSummaryOf(r: UploadRunResult, at: string, run: RunInfo | undefine
   const siteBlock = uploadSiteBlock(r);
   const failures = uploadFailures(r);
   const verdictLine = uploadVerdictLine(r);
-  const blocks = failures.length > 0 ? [siteBlock, `${failuresBlock(failures)}\n\n${verdictLine}`] : [`${siteBlock}\n\n${verdictLine}`];
+  const sentFiles = r.results.filter((item) => item.kind === 'sent' || item.kind === 'duplicate' || item.kind === 'rows-mismatch').map((item) => item.file);
+  const files = filesBlock(`Uploaded · ${SITE_LABEL[r.site]}`, sentFiles);
+  const blocks = [siteBlock, ...(files !== undefined ? [files] : []), failures.length > 0 ? `${failuresBlock(failures)}\n\n${verdictLine}` : verdictLine];
   return [header, ...blocks].join(SECTION_BREAK);
 }
 

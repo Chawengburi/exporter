@@ -72,6 +72,23 @@ test('🔴 สรุปรอบ: แต่ละ Site บรรทัดเด�
   assert.doesNotMatch(summary!.content, /Failed:/); // วันนี้ไม่มีอะไรล้ม — section นี้ไม่โชว์เลย
 });
 
+test('🔴 สรุปรอบ: โชว์ชื่อไฟล์ที่รอบนี้ export ต่อ Site · รายชื่อยาวเกินงบถูกตัดเป็น "… and N more"', () => {
+  const r = buildStatus(healthy(), thai('2026-10-14T18:30'), SETUP);
+  const long = Array.from({ length: 200 }, (_, i) => `2026-10-13__report-number-${i}.xlsx`);
+  const [m] = discordMessages(r, { summary: true, alreadySent: NONE, run: { files: { hoteltime: ['2026-10-13__postings.xlsx', '2026-10-13__invoices.xlsx'], foodstory: long } } });
+  assert.match(m!.content, /\*\*Exported · HotelTime\*\* \(2\)\n2026-10-13__postings\.xlsx, 2026-10-13__invoices\.xlsx/);
+  assert.match(m!.content, /\*\*Exported · FoodStory\*\* \(200\)\n2026-10-13__report-number-0\.xlsx/);
+  assert.match(m!.content, /… and \d+ more/);
+  assert.ok(m!.content.length < 3000, String(m!.content.length));
+});
+
+test('🔴 สรุปรอบ: สิ่งที่ต้องทำขึ้นเป็นรายการอังกฤษในข้อความเลย ไม่ใช่แค่ให้ไปรัน exporter status', () => {
+  const r = buildStatus(healthy(), thai('2026-10-16T12:30'), SETUP); // FoodStory ไม่ได้กดมา 2 วัน
+  const [m] = discordMessages(r, { summary: true, alreadySent: NONE });
+  assert.match(m!.content, /• FoodStory not run for 2 days \(last run 2026-10-\d+\) — double-click "Exporter - FoodStory Daily" on the Desktop/);
+  assert.equal(m!.content.split('FoodStory not run for 2 days').length - 1, 1); // ไม่ขึ้นซ้ำเป็น alert ในข้อความเดียวกัน
+});
+
 // เจ้าของระบบขอ 2026-10-19: ความล้มเหลว (รายงานตามวัน/รายงาน snapshot) ต้องมีชื่อรายงาน+เหตุผลแยกเป็น section ของตัวเอง
 // ในข้อความสรุป (ไม่ใช่แค่ตัวเลข "ล้ม N" ปนอยู่กับสถิติปกติ) เพราะคนดูไม่ต้องเข้าใจโค้ดแต่จำชื่อรายงานได้
 test('🔴 สรุปรอบ: รายงานที่ล้มขึ้นเป็น section "Failed" แยกต่างหาก พร้อมชื่อรายงานและเหตุผล ไม่ปนกับสถิติปกติ', () => {

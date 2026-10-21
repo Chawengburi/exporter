@@ -132,6 +132,8 @@ export type StatusReport = {
   readonly verdict: 'ok' | 'action' | 'problem';
   readonly problems: readonly string[];
   readonly actions: readonly string[];
+  /** ข้อความอังกฤษของปัญหา/สิ่งที่ต้องทำที่ส่งเข้า Discord ได้ตรง ๆ (เฉพาะรายการที่มีคำอังกฤษ — ที่เหลือ Discord แจ้งแยกเป็น alert อยู่แล้ว) */
+  readonly notes: { readonly problems: readonly string[]; readonly actions: readonly string[] };
   readonly sections: readonly StatusSection[];
   readonly sites: readonly SiteView[];
   readonly setup: { readonly goLive: string | null; readonly goLiveError?: string; readonly webhookExport: boolean; readonly webhookUpload: boolean };
@@ -353,13 +355,18 @@ class SectionBuilder {
   readonly lines: StatusLine[] = [];
   readonly #problems: string[];
   readonly #actions: string[];
-  constructor(problems: string[], actions: string[]) {
+  readonly #notes: { readonly problems: string[]; readonly actions: string[] };
+  constructor(problems: string[], actions: string[], notes: { readonly problems: string[]; readonly actions: string[] }) {
     this.#problems = problems;
     this.#actions = actions;
+    this.#notes = notes;
   }
-  add(level: StatusLevel, text: string): void {
+  /** `en` = คำอังกฤษของบรรทัดนี้สำหรับ Discord (ไม่ใส่ = ไม่ขึ้นในรายการ notes) */
+  add(level: StatusLevel, text: string, en?: string): void {
     if (level === 'problem') this.#problems.push(text);
     if (level === 'action') this.#actions.push(text);
+    if (en !== undefined && level === 'problem') this.#notes.problems.push(en);
+    if (en !== undefined && level === 'action') this.#notes.actions.push(en);
     this.lines.push({ level, text });
   }
 }
@@ -409,13 +416,15 @@ function siteLines(view: SiteView, now: Clock, out: SectionBuilder): void {
 
 function hoteltimeSection(view: SiteView, now: Clock, out: SectionBuilder): void {
   if (view.lastRunDay === null && view.days.every((d) => d.state === undefined)) {
-    out.add('problem', `ยังไม่เคยมีรอบ HotelTime เลย — เช็คว่าเปิด Windmill และตั้งค่าแล้ว (node windmill/setup.mjs) แล้วดู Windmill ที่ ${WINDMILL_RUNS}`);
+    out.add('problem', `ยังไม่เคยมีรอบ HotelTime เลย — เช็คว่าเปิด Windmill และตั้งค่าแล้ว (node windmill/setup.mjs) แล้วดู Windmill ที่ ${WINDMILL_RUNS}`,
+      'No HotelTime run has ever been recorded — check that Windmill is running and set up (node windmill/setup.mjs)');
     return;
   }
   siteLines(view, now, out);
   if (view.backlogDays > 0) {
     out.add('action', `HotelTime ขาดอีก ${view.backlogDays} วันของข้อมูล เกินที่รอบเดียวเติมได้ (${CATCH_UP_CAP_DAYS}) — รอบ Windmill ถัดไปเติมต่อเอง ` +
-      `(วันละ 3 รอบ) ถ้าต้องการเร็วกว่านั้นสั่ง --date ทีละวัน`);
+      `(วันละ 3 รอบ) ถ้าต้องการเร็วกว่านั้นสั่ง --date ทีละวัน`,
+      `HotelTime is ${view.backlogDays} days behind, more than one run can catch up (${CATCH_UP_CAP_DAYS}) — the next Windmill runs keep filling it`);
   }
 }
 
@@ -428,16 +437,23 @@ function foodstoryDailySection(view: SiteView, now: Clock, out: SectionBuilder):
   const closesWaiting = view.closes.some((c) => c.level === 'info' && c.note.startsWith('กดครั้งถัดไป'));
   if (view.lastRunDay === null || notFetched || noPictures || closesWaiting) {
     const since = view.daysSinceLastRun;
+    const whenEn = since === null ? 'FoodStory has never been run'
+      : since >= 2 ? `FoodStory not run for ${since} days (last run ${view.lastRunDay})`
+      : since === 1 ? 'FoodStory not run today yet'
+      : notFetched ? 'FoodStory ran today but some days are still missing'
+      : 'FoodStory ran today but snapshots / period-close snapshots are incomplete';
     const when = since === null ? 'ยังไม่เคยกด FoodStory เลย'
       : since >= 2 ? `FoodStory ไม่ได้กดมา ${since} วัน (ครั้งล่าสุด ${view.lastRunDay})`
       : since === 1 ? 'FoodStory ยังไม่ได้กดวันนี้'
       : notFetched ? 'FoodStory กดวันนี้แล้วแต่ยังมีวันที่ขาด'
       : 'FoodStory กดวันนี้แล้วแต่รายงาน snapshot/snapshot ปิดงวดยังไม่ครบ';
     out.add('action', `${when} — ดับเบิลคลิก "Exporter - FoodStory Daily" บน Desktop แล้วกด captcha (กดครั้งเดียวได้วันที่ขาดไม่เกิน ${CATCH_UP_CAP_DAYS} วัน ` +
-      '+ รายงาน snapshot ของวันนี้)');
+      '+ รายงาน snapshot ของวันนี้)',
+      `${whenEn} — double-click "Exporter - FoodStory Daily" on the Desktop and solve the captcha`);
   }
   if (view.backlogDays > 0) {
-    out.add('action', `FoodStory ขาดอีก ${view.backlogDays} วันของข้อมูล เกินที่กดครั้งเดียวเติมได้ (${CATCH_UP_CAP_DAYS}) — กดซ้ำได้เลย ครั้งละ ${CATCH_UP_CAP_DAYS} วัน`);
+    out.add('action', `FoodStory ขาดอีก ${view.backlogDays} วันของข้อมูล เกินที่กดครั้งเดียวเติมได้ (${CATCH_UP_CAP_DAYS}) — กดซ้ำได้เลย ครั้งละ ${CATCH_UP_CAP_DAYS} วัน`,
+      `FoodStory is ${view.backlogDays} days behind, more than one press can catch up (${CATCH_UP_CAP_DAYS}) — press again, ${CATCH_UP_CAP_DAYS} days per press`);
   }
 }
 
@@ -447,28 +463,35 @@ function foodstoryMonthlySection(runs: readonly MonthRun[], now: Clock, out: Sec
   const run = runs.find((m) => m.period === period);
   const command = 'ในโฟลเดอร์ exporter รัน: node src/index.ts export --site foodstory --report all --headful (ต้องกด captcha)';
   if (!run) {
-    if (now.clock.day > MONTHLY_DUE_DAY) out.add('action', `ยังไม่ได้ดึงรายเดือนของ ${period} — ${command}`);
+    if (now.clock.day > MONTHLY_DUE_DAY) out.add('action', `ยังไม่ได้ดึงรายเดือนของ ${period} — ${command}`,
+      `Monthly FoodStory reports for ${period} not pulled yet — run on the machine: node src/index.ts export --site foodstory --report all --headful (captcha needed)`);
     else out.add('info', `ยังไม่ได้ดึงรายเดือนของ ${period} — ควรดึงภายในวันที่ ${MONTHLY_DUE_DAY}`);
   } else if (run.state === 'unreadable') {
-    out.add('problem', `_run.json ของรายเดือน ${period} อ่านไม่ได้ (ไฟล์เสีย) — ถ่ายรูปหน้าจอนี้ส่งผู้ดูแลระบบ`);
+    out.add('problem', `_run.json ของรายเดือน ${period} อ่านไม่ได้ (ไฟล์เสีย) — ถ่ายรูปหน้าจอนี้ส่งผู้ดูแลระบบ`,
+      `Monthly _run.json for ${period} is unreadable (corrupt file)`);
   } else if (run.failed.length > 0) {
-    out.add('problem', `${period} มี ${run.failed.length} ใบที่ยังไม่เคยดึงสำเร็จ: ${failSummary(run.failed)} — ${command}`);
+    out.add('problem', `${period} มี ${run.failed.length} ใบที่ยังไม่เคยดึงสำเร็จ: ${failSummary(run.failed)} — ${command}`,
+      `Monthly ${period}: ${run.failed.length} reports never pulled successfully (${names(run.failed.map((f) => f.report))}) — rerun the monthly pull with --headful`);
   } else {
     out.add('ok', `${period}  ${counted(run)} (ดึงล่าสุด ${run.pulledOn})`);
   }
 }
 
 function setupSection(setup: StatusSetup, now: Clock, out: SectionBuilder): void {
-  if (setup.goLiveError !== undefined) out.add('action', `${setup.goLiveError} — แก้ใน exporter/.env`);
+  if (setup.goLiveError !== undefined) out.add('action', `${setup.goLiveError} — แก้ใน exporter/.env`, `${GO_LIVE_ENV} in exporter/.env is invalid — fix it`);
   else if (setup.goLive === null) {
     out.add('action', `ยังไม่ได้ตั้งวันเริ่มใช้งาน — ระบบไม่เติมวันที่ขาด (ดึงแค่เมื่อวาน) · ตั้ง ${GO_LIVE_ENV}=YYYY-MM-DD ใน exporter/.env ` +
-      'เป็นวันแรกที่ต้องมีข้อมูลครบ');
+      'เป็นวันแรกที่ต้องมีข้อมูลครบ',
+      `Go-live date not set — missing days are not back-filled (only yesterday is pulled). Set ${GO_LIVE_ENV}=YYYY-MM-DD in exporter/.env`);
   } else if (setup.goLive > now.today) {
-    out.add('action', `วันเริ่มใช้งาน ${setup.goLive} อยู่หลังวันนี้ — ยังไม่ดึงรายงานตามวันเลยจนถึงวันนั้น ตรวจ ${GO_LIVE_ENV} ใน exporter/.env ว่าพิมพ์ถูก`);
+    out.add('action', `วันเริ่มใช้งาน ${setup.goLive} อยู่หลังวันนี้ — ยังไม่ดึงรายงานตามวันเลยจนถึงวันนั้น ตรวจ ${GO_LIVE_ENV} ใน exporter/.env ว่าพิมพ์ถูก`,
+      `Go-live date ${setup.goLive} is in the future — no per-day reports are pulled until then; check ${GO_LIVE_ENV}`);
   } else out.add('ok', `วันเริ่มใช้งาน ${setup.goLive}`);
-  if (!setup.webhookExport) out.add('action', `ยังไม่ได้ตั้ง URL ของ Discord webhook ขา export (${WEBHOOK_ENV_EXPORT} ใน exporter/.env) — ไม่มีสรุปรายวัน/แจ้งเตือนทาง Discord`);
+  if (!setup.webhookExport) out.add('action', `ยังไม่ได้ตั้ง URL ของ Discord webhook ขา export (${WEBHOOK_ENV_EXPORT} ใน exporter/.env) — ไม่มีสรุปรายวัน/แจ้งเตือนทาง Discord`,
+    `Discord webhook for the export side (${WEBHOOK_ENV_EXPORT}) is not set`);
   else out.add('ok', 'ตั้ง Discord webhook ขา export แล้ว');
-  if (!setup.webhookUpload) out.add('action', `ยังไม่ได้ตั้ง URL ของ Discord webhook ขา upload (${WEBHOOK_ENV_UPLOAD} ใน exporter/.env) — ไม่มีแจ้งเตือนขาอัปโหลดทาง Discord`);
+  if (!setup.webhookUpload) out.add('action', `ยังไม่ได้ตั้ง URL ของ Discord webhook ขา upload (${WEBHOOK_ENV_UPLOAD} ใน exporter/.env) — ไม่มีแจ้งเตือนขาอัปโหลดทาง Discord`,
+    `Discord webhook for the upload side (${WEBHOOK_ENV_UPLOAD}) is not set`);
   else out.add('ok', 'ตั้ง Discord webhook ขา upload แล้ว');
 }
 
@@ -493,11 +516,13 @@ function uploadBacklogSection(backlog: readonly UploadBacklogView[], out: Sectio
     }
     const parts: string[] = [];
     const levels: StatusLevel[] = [];
+    const en: string[] = [];
     if (b.pending > 0) { parts.push(`รอส่ง ${b.pending}`); levels.push('info'); }
     if (b.empty > 0) { parts.push(`ว่าง-ยังไม่ประกาศ ${b.empty}`); levels.push('info'); }
-    if (b.blocked > 0) { parts.push(`บล็อก(as_of) ${b.blocked} — คุยกับทีม uploader ก่อนถ้าตั้งใจส่งจริง`); levels.push('action'); }
-    if (b.stuck > 0) { parts.push(`ค้างถาวร ${b.stuck} — ดูสาเหตุที่ data/_upload/${b.site}.json`); levels.push('problem'); }
-    out.add(worst(levels), `${label}: ${parts.join(' · ')}`);
+    if (b.blocked > 0) { parts.push(`บล็อก(as_of) ${b.blocked} — คุยกับทีม uploader ก่อนถ้าตั้งใจส่งจริง`); levels.push('action'); en.push(`${b.blocked} blocked (as_of in the past) — check with the uploader team first`); }
+    if (b.stuck > 0) { parts.push(`ค้างถาวร ${b.stuck} — ดูสาเหตุที่ data/_upload/${b.site}.json`); levels.push('problem'); en.push(`${b.stuck} stuck for good — see data/_upload/${b.site}.json`); }
+    const level = worst(levels);
+    out.add(level, `${label}: ${parts.join(' · ')}`, level === 'action' || level === 'problem' ? `Upload ${label}: ${en.join(' · ')}` : undefined);
   }
 }
 
@@ -514,8 +539,9 @@ export function buildStatus(
   const foodstory = siteView('foodstory', 'manual', snapshot.foodstoryDaily, setup.catalog.foodstory, at, now, windowDays, setup.goLive);
   const problems: string[] = [];
   const actions: string[] = [];
+  const notes = { problems: [] as string[], actions: [] as string[] };
   const section = (title: string, fill: (out: SectionBuilder) => void): StatusSection => {
-    const out = new SectionBuilder(problems, actions);
+    const out = new SectionBuilder(problems, actions, notes);
     fill(out);
     return { title, lines: out.lines };
   };
@@ -533,6 +559,7 @@ export function buildStatus(
     verdict: problems.length > 0 ? 'problem' : actions.length > 0 ? 'action' : 'ok',
     problems,
     actions,
+    notes,
     sections,
     sites: [hoteltime, foodstory],
     setup: {
