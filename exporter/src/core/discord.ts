@@ -123,35 +123,82 @@ function summarySiteBlock(site: SiteView, today: string): string {
 }
 
 const FAILURE_SHOWN = 8;
-/** งบความยาวของรายชื่อไฟล์ต่อก้อน — รายชื่อยาวเกินถูกตัดเป็น "… and N more" ไม่ให้ข้อความทะลุเพดานของ Discord */
-const FILES_BUDGET = 1200;
+type FileGroup = { readonly title: string; readonly names: readonly string[] };
 
-/** "**Exported · HotelTime** (22)\na.xlsx, b.xlsx, …" — ว่าง = ไม่มีก้อนนี้ */
-function filesBlock(title: string, files: readonly string[]): string | undefined {
-  if (files.length === 0) return undefined;
-  const shown: string[] = [];
-  let used = 0;
-  for (const raw of files) {
-    const f = raw.replace(/^(hoteltime|foodstory)__/, ''); // ชื่อ Site อยู่ในหัวข้อก้อนแล้ว — ตัดออกให้รายชื่อสั้นลงจะได้โชว์ได้มากไฟล์ขึ้น
-    if (used + f.length + 2 > FILES_BUDGET) break;
-    shown.push(f);
-    used += f.length + 2;
+/**
+ * ชื่อไฟล์ → ชื่อรายงานล้วน ๆ (เจ้าของระบบขอ 2026-10-21): ตัดชื่อ Site, วัน/เวลา และนามสกุลออก — วันของข้อมูลอยู่ที่หัวข้อแล้ว ·
+ * ไฟล์ที่ชื่อเดียวกันหลายวัน (FoodStory กดเก็บตกหลายวัน) รวมเป็น `name ×N` · แยก 2 กลุ่มตามรูปชื่อไฟล์: snapshot (ขึ้นต้นด้วยเวลา `YYYYMMDDThhmmss`) กับรายงานตามวัน
+ */
+function fileGroups(verb: 'Exported' | 'Uploaded', label: string, files: readonly string[]): FileGroup[] {
+  const tally = (list: readonly string[]) => {
+    const counts = new Map<string, number>();
+    for (const raw of list) {
+      const name = raw.replace(/^(?:hoteltime|foodstory)__[^_]+__/, '').replace(/\.[A-Za-z0-9]+$/, '');
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name));
+  };
+  const isSnapshot = (f: string) => /^(?:hoteltime|foodstory)__\d{8}T/.test(f);
+  const data = tally(files.filter((f) => !isSnapshot(f)));
+  const snapshots = tally(files.filter(isSnapshot));
+  return [
+    ...(data.length > 0 ? [{ title: `${verb} data · ${label}`, names: data }] : []),
+    ...(snapshots.length > 0 ? [{ title: `${verb} snapshots · ${label}`, names: snapshots }] : []),
+  ];
+}
+
+/**
+ * ต่อรายชื่อไฟล์แนวตั้งท้ายข้อความแรก ล้นเพดานก็ขึ้นข้อความใหม่ต่อไปจนครบ (เจ้าของระบบขอ 2026-10-21) — กลุ่มที่ถูกตัดกลางทางขึ้นหัว
+ * "(continued)" ในข้อความถัดไป · ข้อความต่อเนื่องมีกุญแจของตัวเอง `${keyBase}#N` (ส่งไปพร้อมสรุปรอบเดียวกัน)
+ */
+function appendFileGroups(first: DiscordMessage, groups: readonly FileGroup[], keyBase: string, restHeader: string): DiscordMessage[] {
+  const len = (c: string) => c.split(SECTION_BREAK).join('\n').length;
+  const out: DiscordMessage[] = [];
+  let cur: DiscordMessage = first;
+  let part = 1;
+  const flush = () => {
+    out.push(cur);
+    part += 1;
+    cur = { keys: [`${keyBase}#${part}`], content: restHeader, accentColor: first.accentColor };
+  };
+  for (const g of groups) {
+    let i = 0;
+    while (i < g.names.length) {
+      const head = `**${g.title}** (${g.names.length}${i > 0 ? ', continued' : ''})`;
+      const start = `${cur.content}${SECTION_BREAK}${head}\n• ${g.names[i]}`;
+      if (len(start) > MAX_CONTENT && cur.content !== restHeader) {
+        flush();
+        continue;
+      }
+      let content = start;
+      i += 1;
+      while (i < g.names.length && len(`${content}\n• ${g.names[i]}`) <= MAX_CONTENT) {
+        content = `${content}\n• ${g.names[i]}`;
+        i += 1;
+      }
+      cur = { ...cur, content };
+      if (i < g.names.length) flush();
+    }
   }
-  const more = files.length - shown.length;
-  return `**${title}** (${files.length})\n${shown.join(', ')}${more > 0 ? ` … and ${more} more` : ''}`;
+  out.push(cur);
+  return out;
 }
 
 /** คำสรุปท้ายข้อความ: ปกติ/สิ่งที่ต้องทำ/ปัญหา + รายการจริง (ไม่ต้องให้คนไปรัน `exporter status` เอง) */
 function statusVerdict(report: StatusReport): string {
   if (report.verdict === 'ok') return 'All good';
-  const isProblem = report.verdict === 'problem';
-  const count = isProblem ? report.problems.length : report.actions.length;
-  const notes = [...report.notes.problems, ...report.notes.actions];
-  // รายการที่ไม่มีคำอังกฤษ (ปัญหารายวัน/snapshot ปิดงวด) ขึ้นเป็น alert "Needs attention" แยกอยู่แล้ว
-  const uncovered = report.problems.length + report.actions.length - notes.length;
-  const head = isProblem ? `${plural(count, 'problem')} to check` : `${plural(count, 'action')} needed`;
-  const tail = uncovered > 0 ? [`(${uncovered} more listed under "Needs attention"; details: "exporter status")`] : [];
-  return [head, ...notes.map((n) => `• ${n}`), ...tail].join('\n');
+  const kinds = [
+    { count: report.problems.length, notes: report.notes.problems, head: (n: number) => `${plural(n, 'problem')} to check` },
+    { count: report.actions.length, notes: report.notes.actions, head: (n: number) => `${plural(n, 'action')} needed` },
+  ];
+  return kinds
+    .filter((k) => k.count > 0)
+    .map((k) => {
+      // รายการที่ไม่มีคำอังกฤษ (ปัญหารายวัน/snapshot ปิดงวด) ขึ้นเป็น alert "Needs attention" แยกอยู่แล้ว
+      const uncovered = k.count - k.notes.length;
+      return [k.head(k.count), ...k.notes.map((n) => `• ${n}`), ...(uncovered > 0 ? [`(${uncovered} more listed under "Needs attention"; details: "exporter status")`] : [])].join('\n');
+    })
+    .join('\n\n');
 }
 
 /** ก้อน "Failed" — ใช้ร่วมกันทั้งขา export/upload: ชื่อรายงาน/ไฟล์ + เหตุผลสั้น ๆ ต่อรายการ ไม่ใช่แค่ตัวเลข */
@@ -182,12 +229,12 @@ function summaryOf(report: StatusReport, today: string, run: RunInfo | undefined
   const title = report.verdict === 'problem' ? 'Export finished with problems' : report.verdict === 'action' ? 'Export done · action needed' : 'Export done';
 
   const at = run?.at ?? report.at;
-  const header = [`### ${title} · ${clockParts(at).time}`, subtext(at, run, dataDay ? [`data date ${dataDay}`] : [])].join('\n');
+  // วันของข้อมูลอยู่บรรทัดของมันเอง แยกจากเวลาที่ดำเนินการ (เจ้าของระบบขอ 2026-10-21)
+  const header = [`### ${title} · ${clockParts(at).time}`, ...(dataDay ? [`-# Data date ${dataDay}`] : []), subtext(at, run)].join('\n');
   const sitesBlock = report.sites.map((s) => summarySiteBlock(s, today)).join('\n');
   const failures = exportFailures(report, today);
 
-  const files = report.sites.map((s) => filesBlock(`Exported · ${SITE_LABEL[s.site]}`, run?.files?.[s.site] ?? [])).filter((b) => b !== undefined);
-  const blocks = [sitesBlock, ...files, failures.length > 0 ? `${failuresBlock(failures)}\n\n${verdictLine}` : verdictLine];
+  const blocks = [sitesBlock, failures.length > 0 ? `${failuresBlock(failures)}\n\n${verdictLine}` : verdictLine];
   return [header, ...blocks].join(SECTION_BREAK);
 }
 
@@ -312,7 +359,11 @@ export function discordMessages(report: StatusReport, opts: { readonly summary: 
     .filter((a) => !opts.alreadySent.has(a.key) && !seen.has(a.key) && seen.add(a.key));
   const at = opts.run?.at ?? report.at;
   const alertMsgs = pack(alertHeaders(summaryMsg !== undefined, `### Needs attention\n${subtext(at, undefined)}`), fresh, DISCORD_COLOR.problem);
-  return mergeFirstMessages(summaryMsg, alertMsgs);
+  const merged = mergeFirstMessages(summaryMsg, alertMsgs);
+  const groups = report.sites.flatMap((site) => fileGroups('Exported', SITE_LABEL[site.site], opts.run?.files?.[site.site] ?? []));
+  if (summaryMsg === undefined || groups.length === 0) return merged;
+  const [first, ...rest] = merged as [DiscordMessage, ...DiscordMessage[]];
+  return [...appendFileGroups(first, groups, summaryKey, `### Exported files (continued)\n${subtext(at, undefined)}`), ...rest];
 }
 
 // ── ticket 05 ของ exporter-upload-to-uploader: ข้อความ Discord ของขาอัปโหลด ──
@@ -395,9 +446,7 @@ function uploadSummaryOf(r: UploadRunResult, at: string, run: RunInfo | undefine
   const siteBlock = uploadSiteBlock(r);
   const failures = uploadFailures(r);
   const verdictLine = uploadVerdictLine(r);
-  const sentFiles = r.results.filter((item) => item.kind === 'sent' || item.kind === 'duplicate' || item.kind === 'rows-mismatch').map((item) => item.file);
-  const files = filesBlock(`Uploaded · ${SITE_LABEL[r.site]}`, sentFiles);
-  const blocks = [siteBlock, ...(files !== undefined ? [files] : []), failures.length > 0 ? `${failuresBlock(failures)}\n\n${verdictLine}` : verdictLine];
+  const blocks = [siteBlock, failures.length > 0 ? `${failuresBlock(failures)}\n\n${verdictLine}` : verdictLine];
   return [header, ...blocks].join(SECTION_BREAK);
 }
 
@@ -427,7 +476,12 @@ export function uploadDiscordMessages(result: UploadRunResult, opts: { readonly 
     .map((a) => (a.key.endsWith(`@${today}`) ? a : { ...a, key: `${a.key}@${today}` }))
     .filter((a) => !opts.alreadySent.has(a.key) && !seen.has(a.key) && seen.add(a.key));
   const alertMsgs = pack(alertHeaders(summaryMsg !== undefined, `### Needs attention\n${subtext(opts.at, undefined)}`), fresh, DISCORD_COLOR.problem);
-  return mergeFirstMessages(summaryMsg, alertMsgs);
+  const merged = mergeFirstMessages(summaryMsg, alertMsgs);
+  const sentFiles = result.results.filter((item) => item.kind === 'sent' || item.kind === 'duplicate' || item.kind === 'rows-mismatch').map((item) => item.file);
+  const groups = fileGroups('Uploaded', SITE_LABEL[result.site], sentFiles);
+  if (summaryMsg === undefined || groups.length === 0) return merged;
+  const [first, ...rest] = merged as [DiscordMessage, ...DiscordMessage[]];
+  return [...appendFileGroups(first, groups, summaryKey, `### Uploaded files (continued)\n${subtext(opts.at, undefined)}`), ...rest];
 }
 
 // ── ตัวส่ง ──

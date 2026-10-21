@@ -62,24 +62,37 @@ test('🔴 สรุปรอบ: แต่ละ Site บรรทัดเด�
   assert.equal(ms.length, 1);
   const [summary] = ms;
   assert.deepEqual(summary!.keys, ['summary@2026-10-14 18:30']); // กุญแจต่อรอบ (เวลาของรอบ) ไม่ใช่ต่อวัน
-  assert.match(summary!.content, /data date 2026-10-13/); // วันของข้อมูลที่สรุป
+  assert.match(summary!.content, /Data date 2026-10-13/); // วันของข้อมูลที่สรุป — บรรทัดของมันเอง แยกจากเวลาที่ดำเนินการ
   assert.match(summary!.content, /\*\*HotelTime\*\* 3\/3 ok · 1 empty \(cancelled\) · 0 failed · snapshots 2\/2/);
   assert.match(summary!.content, /\*\*FoodStory\*\* 2\/2 ok · 1 empty \(pay\) · 0 failed · snapshots 1\/1/);
   assert.match(summary!.content, /All good/);
   assert.ok(summary!.content.length < 2000);
   // เจ้าของระบบขอ 2026-10-19/21: header H3 + subtext แบบ log เป็น section แยกจากรายละเอียดของแต่ละ site ด้วย Separator จริง
-  assert.match(summary!.content, /^### Export done · 18:30\n-# 14 Oct 2026 · data date 2026-10-13/);
+  assert.match(summary!.content, /^### Export done · 18:30\n-# Data date 2026-10-13\n-# 14 Oct 2026/);
   assert.doesNotMatch(summary!.content, /Failed:/); // วันนี้ไม่มีอะไรล้ม — section นี้ไม่โชว์เลย
 });
 
-test('🔴 สรุปรอบ: โชว์ชื่อไฟล์ที่รอบนี้ export ต่อ Site · รายชื่อยาวเกินงบถูกตัดเป็น "… and N more"', () => {
+test('🔴 สรุปรอบ: โชว์ชื่อรายงานที่ export (ไม่มี site/วัน/นามสกุล) เป็นลิสต์แนวตั้ง แยกข้อมูลรายวันกับ snapshot', () => {
   const r = buildStatus(healthy(), thai('2026-10-14T18:30'), SETUP);
-  const long = Array.from({ length: 200 }, (_, i) => `2026-10-13__report-number-${i}.xlsx`);
-  const [m] = discordMessages(r, { summary: true, alreadySent: NONE, run: { files: { hoteltime: ['2026-10-13__postings.xlsx', '2026-10-13__invoices.xlsx'], foodstory: long } } });
-  assert.match(m!.content, /\*\*Exported · HotelTime\*\* \(2\)\n2026-10-13__postings\.xlsx, 2026-10-13__invoices\.xlsx/);
-  assert.match(m!.content, /\*\*Exported · FoodStory\*\* \(200\)\n2026-10-13__report-number-0\.xlsx/);
-  assert.match(m!.content, /… and \d+ more/);
-  assert.ok(m!.content.length < 3000, String(m!.content.length));
+  const files = { hoteltime: ['hoteltime__2026-10-13__postings.xlsx', 'hoteltime__2026-10-13__invoices.xlsx', 'hoteltime__20261014T120000+0700__arrivals.xlsx'], foodstory: ['foodstory__2026-10-12__salebybill.xlsx', 'foodstory__2026-10-13__salebybill.xlsx'] };
+  const [m] = discordMessages(r, { summary: true, alreadySent: NONE, run: { files } });
+  assert.match(m!.content, /\*\*Exported data · HotelTime\*\* \(2\)\n• postings\n• invoices/);
+  assert.match(m!.content, /\*\*Exported snapshots · HotelTime\*\* \(1\)\n• arrivals/);
+  assert.match(m!.content, /\*\*Exported data · FoodStory\*\* \(1\)\n• salebybill ×2/); // ชื่อเดียวกันหลายวันรวมกัน
+  assert.doesNotMatch(m!.content, /\.xlsx|2026-10-13__/);
+});
+
+test('🔴 สรุปรอบ: รายชื่อยาวเกินเพดาน → ต่อเป็นข้อความถัดไปจนครบ ไม่มีรายงานไหนหาย · แต่ละข้อความไม่เกินเพดาน', () => {
+  const r = buildStatus(healthy(), thai('2026-10-14T18:30'), SETUP);
+  const long = Array.from({ length: 200 }, (_, i) => `foodstory__2026-10-13__report-number-${i}.xlsx`);
+  const ms = discordMessages(r, { summary: true, alreadySent: NONE, run: { files: { foodstory: long } } });
+  assert.ok(ms.length > 1, String(ms.length));
+  for (const m of ms) assert.ok(m.content.split(SECTION_BREAK).join('\n').length <= 2000, String(m.content.length));
+  const all = ms.map((m) => m.content).join('\n');
+  for (let i = 0; i < 200; i++) assert.match(all, new RegExp(`• report-number-${i}\\n|• report-number-${i}$`, 'm'), String(i));
+  assert.match(ms[1]!.content, /^### Exported files \(continued\)/);
+  assert.match(all, /\*\*Exported data · FoodStory\*\* \(200, continued\)/);
+  assert.equal(new Set(ms.flatMap((m) => m.keys)).size, ms.flatMap((m) => m.keys).length); // กุญแจไม่ซ้ำ
 });
 
 test('🔴 สรุปรอบ: สิ่งที่ต้องทำขึ้นเป็นรายการอังกฤษในข้อความเลย ไม่ใช่แค่ให้ไปรัน exporter status', () => {

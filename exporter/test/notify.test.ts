@@ -85,7 +85,7 @@ test('🔴 รอบ HotelTime ที่จบหลัง 18:00 = รอบส�
     const all = discord.bodies.map((b) => b.content).join('\n');
     assert.match(all, /### Export finished with problems · 18:10/); // เวลาในหัวข้อ = เวลาจริงของรอบ ไม่ใช่เวลาประเมิน 18:30
     assert.match(all, /HotelTime daily run/);
-    assert.match(all, /data date 2026-10-13/);
+    assert.match(all, /Data date 2026-10-13/);
     assert.match(all, /HotelTime[^\n]*2026-10-13[^\n]*postings failed[^\n]*Timeout/);
     const count = discord.bodies.length;
     // รอบเดิมเวลาเดิมซ้ำ (เช่น Windmill ยิงซ้ำในนาทีเดียวกัน) ไม่ส่งซ้ำ — รอบใหม่ต่างเวลาได้สรุปของตัวเอง
