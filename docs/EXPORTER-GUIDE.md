@@ -133,7 +133,7 @@ node src/index.ts export --report all --daily --json
 
 ผลลงโฟลเดอร์ของวันของข้อมูลใน `exporter/data/hoteltime/daily/` เอง · exit code `0` = ผ่านหมด (หรือไม่มีงาน), `2` = ผ่านบางใบ,
 `1` = ไม่ได้อะไรเลย — 2 กับ 1 ทำให้ job ขึ้น "Failed" เพื่อให้มีคนเห็น — ดูรายละเอียดที่ `windmill/INSTALL.md` § 5 · จบรอบแล้วส่ง Discord เอง
-(สรุปรายวันหลังรอบ 18:00 + แจ้งเตือน) ถ้ามี `DISCORD_WEBHOOK_URL_EXPORT` ใน `exporter/.env` (ขาอัปโหลดใช้ `DISCORD_WEBHOOK_URL_UPLOAD` คนละ channel)
+(สรุปทุกรอบรายวัน + แจ้งเตือน) ถ้ามี `DISCORD_WEBHOOK_URL_EXPORT` ใน `exporter/.env` (ขาอัปโหลดใช้ `DISCORD_WEBHOOK_URL_UPLOAD` คนละ channel)
 
 ### วิธีดู log / ผลลัพธ์
 

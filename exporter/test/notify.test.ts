@@ -83,11 +83,13 @@ test('🔴 รอบ HotelTime ที่จบหลัง 18:00 = รอบส�
     const first = await notifyDiscord({ trigger: 'hoteltime-daily', now: thai('2026-10-14T18:10'), dataDir: s.dataDir, envFile });
     assert.equal(first.status, 'sent');
     const all = discord.bodies.map((b) => b.content).join('\n');
-    assert.match(all, /# Export เอกสารแล้ว \d+ ไฟล์/);
-    assert.match(all, /ข้อมูลวันที่ 2026-10-13/);
-    assert.match(all, /HotelTime[^\n]*2026-10-13[^\n]*postings ล้ม[^\n]*Timeout/);
+    assert.match(all, /### Export finished with problems · 18:10/); // เวลาในหัวข้อ = เวลาจริงของรอบ ไม่ใช่เวลาประเมิน 18:30
+    assert.match(all, /HotelTime daily run/);
+    assert.match(all, /data date 2026-10-13/);
+    assert.match(all, /HotelTime[^\n]*2026-10-13[^\n]*postings failed[^\n]*Timeout/);
     const count = discord.bodies.length;
-    const again = await notifyDiscord({ trigger: 'hoteltime-daily', now: thai('2026-10-14T18:40'), dataDir: s.dataDir, envFile });
+    // รอบเดิมเวลาเดิมซ้ำ (เช่น Windmill ยิงซ้ำในนาทีเดียวกัน) ไม่ส่งซ้ำ — รอบใหม่ต่างเวลาได้สรุปของตัวเอง
+    const again = await notifyDiscord({ trigger: 'hoteltime-daily', now: thai('2026-10-14T18:10'), dataDir: s.dataDir, envFile });
     assert.deepEqual(again, { status: 'sent', messages: 0 });
     assert.equal(discord.bodies.length, count);
     assert.doesNotMatch(await readFile(notifyLogPath(s.dataDir), 'utf8'), /token-should-never-be-logged|api\/webhooks/);
@@ -96,13 +98,14 @@ test('🔴 รอบ HotelTime ที่จบหลัง 18:00 = รอบส�
   }
 });
 
-test('รอบเที่ยง (ยังมีรอบเก็บตก): ไม่ส่งสรุป และรายงานที่ล้มยังเป็น "รอ" — ไม่แจ้งเตือน', async () => {
+test('รอบเที่ยง (ยังมีรอบเก็บตก): ส่งสรุปของรอบ (ทุกรอบมีสรุป) แต่รายงานที่ล้มยังเป็น "รอ" — ไม่แจ้งเตือน ไม่ขึ้นสีปัญหา', async () => {
   const s = await fakeStore();
   const discord = await fakeDiscord();
   try {
     await notifyDiscord({ trigger: 'hoteltime-daily', now: thai('2026-10-14T12:10'), dataDir: s.dataDir, envFile: await s.envFile(discord.url) });
     const all = discord.bodies.map((b) => b.content).join('\n');
-    assert.doesNotMatch(all, /สรุป|postings/);
+    assert.match(all, /### Export done · action needed · 12:10/);
+    assert.doesNotMatch(all, /finished with problems|postings failed/); // postings ยังเป็น "รอ" ไม่ใช่ alert (บรรทัดใน section Failed ของสรุปไม่ใช่ alert)
   } finally {
     await discord.close();
   }
@@ -133,7 +136,7 @@ test('🔴 Discord ล่ม: ไม่โยน error · บันทึกว�
   }
 });
 
-test('🔴 สรุปที่ส่งไม่ได้ตอน 18:xx ส่งใหม่ครั้งถัดไปของเย็นวันเดียวกัน แม้ trigger เป็น FoodStory (ไม่งั้นวันนั้นไม่มีสรุป = ดูเหมือนระบบเงียบ)', async () => {
+test('🔴 สรุปที่ส่งไม่ได้ตอน 18:xx ไม่ค้าง: รอบถัดไป (แม้ trigger เป็น FoodStory) ส่งสรุปของรอบตัวเองตามปกติ', async () => {
   const s = await fakeStore();
   const down = await fakeDiscord(500);
   try {
@@ -144,7 +147,7 @@ test('🔴 สรุปที่ส่งไม่ได้ตอน 18:xx ส�
   const up = await fakeDiscord();
   try {
     await notifyDiscord({ trigger: 'foodstory-daily', now: thai('2026-10-14T19:30'), dataDir: s.dataDir, envFile: await s.envFile(up.url) });
-    assert.match(up.bodies.map((b) => b.content).join('\n'), /# Export เอกสารแล้ว \d+ ไฟล์/);
+    assert.match(up.bodies.map((b) => b.content).join('\n'), /### Export (done|finished with problems) · 19:30[\s\S]*FoodStory run/);
   } finally {
     await up.close();
   }
@@ -176,7 +179,7 @@ test('notifyUpload: ส่งสรุปสำเร็จ และไม่�
   try {
     const r = await notifyUpload({ result: uploadResult(), now: thai('2026-10-15T12:00'), dataDir: s.dataDir, envFile: await s.envFile(discord.url) });
     assert.equal(r.status, 'sent');
-    assert.match(discord.bodies.map((b) => b.content).join('\n'), /# อัปโหลดเข้า uploader แล้ว \d+ ไฟล์[\s\S]*HotelTime/);
+    assert.match(discord.bodies.map((b) => b.content).join('\n'), /### Upload done · 12:00[\s\S]*HotelTime/);
     assert.doesNotMatch(await readFile(notifyLogPath(s.dataDir), 'utf8'), /token-should-never-be-logged/);
   } finally {
     await discord.close();
@@ -215,8 +218,8 @@ test('notifyUpload: ไฟล์ปฏิเสธถาวร → แจ้ง�
     // โดยตั้งใจ ไม่ใช่กันซ้ำแบบแจ้งเตือน) แต่ข้อความ "เรื่องที่ต้องดู" (แจ้งเตือนแยก) ต้องไม่ส่งซ้ำ
     await notifyUpload({ result: withRejected, now: thai('2026-10-15T15:00'), dataDir: s.dataDir, envFile });
     const newBodies = discord.bodies.slice(countAfterFirst).map((b) => b.content);
-    assert.match(newBodies.join('\n'), /อัปโหลดเข้า uploader แล้ว/); // มีสรุปรอบใหม่ (มี c.xlsx ในนี้ได้ ตามที่ตั้งใจ)
-    assert.ok(!newBodies.some((b) => b.includes('เรื่องที่ต้องดู'))); // ไม่มีแจ้งเตือนแยกซ้ำ
+    assert.match(newBodies.join('\n'), /Upload done/); // มีสรุปรอบใหม่ (มี c.xlsx ในนี้ได้ ตามที่ตั้งใจ)
+    assert.ok(!newBodies.some((b) => b.includes('Needs attention'))); // ไม่มีแจ้งเตือนแยกซ้ำ
   } finally {
     await discord.close();
   }

@@ -165,11 +165,11 @@ program
   });
 
 /**
- * แจ้งผลผ่าน Discord หลังรอบรายวัน (ใบ 08) — ไม่เปลี่ยน exit code ของรอบไม่ว่าส่งได้หรือไม่ · โหมด --json พิมพ์ลง stderr (stdout เป็น JSON ของรอบ)
+ * แจ้งผลผ่าน Discord หลังรอบรายวัน (ใบ 08) · ระยะเวลาในข้อความ = เวลาตั้งแต่โปรเซสเริ่ม (หนึ่งโปรเซสต่อหนึ่งรอบ) — ไม่เปลี่ยน exit code ของรอบไม่ว่าส่งได้หรือไม่ · โหมด --json พิมพ์ลง stderr (stdout เป็น JSON ของรอบ)
  */
 async function notifyAfterDaily(trigger: 'hoteltime-daily' | 'foodstory-daily', json: boolean): Promise<void> {
   const { describeNotify, notifyDiscord } = await import('./notify.ts');
-  const line = describeNotify(await notifyDiscord({ trigger }));
+  const line = describeNotify(await notifyDiscord({ trigger, durationMs: Math.round(performance.now()) }));
   if (json) console.error(line);
   else console.log(line);
 }
@@ -293,7 +293,7 @@ program
         ? await uploadFolder({ folder: opts.folder, ...(opts.data ? { dataDir: opts.data } : {}) })
         : await uploadSite({ site: opts.site as 'hoteltime' | 'foodstory', ...(opts.data ? { dataDir: opts.data } : {}) });
       process.stdout.write(opts.json ? `${JSON.stringify(result, null, 2)}\n` : describeUploadResult(result));
-      const notified = await notifyUpload({ result, ...(opts.data ? { dataDir: opts.data } : {}) });
+      const notified = await notifyUpload({ result, durationMs: Math.round(performance.now()), ...(opts.data ? { dataDir: opts.data } : {}) });
       if (!opts.json) console.log(describeNotify(notified)); // Discord ไม่ทำให้รอบอัปโหลดล้ม — แค่รายงานไว้
       process.exitCode = result.stuck > 0 || result.rejected > 0 ? 1 : 0;
     } catch (err) {

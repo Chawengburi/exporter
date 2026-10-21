@@ -9,8 +9,8 @@ import type { EmptyResultEntry, UploadFileResult, UploadRunResult } from './uplo
 /**
  * ข้อความ Discord (ใบ 08) — ฟังก์ชันล้วนจากผลของ `exporter status` (`buildStatus`, ใบ 07): ระดับรอ/ปัญหาตามกติกาเวลามาจาก status แล้ว ที่นี่ไม่คิดซ้ำ
  *
- * - **สรุปรายวัน** (วันละข้อความ — ไม่มีข้อความวันไหนแปลว่าระบบเงียบ): ต่อ Site วันของข้อมูลล่าสุดที่ถึงกำหนด มีข้อมูลกี่รายงาน ว่างตัวไหน ล้ม/ขาดกี่ตัว
- *   และรายงาน snapshot ของวันนี้ครบไหม
+ * - **สรุปรอบ** (ทุกรอบรายวัน — เจ้าของระบบขอ 2026-10-21 ให้เหมือนขา upload): ต่อ Site บรรทัดเดียวแบบ log ok/ว่าง/ล้ม + snapshot ของวันนี้
+ *   · Site ที่วันนี้ไม่ได้รันบอกว่าไม่ได้รัน
  * - **แจ้งเตือน**: ทุกเรื่องที่ status ตัดสินว่าเป็นปัญหา (รายงานยังล้ม/ขาดหลังรอบเก็บตก, รายงาน snapshot ของวันนี้ถ่ายไม่ได้, snapshot ปิดงวด, `_run.json` เสีย/รอบไม่จบ)
  *   + วันขาดเกินที่รอบเดียวเติมได้ + FoodStory ไม่ได้กดมา `NOT_PRESSED_ALERT_DAYS` วันขึ้นไป
  * - ทุกเรื่องมีกุญแจ (`ชนิด@site@วัน@รายงาน@วันนี้`) — เรื่องเดียวกันไม่ส่งซ้ำในวันเดียวกัน (spec) · ยังไม่หายพรุ่งนี้ = เตือนอีกวันละครั้ง
@@ -34,79 +34,95 @@ export const DISCORD_COLOR = { ok: 0x57f287, action: 0xfaa61a, problem: 0xed4245
 
 export type DiscordMessage = { readonly keys: readonly string[]; readonly content: string; readonly accentColor: number };
 type Alert = { readonly key: string; readonly line: string };
+/**
+ * ข้อมูลของรอบที่เพิ่งรัน สำหรับบรรทัด subtext แบบ log — `at` = เวลาจริงของรอบ (export: "YYYY-MM-DD HH:MM" เวลาไทย ·
+ * upload: ISO) ไม่ใช่เวลาประเมิน status ที่อาจถูกเลื่อนเป็น 18:30 · ไม่ใส่ = ไม่โชว์ส่วนนั้น
+ */
+export type RunInfo = { readonly at?: string; readonly label?: string; readonly durationMs?: number };
 
-const THAI_MONTH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'] as const;
+// ข้อความ Discord เป็นภาษาอังกฤษทั้งหมด (เจ้าของระบบขอ 2026-10-21) — ข้อความที่ staff อ่านบนเครื่อง (`exporter status`, CLI) ยังเป็นไทยตามเดิม
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
-/** `THAI_MONTH[month - 1]` แบบปลอดภัย (`noUncheckedIndexedAccess`) — เดือนนอกช่วง 1-12 (input ผิดรูป) ได้เลขเดือน
- * ดิบกลับมาแทน `undefined` ไม่ให้ข้อความ Discord ที่ส่งออกไปจริงมีคำว่า "undefined" โผล่เงียบ ๆ */
-function thaiMonthName(month: number): string {
-  return THAI_MONTH[month - 1] ?? String(month);
+/** `MONTH[month - 1]` แบบปลอดภัย (`noUncheckedIndexedAccess`) — เดือนนอกช่วง 1-12 ได้เลขดิบแทน "undefined" */
+function monthName(month: number): string {
+  return MONTH[month - 1] ?? String(month);
 }
 
 /**
- * "16 ต.ค. 2026 04:30" สำหรับ subtext เวลาใต้หัวข้อ notification (เจ้าของระบบขอ 2026-10-19) — รับทั้งสองรูปที่ใช้ใน
- * โค้ดนี้: "YYYY-MM-DD HH:MM" ที่เป็นเวลาไทยอยู่แล้ว (`StatusReport.at`) แยงตรงด้วย regex ไม่ผ่าน `Date` เพื่อไม่ให้
- * timezone ของเครื่องที่รันมาปน และ ISO UTC (`opts.at` ของขาอัปโหลด) ที่ต้องแปลงเป็นเวลาไทยก่อนด้วย `thaiClock`
+ * แยกเวลาเป็นส่วน ๆ ตามเวลาไทย — รับทั้ง "YYYY-MM-DD HH:MM" ที่เป็นเวลาไทยอยู่แล้ว (`StatusReport.at` แยกด้วย regex ไม่ผ่าน `Date`
+ * กัน timezone ของเครื่องมาปน) และ ISO UTC (ขาอัปโหลด) ที่ต้องแปลงด้วย `thaiClock`
  */
-function thaiDisplayAt(at: string): string {
+function clockParts(at: string): { readonly date: string; readonly time: string } {
   const plain = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(at);
   if (plain) {
     const [, y, m, d, hh, mm] = plain as unknown as [string, string, string, string, string, string];
-    return `${Number(d)} ${thaiMonthName(Number(m))} ${y} ${hh}:${mm}`;
+    return { date: `${Number(d)} ${monthName(Number(m))} ${y}`, time: `${hh}:${mm}` };
   }
   const c = thaiClock(new Date(at));
   const p = (n: number) => String(n).padStart(2, '0');
-  return `${c.day} ${thaiMonthName(c.month)} ${c.year} ${p(c.hour)}:${p(c.minute)}`;
+  return { date: `${c.day} ${monthName(c.month)} ${c.year}`, time: `${p(c.hour)}:${p(c.minute)}` };
+}
+
+/** "2m 41s" / "41s" / "1h 02m" */
+function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
+/** subtext ใต้หัวข้อ: วันที่ · ที่มาของรอบ · ระยะเวลา · (ส่วนเพิ่ม เช่น data date) */
+function subtext(at: string, run: RunInfo | undefined, extra: readonly string[] = []): string {
+  const parts = [clockParts(at).date, run?.label, run?.durationMs !== undefined ? formatDuration(run.durationMs) : undefined, ...extra];
+  return `-# ${parts.filter((p) => p !== undefined && p !== '').join(' · ')}`;
 }
 
 function names(ids: readonly string[]): string {
-  const more = ids.length > NAMES_SHOWN ? ` และอีก ${ids.length - NAMES_SHOWN}` : '';
+  const more = ids.length > NAMES_SHOWN ? ` and ${ids.length - NAMES_SHOWN} more` : '';
   return `${ids.slice(0, NAMES_SHOWN).join(', ')}${more}`;
 }
 const firstLine = (s: string) => {
   const line = s.split('\n')[0] ?? '';
   return line.length > 120 ? `${line.slice(0, 117)}...` : line;
 };
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** วันของข้อมูลล่าสุดที่ถึงกำหนดของ Site (เมื่อวาน หลัง 07:00) */
 const latestDataDay = (site: SiteView): DayView | undefined => [...site.days].reverse().find((d) => d.perDay !== null);
 
 /**
- * บรรทัดรายละเอียดของ site หนึ่ง (ไม่รวม "ล้ม" — ย้ายไปรวมเป็น section "ไม่สำเร็จ" คนละก้อนแล้ว เพื่อให้คนที่ไม่ได้
- * อ่านโค้ด/ไม่สนใจรายละเอียดกวาดตาเห็นว่า "มีอะไรต้องดู" ได้ทันที ไม่ต้องแยกจากตัวเลขปกติเอง — เจ้าของระบบขอ 2026-10-19)
+ * บรรทัดเดียวต่อ site แบบ log: `ok/total · empty · failed` + snapshot — "ล้ม" ยังแตกเป็นรายชื่อใน section "Failed" ด้านล่าง
+ * (ให้คนที่ไม่ได้อ่านโค้ดกวาดตาเห็นว่ามีอะไรต้องดูทันที) · site ที่วันนี้ไม่ได้รัน บอกตรง ๆ ว่าไม่ได้รัน + รอบล่าสุดเมื่อไร
  */
 function summarySiteBlock(site: SiteView, today: string): string {
   const label = SITE_LABEL[site.site];
+  if (site.lastRunDay !== today) return `**${label}** not run today (${site.lastRunDay ? `last run ${site.lastRunDay}` : 'never run'})`;
   const day = latestDataDay(site);
   const parts: string[] = [];
-  let fraction = '';
   if (day?.perDay) {
     const v = day.perDay;
-    fraction = ` • (${v.data}/${v.total}) ไฟล์`;
-    parts.push(`มีข้อมูล ${v.data}/${v.total}`);
-    if (v.empty.length > 0) parts.push(`ว่าง ${v.empty.length} (${names(v.empty)})`);
-    if (v.notFetched.length > 0) parts.push(`ยังไม่ได้ดึง ${v.notFetched.length}`);
-  } else if (day?.state) parts.push(day.state === 'running' ? 'รอบไม่จบ' : '_run.json อ่านไม่ได้');
-  else parts.push('ยังไม่ได้ดึง');
+    parts.push(`${v.data + v.empty.length}/${v.total} ok`);
+    parts.push(v.empty.length > 0 ? `${v.empty.length} empty (${names(v.empty)})` : '0 empty');
+    parts.push(`${v.failed.length} failed`);
+    if (v.notFetched.length > 0) parts.push(`${v.notFetched.length} not fetched`);
+  } else if (day?.state) parts.push(day.state === 'running' ? 'run did not finish' : '_run.json unreadable');
+  else parts.push('no data fetched yet');
   const pictures = site.days.find((d) => d.day === today)?.pictures;
   if (pictures) {
     const bad = pictures.failed.length + pictures.missing.length;
-    parts.push(bad === 0 ? `snapshot วันนี้ ครบ ${pictures.taken}/${pictures.total}` : `snapshot วันนี้ ${pictures.taken}/${pictures.total} (ไม่ได้ ${bad})`);
+    parts.push(bad === 0 ? `snapshots ${pictures.taken}/${pictures.total}` : `snapshots ${pictures.taken}/${pictures.total} (${bad} missing)`);
   }
-  if (site.site === 'foodstory' && site.daysSinceLastRun !== null && site.daysSinceLastRun >= 1) {
-    parts.push(`ไม่ได้กดมา ${site.daysSinceLastRun} วัน`);
-  }
-  return `**${label}${fraction}**\n${parts.join(' · ')}`;
+  return `**${label}** ${parts.join(' · ')}`;
 }
 
 const FAILURE_SHOWN = 8;
 
-/** ก้อน "ไม่สำเร็จ" — ใช้ร่วมกันทั้งขา export/upload (เจ้าของระบบขอ 2026-10-19): ชื่อรายงาน/ไฟล์ + เหตุผลสั้น ๆ
- * ต่อรายการ ไม่ใช่แค่ตัวเลข เพราะคนเข้ามาดู (ไม่ต้องเข้าใจโค้ด) จำชื่อรายงาน/ไฟล์ได้ แต่ไม่รู้จัก error code */
+/** ก้อน "Failed" — ใช้ร่วมกันทั้งขา export/upload: ชื่อรายงาน/ไฟล์ + เหตุผลสั้น ๆ ต่อรายการ ไม่ใช่แค่ตัวเลข */
 function failuresBlock(failures: readonly { readonly label: string; readonly reason: string }[]): string {
   const shown = failures.slice(0, FAILURE_SHOWN).map((f) => `• ${f.label}: ${f.reason}`);
-  const more = failures.length > FAILURE_SHOWN ? [`... และอีก ${failures.length - FAILURE_SHOWN} รายการ`] : [];
-  return [`ไม่สำเร็จ ${failures.length} ไฟล์`, ...shown, ...more].join('\n');
+  const more = failures.length > FAILURE_SHOWN ? [`... and ${failures.length - FAILURE_SHOWN} more`] : [];
+  return [`Failed: ${plural(failures.length, 'file')}`, ...shown, ...more].join('\n');
 }
 
 /** รายงานตามวัน + รายงาน snapshot ของวันนี้ที่ล้มจริง (ไม่รวม "ยังไม่ได้ดึง"/"ยังไม่ได้ถ่าย" ที่เป็นแค่ยังไม่ถึงตา ไม่ใช่ความล้มเหลว) */
@@ -122,16 +138,18 @@ function exportFailures(report: StatusReport, today: string): { readonly label: 
   return out;
 }
 
-function summaryOf(report: StatusReport, today: string): string {
-  const dataDay = report.sites.map(latestDataDay).filter((d) => d !== undefined).map((d) => d.day).sort().at(-1);
-  const total = report.sites.reduce((sum, s) => sum + (latestDataDay(s)?.perDay?.data ?? 0), 0);
-  const verdict = report.verdict === 'ok' ? 'ปกติ'
-    : report.verdict === 'action' ? `มีสิ่งที่ต้องทำ ${report.actions.length} อย่าง`
-    : `มีเรื่องต้องดู ${report.problems.length} เรื่อง`;
-  const verdictLine = `${verdict}${report.verdict === 'ok' ? '' : ' — รายละเอียด: รัน exporter status บนเครื่อง'}`;
+const STATUS_HINT = 'run "exporter status" on the machine for details';
 
-  const header = [`## Export เอกสารแล้ว ${total} ไฟล์`, `-# ${thaiDisplayAt(report.at)}${dataDay ? ` — ข้อมูลวันที่ ${dataDay}` : ''}`].join('\n');
-  const sitesBlock = report.sites.map((s) => summarySiteBlock(s, today)).join('\n\n');
+function summaryOf(report: StatusReport, today: string, run: RunInfo | undefined): string {
+  const dataDay = report.sites.map(latestDataDay).filter((d) => d !== undefined).map((d) => d.day).sort().at(-1);
+  const verdictLine = report.verdict === 'ok' ? 'All good'
+    : report.verdict === 'action' ? `${plural(report.actions.length, 'action')} needed — ${STATUS_HINT}`
+    : `${plural(report.problems.length, 'problem')} to check — ${STATUS_HINT}`;
+  const title = report.verdict === 'problem' ? 'Export finished with problems' : report.verdict === 'action' ? 'Export done · action needed' : 'Export done';
+
+  const at = run?.at ?? report.at;
+  const header = [`### ${title} · ${clockParts(at).time}`, subtext(at, run, dataDay ? [`data date ${dataDay}`] : [])].join('\n');
+  const sitesBlock = report.sites.map((s) => summarySiteBlock(s, today)).join('\n');
   const failures = exportFailures(report, today);
 
   const blocks = failures.length > 0 ? [sitesBlock, `${failuresBlock(failures)}\n\n${verdictLine}`] : [`${sitesBlock}\n\n${verdictLine}`];
@@ -145,42 +163,42 @@ function alertsOf(report: StatusReport, today: string): Alert[] {
     const label = SITE_LABEL[site.site];
     for (const d of site.days) {
       if (d.level !== 'problem') continue;
-      const at = `${label} ${d.day === today ? `วันนี้ ${d.day}` : `ข้อมูลวันที่ ${d.day}`}`;
+      const at = `${label} ${d.day === today ? `today ${d.day}` : `data for ${d.day}`}`;
       if (d.state !== undefined) {
-        out.push({ key: `state@${site.site}@${d.day}`, line: `${at}: ${d.note}` });
+        out.push({ key: `state@${site.site}@${d.day}`, line: `${at}: ${d.state === 'running' ? 'run did not finish' : '_run.json unreadable'}` });
         continue;
       }
       for (const f of d.perDay?.failed ?? []) {
-        out.push({ key: `failed@${site.site}@${d.day}@${f.report}`, line: `${at}: ${f.report} ล้ม — ${firstLine(f.error)}` });
+        out.push({ key: `failed@${site.site}@${d.day}@${f.report}`, line: `${at}: ${f.report} failed — ${firstLine(f.error)}` });
       }
       // FoodStory ที่ยังไม่ได้ดึง = เรื่อง "ไม่ได้กด" (เตือนแยก) ไม่ใช่ปัญหาของวันนั้น
       if (site.site === 'hoteltime') {
-        for (const id of d.perDay?.notFetched ?? []) out.push({ key: `missing@${site.site}@${d.day}@${id}`, line: `${at}: ${id} ยังไม่ได้ดึง` });
+        for (const id of d.perDay?.notFetched ?? []) out.push({ key: `missing@${site.site}@${d.day}@${id}`, line: `${at}: ${id} not fetched` });
       }
       if (d.day === today && d.pictures && (site.site === 'hoteltime' || time >= MANUAL_PICTURE_ALERT_AT)) {
-        for (const f of d.pictures.failed) out.push({ key: `picture@${site.site}@${d.day}@${f.report}`, line: `${at}: รายงาน snapshot ${f.report} ถ่ายไม่ได้ — ${firstLine(f.error)}` });
-        for (const id of d.pictures.missing) out.push({ key: `picture@${site.site}@${d.day}@${id}`, line: `${at}: รายงาน snapshot ${id} ยังไม่ได้ถ่าย` });
+        for (const f of d.pictures.failed) out.push({ key: `picture@${site.site}@${d.day}@${f.report}`, line: `${at}: snapshot ${f.report} could not be taken — ${firstLine(f.error)}` });
+        for (const id of d.pictures.missing) out.push({ key: `picture@${site.site}@${d.day}@${id}`, line: `${at}: snapshot ${id} not taken yet` });
       }
     }
     for (const c of site.closes) {
       if (c.level !== 'problem') continue;
       const lost = today > c.retryUntil;
-      const period = c.period === 'year' ? `ปี ${c.periodEnd.slice(0, 4)}` : `เดือน ${c.periodEnd.slice(0, 7)}`;
+      const period = c.period === 'year' ? `year ${c.periodEnd.slice(0, 4)}` : `month ${c.periodEnd.slice(0, 7)}`;
       for (const id of [...c.failed.map((f) => f.report), ...c.missing]) {
         out.push({
           key: `close@${site.site}@${c.periodEnd}@${id}${lost ? '@lost' : ''}`,
-          line: `${label} snapshot ปิดงวด${period}: ${id} ${lost ? 'หายถาวร (พ้นช่วงลองซ้ำแล้ว)' : `ยังไม่ได้ — ${c.note}`}`,
+          line: `${label} period-close snapshot for ${period}: ${id} ${lost ? 'lost for good (retry window is over)' : `not taken yet — retrying until ${c.retryUntil}`}`,
         });
       }
     }
     if (site.backlogDays > 0) {
-      out.push({ key: `backlog@${site.site}@${today}`, line: `${label}: ขาดอีก ${site.backlogDays} วันของข้อมูล เกินที่รอบเดียวเติมได้` });
+      out.push({ key: `backlog@${site.site}@${today}`, line: `${label}: ${plural(site.backlogDays, 'day')} of data missing, more than one run can fill` });
     }
     const neverPressed = site.daysSinceLastRun === null && report.setup.goLive !== null;
     if (site.site === 'foodstory' && (neverPressed || (site.daysSinceLastRun ?? 0) >= NOT_PRESSED_ALERT_DAYS)) {
       out.push({
         key: `not-pressed@${site.site}@${today}`,
-        line: site.daysSinceLastRun === null ? 'FoodStory ยังไม่เคยกดเลย' : `FoodStory ไม่ได้กดมา ${site.daysSinceLastRun} วัน — ให้พนักงานดับเบิลคลิก "ดึง FoodStory"`,
+        line: site.daysSinceLastRun === null ? 'FoodStory has never been run' : `FoodStory not run for ${site.daysSinceLastRun} days — ask staff to double-click "Exporter - FoodStory Daily"`,
       });
     }
   }
@@ -190,8 +208,8 @@ function alertsOf(report: StatusReport, today: string): Alert[] {
 /**
  * รวมบรรทัดเป็นข้อความไม่เกินเพดานของ Discord — บรรทัดเดียวยาวเกินถูกตัด (กุญแจยังอยู่ ไม่มีเรื่องหาย) · `headers.first`
  * ใช้กับก้อนแรกเท่านั้น `headers.rest` ใช้กับก้อนที่ 2 เป็นต้นไป (ถ้ามี เพราะยาวเกินจนต้องแบ่งหลายข้อความ) — ต่างกันได้
- * เพราะก้อนแรกอาจถูกเอาไปรวมกับข้อความสรุป (ใช้ header สั้น ไม่ต้องมี H1 ซ้ำ) แต่ก้อนที่เหลือกลายเป็นข้อความเดี่ยว ๆ
- * แยกออกไปเอง ต้องมี H1 เต็มของตัวเอง — ไม่งั้นก้อนที่ 2+ จะไม่มีหัวข้อที่สมบูรณ์ (พบจาก code review 2026-10-19)
+ * เพราะก้อนแรกอาจถูกเอาไปรวมกับข้อความสรุป (ใช้ header สั้น ไม่ต้องมีหัวข้อซ้ำ) แต่ก้อนที่เหลือกลายเป็นข้อความเดี่ยว ๆ
+ * แยกออกไปเอง ต้องมีหัวข้อเต็มของตัวเอง (พบจาก code review 2026-10-19)
  */
 function pack(headers: { readonly first: string; readonly rest: string }, alerts: readonly Alert[], accentColor: number): DiscordMessage[] {
   const out: DiscordMessage[] = [];
@@ -219,14 +237,13 @@ function pack(headers: { readonly first: string; readonly rest: string }, alerts
  * (`discordMessages`/`uploadDiscordMessages`) ต้องเขียน ternary เดิมซ้ำกัน (พบจาก code review 2026-10-19)
  */
 function alertHeaders(hasSummary: boolean, fullHeader: string): { readonly first: string; readonly rest: string } {
-  return { first: hasSummary ? '**เรื่องที่ต้องดู**' : fullHeader, rest: fullHeader };
+  return { first: hasSummary ? '**Needs attention**' : fullHeader, rest: fullHeader };
 }
 
 /**
- * รวมสรุปกับแจ้งเตือนเข้า**ข้อความเดียว**เมื่อทั้งสองมีอยู่ในการเรียกเดียวกัน (เจ้าของระบบขอ 2026-10-19 — เดิมแยก 2
- * ข้อความเพราะ "สรุป" เคยมีไว้ทำหน้าที่ heartbeat ด้วย แต่เจ้าของระบบตัดสินใจไม่ต้องการ heartbeat แยกแล้ว เอาแค่รวม
- * เป็นข้อความเดียวไปตามที่สั่ง) — ถ้ามีแจ้งเตือนเกินเพดานความยาวจนต้องแบ่งหลายข้อความ (`pack` คืนมาหลายชิ้น) รวมแค่
- * ชิ้นแรกกับสรุป ชิ้นที่เหลือยังเป็นข้อความแยกเพราะเพดานความยาวของ Discord บังคับ ไม่มีทางเลี่ยง
+ * รวมสรุปกับแจ้งเตือนเข้า**ข้อความเดียว**เมื่อทั้งสองมีอยู่ในการเรียกเดียวกัน (เจ้าของระบบขอ 2026-10-19) — ถ้ามีแจ้งเตือน
+ * เกินเพดานความยาวจนต้องแบ่งหลายข้อความ (`pack` คืนมาหลายชิ้น) รวมแค่ชิ้นแรกกับสรุป ชิ้นที่เหลือยังเป็นข้อความแยก
+ * เพราะเพดานความยาวของ Discord บังคับ ไม่มีทางเลี่ยง
  */
 function mergeFirstMessages(summaryMsg: DiscordMessage | undefined, alertMsgs: readonly DiscordMessage[]): DiscordMessage[] {
   if (summaryMsg === undefined) return [...alertMsgs];
@@ -240,12 +257,15 @@ function mergeFirstMessages(summaryMsg: DiscordMessage | undefined, alertMsgs: r
   return [merged, ...rest];
 }
 
-/** ข้อความที่ต้องส่งตอนนี้ — `summary` = ถึงเวลาสรุปของวันนี้ (ผู้เรียกตัดสิน) · `alreadySent` = กุญแจที่ส่งไปแล้ว */
-export function discordMessages(report: StatusReport, opts: { readonly summary: boolean; readonly alreadySent: ReadonlySet<string> }): DiscordMessage[] {
+/**
+ * ข้อความที่ต้องส่งตอนนี้ — `summary` = ส่งสรุปของรอบนี้ (ผู้เรียกตัดสิน: ทุกรอบรายวัน, หรือสั่งเอง) · `alreadySent` = กุญแจที่ส่งไปแล้ว ·
+ * กุญแจสรุป = `summary@<เวลาของรอบ>` (ต่อรอบ ไม่ใช่ต่อวัน — เจ้าของระบบขอ 2026-10-21 ให้สรุปทุกรอบเหมือนขา upload)
+ */
+export function discordMessages(report: StatusReport, opts: { readonly summary: boolean; readonly alreadySent: ReadonlySet<string>; readonly run?: RunInfo }): DiscordMessage[] {
   const today = report.at.slice(0, 10);
-  const summaryKey = `summary@${today}`;
+  const summaryKey = `summary@${opts.run?.at ?? report.at}`;
   const summaryMsg: DiscordMessage | undefined = opts.summary && !opts.alreadySent.has(summaryKey)
-    ? { keys: [summaryKey], content: summaryOf(report, today), accentColor: DISCORD_COLOR[report.verdict] }
+    ? { keys: [summaryKey], content: summaryOf(report, today, opts.run), accentColor: DISCORD_COLOR[report.verdict] }
     : undefined;
 
   const seen = new Set<string>();
@@ -253,23 +273,22 @@ export function discordMessages(report: StatusReport, opts: { readonly summary: 
   const fresh = alertsOf(report, today)
     .map((a) => (a.key.endsWith(`@${today}`) ? a : { ...a, key: `${a.key}@${today}` }))
     .filter((a) => !opts.alreadySent.has(a.key) && !seen.has(a.key) && seen.add(a.key));
-  const alertMsgs = pack(alertHeaders(summaryMsg !== undefined, `## เรื่องที่ต้องดู\n-# ${thaiDisplayAt(report.at)}`), fresh, DISCORD_COLOR.problem);
+  const at = opts.run?.at ?? report.at;
+  const alertMsgs = pack(alertHeaders(summaryMsg !== undefined, `### Needs attention\n${subtext(at, undefined)}`), fresh, DISCORD_COLOR.problem);
   return mergeFirstMessages(summaryMsg, alertMsgs);
 }
 
 // ── ticket 05 ของ exporter-upload-to-uploader: ข้อความ Discord ของขาอัปโหลด ──
 //
-// มิเรอร์รูปของสรุป/แจ้งเตือนข้างบนให้เป็นภาษาเดียวกัน (กึ่งทางการ อ่านง่าย): 📤 สรุปท้ายรอบอัปโหลดหนึ่งข้อความเสมอ
-// (ไม่ใช่รายวัน — อัปโหลดรันได้หลายครั้งต่อวัน แต่ละครั้งมีของตัวเองให้รายงาน) + 🚨 แจ้งทันทีเฉพาะไฟล์ที่ถูกปฏิเสธถาวร
-// (`rejected` — convert/400, ไม่ retry ได้) เรื่องเดียวไม่ซ้ำในวันเดียวกัน เหมือนแจ้งเตือนของฝั่ง export
+// มิเรอร์รูปของสรุป/แจ้งเตือนข้างบน: สรุปท้ายรอบอัปโหลดหนึ่งข้อความเสมอ (อัปโหลดรันได้หลายครั้งต่อวัน แต่ละครั้งมีของตัวเอง
+// ให้รายงาน) + แจ้งทันทีเฉพาะไฟล์ที่ถูกปฏิเสธถาวร (`rejected` — convert/400, ไม่ retry ได้) เรื่องเดียวไม่ซ้ำในวันเดียวกัน
 
 /**
  * `rejected` ที่เกิดจากยังไม่มี `document_type` (FoodStory จนกว่า ticket 08) — รู้สาเหตุอยู่แล้วและทำอะไรไม่ได้
  * ตอนนี้ ต่างจาก `rejected` แบบอื่น (catalog ไม่ตรง, as_of หาไม่เจอ, uploader ปฏิเสธจริง) ที่เป็นเรื่องผิดปกติ
  * ที่ต้องรีบดู — แยกออกจากทุกจุดที่ตัดสินความเร่งด่วน (verdict/สี/alert) ไม่ให้กลายเป็น "เรื่องต้องดู" ปลอม ๆ
- * (เจ้าของระบบขอ 2026-10-19 หลังเจอ FoodStory ยิง alert สแปม 57 ข้อความจากเหตุผลที่รู้อยู่แล้วล่วงหน้า) — ยังนับ
- * รวมอยู่ใน `UploadRunResult.rejected`/exit code ของ CLI เหมือนเดิม (ไม่แก้ตรงนั้น) แค่ไม่ให้ไปเป็นความเร่งด่วน
- * ฝั่ง Discord
+ * (เจ้าของระบบขอ 2026-10-19 หลังเจอ FoodStory ยิง alert สแปม 57 ข้อความ) — ยังนับรวมอยู่ใน
+ * `UploadRunResult.rejected`/exit code ของ CLI เหมือนเดิม แค่ไม่ให้ไปเป็นความเร่งด่วนฝั่ง Discord
  */
 function isPendingDocumentType(item: UploadFileResult): boolean {
   return item.kind === 'rejected' && isUnresolvedDocumentTypeReason(item.reason);
@@ -284,12 +303,10 @@ function pendingDocumentTypeCount(r: UploadRunResult): number {
 }
 
 function uploadVerdictLine(r: UploadRunResult): string {
-  // ข้อความเดิมมี "— รายละเอียด: รัน exporter status บนเครื่อง" ต่อท้าย — คงไว้เหมือนฝั่ง export (summaryOf
-  // ด้านบน) เพื่อให้ wording สองขาสอดคล้องกัน (พบจาก code review ว่าหลุดหายไปตอนทำ section "ไม่สำเร็จ")
   const genuineRejected = genuineRejectedCount(r);
-  if (genuineRejected > 0 || r.stuck > 0) return `มีเรื่องต้องดู ${genuineRejected + r.stuck} เรื่อง — รายละเอียด: รัน exporter status บนเครื่อง`;
-  if (r.blocked > 0) return `มี ${r.blocked} ไฟล์ถูกบล็อกเพราะ as_of ย้อนหลัง — คุยกับทีม uploader ก่อนถ้าตั้งใจส่งจริง`;
-  return 'ปกติ';
+  if (genuineRejected > 0 || r.stuck > 0) return `${plural(genuineRejected + r.stuck, 'problem')} to check — ${STATUS_HINT}`;
+  if (r.blocked > 0) return `${plural(r.blocked, 'file')} blocked because as_of is in the past — check with the uploader team if you meant to send them`;
+  return 'All good';
 }
 
 /** สีแถบซ้าย — มีไฟล์ปฏิเสธถาวร (ไม่รวม "รอ document_type")/ค้างถาวร = แดง · บล็อก(as_of) ยังไม่ใช่ปัญหาแต่ต้องดู = เหลือง · ปกติ = เขียว */
@@ -299,41 +316,32 @@ function uploadAccentColor(r: UploadRunResult): number {
   return DISCORD_COLOR.ok;
 }
 
-/** รายละเอียดของ site หนึ่ง — ไม่รวม "ปฏิเสธ"/"ค้างถาวร" เป็นตัวเลขเปล่า ๆ อีกต่อไป (ย้ายไปเป็นรายชื่อไฟล์จริงใน
- * section "ไม่สำเร็จ" แทน — เหตุผลเดียวกับฝั่ง export: คนดูจำชื่อไฟล์ได้ ไม่รู้จัก error code) */
+/** บรรทัดเดียวของ site แบบ log: `sent/total · duplicate · failed` + ตัวเลขเสริมเฉพาะที่ไม่เป็นศูนย์ (ชื่อไฟล์ที่ล้มอยู่ใน section "Failed") */
 function uploadSiteBlock(r: UploadRunResult): string {
   const label = SITE_LABEL[r.site];
-  const total = r.results.length;
-  const fraction = total > 0 ? ` • (${r.sent}/${total}) ไฟล์` : '';
-  const parts = [`สำเร็จ ${r.sent}`];
-  if (r.duplicate > 0) parts.push(`ซ้ำ ${r.duplicate}`);
-  // เหมือน describeUploadResult ของ CLI — rows_mismatch คือคำเตือน ไม่ใช่ความล้มเหลว แต่ก็ไม่ใช่ sent เฉย ๆ
-  if (r.rowsMismatch > 0) parts.push(`แถวไม่ตรง ${r.rowsMismatch}`);
-  // ticket 13: "ว่าง" เฉย ๆ เคยแปลว่า "ไม่ต้องทำอะไร รอทีม uploader" (ticket 04) — ตอนนี้มีทางประกาศจริงแล้ว
-  // (ticket 11) ต้องแยกว่า "ประกาศสำเร็จแล้ว" (ไม่ต้องทำอะไรจริง ๆ) กับ "ยังไม่ประกาศ" (ยัง backlog อยู่ — ปิด
-  // flag/document_type ยัง resolve ไม่ได้/ลองแล้วแต่ยังไม่ผ่าน) ไม่ปนเป็นตัวเลขเดียวแบบเดิม
+  const failed = genuineRejectedCount(r) + r.stuck;
+  const parts = [`${r.sent}/${r.results.length} sent`, `${r.duplicate} duplicate`, `${failed} failed`];
+  // rows_mismatch คือคำเตือน ไม่ใช่ความล้มเหลว แต่ก็ไม่ใช่ sent เฉย ๆ
+  if (r.rowsMismatch > 0) parts.push(`${r.rowsMismatch} rows mismatch`);
+  // ticket 13: แยก "ประกาศรายงานว่างสำเร็จแล้ว" (ไม่ต้องทำอะไร) กับ "ยังไม่ประกาศ" (ยัง backlog — flag ปิด/document_type ยัง resolve ไม่ได้/ลองแล้วไม่ผ่าน)
   const announcedEmpty = r.emptyResults.filter((e) => e.kind === 'announced').length;
   const pendingEmpty = r.emptyReports.length - announcedEmpty;
-  if (announcedEmpty > 0) parts.push(`ว่าง-ประกาศสำเร็จ ${announcedEmpty}`);
-  if (pendingEmpty > 0) parts.push(`ว่าง-ยังไม่ประกาศ ${pendingEmpty}`);
-  // รอ document_type (FoodStory จนกว่า ticket 08) — ตัวเลขนับรวมไว้ให้เห็น backlog แต่ไม่ใช่ "ปฏิเสธ"/"ไม่สำเร็จ"
-  // เพราะไม่ใช่เรื่องผิดปกติที่ต้องรีบดู (เจ้าของระบบขอ 2026-10-19)
+  if (announcedEmpty > 0) parts.push(`${announcedEmpty} empty announced`);
+  if (pendingEmpty > 0) parts.push(`${pendingEmpty} empty not announced`);
+  // รอ document_type (FoodStory จนกว่า ticket 08) — นับให้เห็น backlog แต่ไม่ใช่ "failed" เพราะไม่ใช่เรื่องผิดปกติที่ต้องรีบดู
   const pendingDocType = pendingDocumentTypeCount(r);
-  if (pendingDocType > 0) parts.push(`รอ document_type ${pendingDocType}`);
-  // "บล็อก(as_of)" คือไฟล์ที่ติ๊ก "ยังรอส่ง (pending)" ใน ticket 05 — ใช้ชื่อนี้เพราะบอกสาเหตุที่ต้องรอได้ตรงกว่า
-  // "pending" เฉย ๆ (สาเหตุคือ as_of ย้อนหลัง ไม่ใช่แค่ยังไม่ถึงตา)
-  if (r.blocked > 0) parts.push(`บล็อก(as_of) ${r.blocked}`);
-  return `**${label}${fraction}**\n${parts.join(' · ')}`;
+  if (pendingDocType > 0) parts.push(`${pendingDocType} waiting for document_type`);
+  // ไฟล์ที่ติ๊ก "ยังรอส่ง (pending)" ใน ticket 05 — สาเหตุคือ as_of ย้อนหลัง ไม่ใช่แค่ยังไม่ถึงตา
+  if (r.blocked > 0) parts.push(`${r.blocked} blocked (as_of)`);
+  return `**${label}** ${parts.join(' · ')}`;
 }
 
 /** ข้อความเหตุผลของ `rejected`/`stuck` หนึ่งรายการ — ใช้ร่วมกันทั้งไฟล์ปกติและ `empty` (คนละ type แต่ shape ของสอง kind นี้เหมือนกัน) */
 function failureReason(item: { readonly kind: 'rejected'; readonly reason: string } | { readonly kind: 'stuck'; readonly attempts: number; readonly lastMessage: string }): string {
-  return item.kind === 'rejected' ? item.reason : `ค้างถาวรหลังลอง ${item.attempts} ครั้ง — ${item.lastMessage}`;
+  return item.kind === 'rejected' ? item.reason : `stuck after ${plural(item.attempts, 'attempt')} — ${item.lastMessage}`;
 }
 
-/** ไฟล์/รายงาน (ปกติและ `empty`) ที่ปฏิเสธถาวรหรือค้างถาวรของรอบนี้ — มีชื่อไฟล์/รายงานจริงต่อรายการ (เจ้าของระบบขอ
- * 2026-10-19) ไม่ใช่แค่ตัวเลข เพราะคนดูจำชื่อได้ ไม่ต้องเข้าใจ as_of/stage/retry — ไม่รวม "รอ document_type" (ดู
- * `isPendingDocumentType`) เพราะไม่ใช่ความล้มเหลว เป็นแค่ backlog ที่รอทีม uploader */
+/** ไฟล์/รายงาน (ปกติและ `empty`) ที่ปฏิเสธถาวรหรือค้างถาวรของรอบนี้ มีชื่อจริงต่อรายการ — ไม่รวม "รอ document_type" (ดู `isPendingDocumentType`) */
 function uploadFailures(r: UploadRunResult): { readonly label: string; readonly reason: string }[] {
   const label = SITE_LABEL[r.site];
   const fromFiles = r.results
@@ -341,12 +349,12 @@ function uploadFailures(r: UploadRunResult): { readonly label: string; readonly 
     .map((item) => ({ label: `${label}: ${item.file} (${item.report})`, reason: failureReason(item) }));
   const fromEmpty = r.emptyResults
     .filter((item): item is EmptyResultEntry & ({ readonly kind: 'rejected' } | { readonly kind: 'stuck' }) => item.kind === 'rejected' || item.kind === 'stuck')
-    .map((item) => ({ label: `${label}: ${item.report} (ว่าง)`, reason: failureReason(item) }));
+    .map((item) => ({ label: `${label}: ${item.report} (empty)`, reason: failureReason(item) }));
   return [...fromFiles, ...fromEmpty];
 }
 
-function uploadSummaryOf(r: UploadRunResult, at: string): string {
-  const header = [`## อัปโหลดเข้า uploader แล้ว ${r.sent} ไฟล์`, `-# ${thaiDisplayAt(at)}`].join('\n');
+function uploadSummaryOf(r: UploadRunResult, at: string, run: RunInfo | undefined): string {
+  const header = [`### Upload done · ${clockParts(at).time}`, subtext(at, run)].join('\n');
   const siteBlock = uploadSiteBlock(r);
   const failures = uploadFailures(r);
   const verdictLine = uploadVerdictLine(r);
@@ -354,36 +362,32 @@ function uploadSummaryOf(r: UploadRunResult, at: string): string {
   return [header, ...blocks].join(SECTION_BREAK);
 }
 
-/** แจ้งทันทีเฉพาะ `rejected` ที่ "ผิดปกติจริง" — ไม่รวม "รอ document_type" (FoodStory จนกว่า ticket 08) เพราะรู้
- * สาเหตุอยู่แล้วและไม่มีอะไรให้ทำตอนนี้ ไม่ใช่เรื่องที่ต้องรีบดูทุกไฟล์ (เจ้าของระบบขอ 2026-10-19 หลังเจอ spam 57 ข้อความ) */
+/** แจ้งทันทีเฉพาะ `rejected` ที่ "ผิดปกติจริง" — ไม่รวม "รอ document_type" (เจ้าของระบบขอ 2026-10-19 หลังเจอ spam 57 ข้อความ) */
 function uploadAlertsOf(r: UploadRunResult): Alert[] {
   const label = SITE_LABEL[r.site];
   return r.results
     .filter((item): item is UploadFileResult & { readonly kind: 'rejected' } => item.kind === 'rejected' && !isPendingDocumentType(item))
-    .map((item) => ({ key: `upload-rejected@${r.site}@${item.file}`, line: `${label}: ${item.file} (${item.report}) ปฏิเสธไม่ส่ง — ${item.reason}` }));
+    .map((item) => ({ key: `upload-rejected@${r.site}@${item.file}`, line: `${label}: ${item.file} (${item.report}) rejected, not sent — ${item.reason}` }));
 }
 
 /**
  * ข้อความของขาอัปโหลด — เรียกครั้งเดียวต่อการรัน `exporter upload` หนึ่งครั้ง (`at` ควรเป็นเวลาจริงของรอบนั้น ไม่ใช่
- * วันเฉย ๆ เพราะอัปโหลดรันได้หลายครั้งต่อวัน) · ไม่มีไฟล์ไหนถูกประมวลผลเลยและไม่มีรายงานว่าง = ไม่ส่งอะไร (ไม่ใช่สรุป
- * ตัวเลขศูนย์ที่ไม่มีใครอยากเห็นซ้ำ ๆ) · การแจ้งเตือนไฟล์ถูกปฏิเสธถาวรกันซ้ำในวันเดียวกันแบบเดียวกับแจ้งเตือนฝั่ง export
+ * วันเฉย ๆ เพราะอัปโหลดรันได้หลายครั้งต่อวัน) · ไม่มีไฟล์ไหนถูกประมวลผลเลยและไม่มีรายงานว่าง = ไม่ส่งอะไร · การแจ้งเตือนไฟล์
+ * ถูกปฏิเสธถาวรกันซ้ำในวันเดียวกันแบบเดียวกับแจ้งเตือนฝั่ง export
  */
-export function uploadDiscordMessages(result: UploadRunResult, opts: { readonly at: string; readonly alreadySent: ReadonlySet<string> }): DiscordMessage[] {
+export function uploadDiscordMessages(result: UploadRunResult, opts: { readonly at: string; readonly alreadySent: ReadonlySet<string>; readonly run?: RunInfo }): DiscordMessage[] {
   if (result.results.length === 0 && result.emptyReports.length === 0) return [];
   const today = opts.at.slice(0, 10);
   const summaryKey = `upload-summary@${result.site}@${opts.at}`;
   const summaryMsg: DiscordMessage | undefined = !opts.alreadySent.has(summaryKey)
-    ? { keys: [summaryKey], content: uploadSummaryOf(result, opts.at), accentColor: uploadAccentColor(result) }
+    ? { keys: [summaryKey], content: uploadSummaryOf(result, opts.at, opts.run), accentColor: uploadAccentColor(result) }
     : undefined;
 
   const seen = new Set<string>();
-  // เหมือน discordMessages ของฝั่ง export — กันต่อ @${today} ซ้ำถ้ากุญแจมีวันนี้อยู่แล้ว (เผื่ออนาคตมีกุญแจที่มีวันในตัว)
   const fresh = uploadAlertsOf(result)
     .map((a) => (a.key.endsWith(`@${today}`) ? a : { ...a, key: `${a.key}@${today}` }))
     .filter((a) => !opts.alreadySent.has(a.key) && !seen.has(a.key) && seen.add(a.key));
-  // เดิมแยกเป็น 2 ข้อความเสมอ — เจ้าของระบบขอ 2026-10-19 ให้รวมเป็นข้อความเดียวเมื่อมีสรุปอยู่แล้วในการเรียกนี้
-  // (ขา upload มีสรุปแทบทุกครั้งที่เรียก ไม่ dedup ตามวันแบบขา export) เหมือนที่ทำกับ discordMessages ข้างบน
-  const alertMsgs = pack(alertHeaders(summaryMsg !== undefined, `## เรื่องที่ต้องดู\n-# ${thaiDisplayAt(opts.at)}`), fresh, DISCORD_COLOR.problem);
+  const alertMsgs = pack(alertHeaders(summaryMsg !== undefined, `### Needs attention\n${subtext(opts.at, undefined)}`), fresh, DISCORD_COLOR.problem);
   return mergeFirstMessages(summaryMsg, alertMsgs);
 }
 

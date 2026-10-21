@@ -56,32 +56,32 @@ const healthy = (): StoreSnapshot => ({
 const NONE = new Set<string>();
 const keysOf = (ms: ReturnType<typeof discordMessages>) => ms.flatMap((m) => m.keys);
 
-test('🔴 สรุปรายวัน: แต่ละ Site มีข้อมูลกี่รายงาน ว่างตัวไหน snapshot ของวันนี้ครบไหม — ภาษาไทยสั้น · ปกติ = ไม่มีแจ้งเตือน', () => {
+test('🔴 สรุปรอบ: แต่ละ Site บรรทัดเดียวแบบ log (ok/ว่าง/ล้ม + snapshot) — ภาษาอังกฤษ · ปกติ = ไม่มีแจ้งเตือน', () => {
   const r = buildStatus(healthy(), thai('2026-10-14T18:30'), SETUP);
   const ms = discordMessages(r, { summary: true, alreadySent: NONE });
   assert.equal(ms.length, 1);
   const [summary] = ms;
-  assert.deepEqual(summary!.keys, ['summary@2026-10-14']);
-  assert.match(summary!.content, /2026-10-13/); // วันของข้อมูลที่สรุป
-  assert.match(summary!.content, /HotelTime[\s\S]*?มีข้อมูล 2\/3[^\n]*ว่าง 1 \(cancelled\)[^\n]*snapshot วันนี้ ครบ 2\/2/);
-  assert.match(summary!.content, /FoodStory[\s\S]*?มีข้อมูล 1\/2[^\n]*ว่าง 1 \(pay\)[^\n]*snapshot วันนี้ ครบ 1\/1/);
-  assert.match(summary!.content, /ปกติ/);
+  assert.deepEqual(summary!.keys, ['summary@2026-10-14 18:30']); // กุญแจต่อรอบ (เวลาของรอบ) ไม่ใช่ต่อวัน
+  assert.match(summary!.content, /data date 2026-10-13/); // วันของข้อมูลที่สรุป
+  assert.match(summary!.content, /\*\*HotelTime\*\* 3\/3 ok · 1 empty \(cancelled\) · 0 failed · snapshots 2\/2/);
+  assert.match(summary!.content, /\*\*FoodStory\*\* 2\/2 ok · 1 empty \(pay\) · 0 failed · snapshots 1\/1/);
+  assert.match(summary!.content, /All good/);
   assert.ok(summary!.content.length < 2000);
-  // เจ้าของระบบขอ 2026-10-19: header แบบ H1 + subtext เวลา เป็น section แยกจากรายละเอียดของแต่ละ site ด้วย Separator จริง
-  assert.match(summary!.content, /^## Export เอกสารแล้ว \d+ ไฟล์\n-# .+ 2026 \d{2}:\d{2}/);
-  assert.doesNotMatch(summary!.content, /ไม่สำเร็จ/); // วันนี้ไม่มีอะไรล้ม — section นี้ไม่โชว์เลย
+  // เจ้าของระบบขอ 2026-10-19/21: header H3 + subtext แบบ log เป็น section แยกจากรายละเอียดของแต่ละ site ด้วย Separator จริง
+  assert.match(summary!.content, /^### Export done · 18:30\n-# 14 Oct 2026 · data date 2026-10-13/);
+  assert.doesNotMatch(summary!.content, /Failed:/); // วันนี้ไม่มีอะไรล้ม — section นี้ไม่โชว์เลย
 });
 
 // เจ้าของระบบขอ 2026-10-19: ความล้มเหลว (รายงานตามวัน/รายงาน snapshot) ต้องมีชื่อรายงาน+เหตุผลแยกเป็น section ของตัวเอง
 // ในข้อความสรุป (ไม่ใช่แค่ตัวเลข "ล้ม N" ปนอยู่กับสถิติปกติ) เพราะคนดูไม่ต้องเข้าใจโค้ดแต่จำชื่อรายงานได้
-test('🔴 สรุปรายวัน: รายงานที่ล้มขึ้นเป็น section "ไม่สำเร็จ" แยกต่างหาก พร้อมชื่อรายงานและเหตุผล ไม่ปนกับสถิติปกติ', () => {
+test('🔴 สรุปรอบ: รายงานที่ล้มขึ้นเป็น section "Failed" แยกต่างหาก พร้อมชื่อรายงานและเหตุผล ไม่ปนกับสถิติปกติ', () => {
   const s = healthy();
   const failing = { ...s, hoteltime: [s.hoteltime[0]!, folder('2026-10-13', { postings: ['failed', 'Timeout 60000ms exceeded'], invoices: 'data', cancelled: 'empty' }, { arrivals: 'data', 'trial-balance': 'data' }), s.hoteltime[2]!] };
   const r = buildStatus(failing, thai('2026-10-14T18:30'), SETUP);
   const [summary] = discordMessages(r, { summary: true, alreadySent: NONE });
-  assert.match(summary!.content, /ไม่สำเร็จ 1 ไฟล์\n• HotelTime: postings: Timeout 60000ms exceeded/);
-  // บรรทัดรายละเอียดปกติของ site ต้องไม่มีคำว่า "ล้ม" ปนอยู่อีก (ย้ายไป section ไม่สำเร็จแล้วทั้งหมด)
-  assert.doesNotMatch(summary!.content.split('ไม่สำเร็จ')[0]!, /ล้ม/);
+  assert.match(summary!.content, /Failed: 1 file\n• HotelTime: postings: Timeout 60000ms exceeded/);
+  // บรรทัดของ site มีแค่ตัวเลข "1 failed" — ชื่อรายงานและเหตุผลอยู่ใน section Failed เท่านั้น
+  assert.doesNotMatch(summary!.content.split('Failed:')[0]!, /Timeout/);
 });
 
 test('🔴 แจ้งเตือนเมื่อรายงานยังล้มหลังรอบเก็บตกสุดท้าย — บอก Site วันของข้อมูล ชื่อรายงาน สาเหตุ · ก่อน 18:30 (ยังรอรอบเก็บตก) ไม่แจ้ง', () => {
@@ -90,7 +90,7 @@ test('🔴 แจ้งเตือนเมื่อรายงานยัง
   assert.deepEqual(discordMessages(buildStatus(failing, thai('2026-10-14T16:00'), SETUP), { summary: false, alreadySent: NONE }), []);
   const ms = discordMessages(buildStatus(failing, thai('2026-10-14T18:30'), SETUP), { summary: false, alreadySent: NONE });
   assert.equal(ms.length, 1);
-  assert.match(ms[0]!.content, /HotelTime[^\n]*2026-10-13[^\n]*postings[^\n]*Timeout/);
+  assert.match(ms[0]!.content, /HotelTime[^\n]*2026-10-13[^\n]*postings failed[^\n]*Timeout/);
   assert.deepEqual(ms[0]!.keys, ['failed@hoteltime@2026-10-13@postings@2026-10-14']);
 });
 
@@ -108,7 +108,7 @@ test('🔴 แจ้งเตือนเมื่อรายงาน snapshot
   assert.ok(!keys.some((k) => k.startsWith('not-pressed')), keys.join());
   const later = buildStatus(store, thai('2026-10-15T18:30'), { ...SETUP, goLive: '2026-10-01' });
   const content = discordMessages(later, { summary: false, alreadySent: NONE }).map((m) => m.content).join('\n');
-  assert.match(content, /FoodStory ไม่ได้กดมา 2 วัน/);
+  assert.match(content, /FoodStory not run for 2 days/);
 });
 
 test('🔴 เรื่องเดียวกันไม่ส่งซ้ำ: กุญแจที่ส่งแล้วไม่อยู่ในข้อความใหม่ · สรุปวันละครั้ง · เรื่องใหม่ยังส่ง', () => {
@@ -116,10 +116,10 @@ test('🔴 เรื่องเดียวกันไม่ส่งซ้ำ
   const failing = { ...s, hoteltime: [s.hoteltime[0]!, folder('2026-10-13', { postings: ['failed', 'x'], invoices: ['failed', 'y'], cancelled: 'empty' }, { arrivals: 'data', 'trial-balance': 'data' }), s.hoteltime[2]!] };
   const r = buildStatus(failing, thai('2026-10-14T18:30'), SETUP);
   const first = discordMessages(r, { summary: true, alreadySent: NONE });
-  assert.deepEqual(keysOf(first).sort(), ['failed@hoteltime@2026-10-13@invoices@2026-10-14', 'failed@hoteltime@2026-10-13@postings@2026-10-14', 'summary@2026-10-14']);
+  assert.deepEqual(keysOf(first).sort(), ['failed@hoteltime@2026-10-13@invoices@2026-10-14', 'failed@hoteltime@2026-10-13@postings@2026-10-14', 'summary@2026-10-14 18:30']);
   const again = discordMessages(r, { summary: true, alreadySent: new Set(keysOf(first)) });
   assert.deepEqual(again, []);
-  const partly = discordMessages(r, { summary: true, alreadySent: new Set(['summary@2026-10-14', 'failed@hoteltime@2026-10-13@postings@2026-10-14']) });
+  const partly = discordMessages(r, { summary: true, alreadySent: new Set(['summary@2026-10-14 18:30', 'failed@hoteltime@2026-10-13@postings@2026-10-14']) });
   assert.deepEqual(keysOf(partly), ['failed@hoteltime@2026-10-13@invoices@2026-10-14']);
   assert.doesNotMatch(partly[0]!.content, /postings/);
 });
@@ -134,22 +134,22 @@ test('🔴 discordMessages: มีทั้งสรุปและเรื่�
   const messages = discordMessages(r, { summary: true, alreadySent: NONE });
   assert.equal(messages.length, 1); // ไม่ใช่ 2
   const [message] = messages;
-  assert.match(message!.content, /# Export เอกสารแล้ว/); // ส่วนสรุป (H2 เต็ม)
-  assert.match(message!.content, /\*\*เรื่องที่ต้องดู\*\*/); // ส่วนแจ้งเตือน — แค่หัวข้อย่อย ไม่ใช่ H2 ซ้ำ เพราะมี H2 ของสรุปอยู่แล้ว
-  assert.doesNotMatch(message!.content, /# เรื่องที่ต้องดู/); // ไม่มี H2 ซ้ำสอง H2 ในข้อความเดียว
-  assert.match(message!.content, /HotelTime ข้อมูลวันที่ 2026-10-13.*postings.*Timeout/);
+  assert.match(message!.content, /### Export finished with problems/); // ส่วนสรุป (H3 เต็ม)
+  assert.match(message!.content, /\*\*Needs attention\*\*/); // ส่วนแจ้งเตือน — แค่หัวข้อย่อย ไม่ใช่ H3 ซ้ำ เพราะมี H3 ของสรุปอยู่แล้ว
+  assert.doesNotMatch(message!.content, /### Needs attention/); // ไม่มีหัวข้อใหญ่ซ้ำสองอันในข้อความเดียว
+  assert.match(message!.content, /HotelTime data for 2026-10-13.*postings.*Timeout/);
   // key ของทั้งสรุปและแจ้งเตือนต้องรวมอยู่ในข้อความเดียวกันนี้ ให้ dedup ถูกทั้งคู่
-  assert.ok(message!.keys.includes('summary@2026-10-14'));
+  assert.ok(message!.keys.includes('summary@2026-10-14 18:30'));
   assert.ok(message!.keys.includes('failed@hoteltime@2026-10-13@postings@2026-10-14'));
 });
 
-test('🔴 discordMessages: ไม่มีสรุปในการเรียกนี้ (summary:false หรือส่งไปแล้ว) → แจ้งเตือนเดี่ยว ๆ ยังมี H2 เต็มของตัวเอง', () => {
+test('🔴 discordMessages: ไม่มีสรุปในการเรียกนี้ (summary:false หรือส่งไปแล้ว) → แจ้งเตือนเดี่ยว ๆ ยังมี H3 เต็มของตัวเอง', () => {
   const s = healthy();
   const failing = { ...s, hoteltime: [s.hoteltime[0]!, folder('2026-10-13', { postings: ['failed', 'x'], invoices: 'data', cancelled: 'empty' }, { arrivals: 'data', 'trial-balance': 'data' }), s.hoteltime[2]!] };
   const r = buildStatus(failing, thai('2026-10-14T18:30'), SETUP);
   const messages = discordMessages(r, { summary: false, alreadySent: NONE });
   assert.equal(messages.length, 1);
-  assert.match(messages[0]!.content, /^## เรื่องที่ต้องดู\n-# .+ 2026 \d{2}:\d{2}/); // H2 เต็มของตัวเอง เพราะไม่มีสรุปมาให้ H2 ร่วม
+  assert.match(messages[0]!.content, /^### Needs attention\n-# 14 Oct 2026/); // H3 เต็มของตัวเอง เพราะไม่มีสรุปมาให้หัวข้อร่วม
 });
 
 test('ข้อความยาวเกิน Discord (2000 ตัวอักษร) แบ่งเป็นหลายข้อความ — ไม่มีเรื่องไหนหาย', () => {
@@ -173,10 +173,10 @@ test('🔴 discordMessages: มีทั้งสรุปและแจ้ง�
   const r = buildStatus(store, thai('2026-10-14T18:30'), { ...SETUP, catalog: { hoteltime: many, foodstory: FS } });
   const ms = discordMessages(r, { summary: true, alreadySent: NONE });
   assert.ok(ms.length > 1, String(ms.length)); // แจ้งเตือนยาวจนต้องแบ่งแน่นอน
-  assert.match(ms[0]!.content, /# Export เอกสารแล้ว/); // ก้อนแรก = สรุป + หัวข้อย่อยของแจ้งเตือน
-  assert.match(ms[0]!.content, /\*\*เรื่องที่ต้องดู\*\*/);
+  assert.match(ms[0]!.content, /### Export finished with problems/); // ก้อนแรก = สรุป + หัวข้อย่อยของแจ้งเตือน
+  assert.match(ms[0]!.content, /\*\*Needs attention\*\*/);
   for (const m of ms.slice(1)) {
-    assert.match(m.content, /^## เรื่องที่ต้องดู\n-# .+ 2026 \d{2}:\d{2}/, m.content.slice(0, 60)); // ก้อนที่ 2+ ต้องมี H2 เต็มของตัวเอง
+    assert.match(m.content, /^### Needs attention\n-# 14 Oct 2026/, m.content.slice(0, 60)); // ก้อนที่ 2+ ต้องมีหัวข้อเต็มของตัวเอง
   }
   assert.equal(keysOf(ms).filter((k) => k.startsWith('failed@')).length, 120); // ไม่มีเรื่องไหนหาย
 });

@@ -20,8 +20,8 @@ import type { UploadRunResult } from './core/uploader.ts';
  * เรียกหลังจบ `export --daily` ทุกรอบ (ทั้งสอง Site) และจาก `exporter notify` · **ไม่โยน error และไม่เปลี่ยน exit code ของรอบ export**: ไม่มี URL = ข้าม ·
  * ส่งไม่ได้ (Discord ล่ม/rate limit หลังลองซ้ำแล้ว) = บันทึกว่าส่งไม่ได้แล้วจบ (เรื่องที่ยังไม่ได้ส่ง ส่งในครั้งถัดไปเอง) · URL ไม่ถูกพิมพ์หรือบันทึกที่ไหน
  *
- * จังหวะ: รอบรายวัน HotelTime ที่จบตั้งแต่ 18:00 คือรอบเก็บตกสุดท้ายของวัน → ประเมิน status เหมือนเป็น 18:30 (หลังรอบเก็บตก — ล้ม = ปัญหา ไม่ใช่ "รอ") และส่ง
- * **สรุปรายวัน** (วันละครั้ง) · สรุปที่ส่งไม่ได้ ส่งใหม่ในครั้งถัดไปของเย็นวันเดียวกัน (ทุก trigger) · `exporter notify --summary` สั่งส่งสรุปเองได้
+ * จังหวะ: **ทุกรอบรายวัน** ส่งสรุปหนึ่งข้อความ (2026-10-21 — เดิมวันละครั้งตอน 18:00) · รอบรายวัน HotelTime ที่จบตั้งแต่ 18:00 คือรอบเก็บตกสุดท้ายของวัน →
+ * ประเมิน status เหมือนเป็น 18:30 (หลังรอบเก็บตก — ล้ม = ปัญหา ไม่ใช่ "รอ") · `exporter notify --summary` สั่งส่งสรุปเองได้
  *
  * `notifyUpload` (ticket 05 ของ `exporter-upload-to-uploader`) ใช้ log/ตัวส่งไฟล์เดียวกันนี้ (`sendAndLog`) แต่คนละ Discord
  * channel กับขา export — เจ้าของระบบขอ 2026-10-18 ให้แยก channel กัน: `DISCORD_WEBHOOK_URL_EXPORT` (ขา export, ฟังก์ชันนี้)
@@ -36,6 +36,7 @@ export type NotifyResult =
   | { readonly status: 'failed'; readonly sent: number; readonly error: string };
 
 const FINAL_RUN_HOUR = 18;
+const TRIGGER_LABEL: Readonly<Record<NotifyTrigger, string>> = { 'hoteltime-daily': 'HotelTime daily run', 'foodstory-daily': 'FoodStory run', manual: 'manual' };
 const FINAL_EVALUATION_MIN = 18 * 60 + 30;
 
 /** รอบรายวัน HotelTime ที่จบหลัง 18:00 = รอบสุดท้ายของวัน → ประเมินเหมือนเป็น 18:30 (ไม่ถอยเวลา ถ้าเลย 18:30 แล้ว) */
@@ -76,6 +77,8 @@ export async function notifyDiscord(opts: {
   readonly summary?: boolean;
   /** คืนข้อความโดยไม่ส่งและไม่บันทึก */
   readonly dryRun?: boolean;
+  /** ระยะเวลาของรอบ export (ms) สำหรับ subtext ของสรุป */
+  readonly durationMs?: number;
 }): Promise<NotifyResult> {
   const now = opts.now ?? new Date();
   const dataDir = opts.dataDir ?? defaultDataDir();
@@ -86,13 +89,17 @@ export async function notifyDiscord(opts: {
     if (url !== null) redact = webhookRedactor(url);
     if (url === null && !opts.dryRun) return { status: 'skipped', reason: 'ยังไม่ได้ตั้ง DISCORD_WEBHOOK_URL_EXPORT ใน exporter/.env — ข้ามการส่ง Discord' };
     const log = await readNotifyLog(dataDir);
-    const clock = thaiClock(now);
-    const today = formatISO(thaiToday(now));
-    // สรุปที่ส่งไม่ได้เมื่อเย็นนี้ → ส่งใหม่ครั้งถัดไปของเย็นวันเดียวกัน ไม่ว่า trigger ไหน
-    const summaryFailedToday = log.failures.some((f) => f.keys.includes(`summary@${today}`));
-    const summary = opts.summary ?? (clock.hour >= FINAL_RUN_HOUR && (opts.trigger === 'hoteltime-daily' || summaryFailedToday));
+    // สรุปทุกรอบรายวัน (2026-10-21) · `exporter notify` เปล่า ๆ ไม่ส่งสรุป ต้องสั่ง --summary
+    const summary = opts.summary ?? opts.trigger !== 'manual';
     const report = buildStatus(await readStoreSnapshot(dataDir), evaluationTime(now, opts.trigger), statusSetup(envFile));
-    const messages = discordMessages(report, { summary, alreadySent: new Set(Object.keys(log.sent)) });
+    const c = thaiClock(now);
+    const p = (n: number) => String(n).padStart(2, '0');
+    const run = {
+      at: `${formatISO(thaiToday(now))} ${p(c.hour)}:${p(c.minute)}`,
+      label: TRIGGER_LABEL[opts.trigger],
+      ...(opts.durationMs !== undefined ? { durationMs: opts.durationMs } : {}),
+    };
+    const messages = discordMessages(report, { summary, alreadySent: new Set(Object.keys(log.sent)), run });
     if (opts.dryRun) return { status: 'dry-run', messages };
     if (url === null || messages.length === 0) return { status: 'sent', messages: 0 };
     return await sendAndLog(dataDir, url, messages, now);
@@ -113,6 +120,8 @@ export async function notifyUpload(opts: {
   readonly dataDir?: string;
   readonly envFile?: string;
   readonly dryRun?: boolean;
+  /** ระยะเวลาของรอบ upload (ms) สำหรับ subtext ของสรุป */
+  readonly durationMs?: number;
 }): Promise<NotifyResult> {
   const now = opts.now ?? new Date();
   const dataDir = opts.dataDir ?? defaultDataDir();
@@ -123,7 +132,11 @@ export async function notifyUpload(opts: {
     if (url !== null) redact = webhookRedactor(url);
     if (url === null && !opts.dryRun) return { status: 'skipped', reason: 'ยังไม่ได้ตั้ง DISCORD_WEBHOOK_URL_UPLOAD ใน exporter/.env — ข้ามการส่ง Discord' };
     const log = await readNotifyLog(dataDir);
-    const messages = uploadDiscordMessages(opts.result, { at: now.toISOString(), alreadySent: new Set(Object.keys(log.sent)) });
+    const messages = uploadDiscordMessages(opts.result, {
+      at: now.toISOString(),
+      alreadySent: new Set(Object.keys(log.sent)),
+      run: { ...(opts.durationMs !== undefined ? { durationMs: opts.durationMs } : {}) },
+    });
     if (opts.dryRun) return { status: 'dry-run', messages };
     if (url === null || messages.length === 0) return { status: 'sent', messages: 0 };
     return await sendAndLog(dataDir, url, messages, now);
