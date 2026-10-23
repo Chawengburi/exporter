@@ -37,6 +37,8 @@ export type Config = {
   readonly goLive: string | null;
   /** session ที่ login ค้างไว้ (ดู session.ts) — .auth/ ถูก gitignore ทั้งโฟลเดอร์ */
   readonly authStatePath: string;
+  /** คีย์ 2captcha (`TWOCAPTCHA_API_KEY`, ADR-0010) — มี → login แก้ reCAPTCHA เองอัตโนมัติ · null = ไม่มี → รอคนกด */
+  readonly captchaApiKey: string | null;
 };
 
 export type Credentials = {
@@ -90,6 +92,7 @@ export function loadConfig(): Config {
     dataDir: path.join(PROJECT_ROOT, 'data'),
     goLive: goLiveFromEnv(),
     authStatePath: path.join(PROJECT_ROOT, '.auth', 'foodstory.json'),
+    captchaApiKey: envStr('TWOCAPTCHA_API_KEY', '') || null,
   };
 }
 

@@ -11,6 +11,7 @@ test('🔴 env ของเบราว์เซอร์ไม่มี URL web
     DISCORD_WEBHOOK_URL_EXPORT: 'https://discord.com/api/webhooks/1/abc', DISCORD_WEBHOOK_URL_UPLOAD: 'https://discord.com/api/webhooks/2/def',
     HOTELTIME_PASSWORD: 'p', FOODSTORY_PASSWORD: 'q',
     HOTELTIME_USERNAME: 'u', FOODSTORY_EMAIL: 'e@x', AI_TOKEN: 't', SOME_API_SECRET: 's',
+    TWOCAPTCHA_API_KEY: 'k',
   });
   assert.deepEqual(Object.keys(env).sort(), ['DISPLAY', 'HOME', 'LANG', 'PATH']);
 });
