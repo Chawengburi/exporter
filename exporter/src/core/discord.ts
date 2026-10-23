@@ -2,7 +2,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { SITE_LABEL } from './placement.ts';
 import { createRedactor } from './redact.ts';
-import type { DayView, SiteView, StatusReport } from './status.ts';
+import { isLoginFailureReason } from './run-record.ts';
+import type { DayView, FailedReport, SiteView, StatusReport } from './status.ts';
 import { thaiClock } from './thai-time.ts';
 import { isUnresolvedDocumentTypeReason } from './uploader.ts';
 import type { EmptyResultEntry, UploadFileResult, UploadRunResult } from './uploader.ts';
@@ -95,6 +96,8 @@ const firstLine = (s: string) => {
   return line.length > 120 ? `${line.slice(0, 117)}...` : line;
 };
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+/** ผลล้มที่ไม่ใช่ login ล้มทั้งรอบ — login ล้มเล่าเป็นเรื่องเดียวจาก `SiteView.loginFailure` (ใบ 02) ไม่ไล่ทีละรายงาน */
+const notLogin = (failed: readonly FailedReport[]) => failed.filter((f) => !isLoginFailureReason(f.error));
 
 /** วันของข้อมูลล่าสุดที่ถึงกำหนดของ Site (เมื่อวาน หลัง 07:00) */
 const latestDataDay = (site: SiteView): DayView | undefined => [...site.days].reverse().find((d) => d.perDay !== null);
@@ -225,10 +228,14 @@ function exportFailures(report: StatusReport, today: string): { readonly label: 
   const out: { label: string; reason: string }[] = [];
   for (const site of report.sites) {
     const label = SITE_LABEL[site.site];
-    const day = latestDataDay(site);
-    for (const f of day?.perDay?.failed ?? []) out.push({ label: `${label}: ${f.report}`, reason: firstLine(f.error) });
-    const pictures = site.days.find((d) => d.day === today)?.pictures;
-    for (const f of pictures?.failed ?? []) out.push({ label: `${label}: ${f.report} (snapshot)`, reason: firstLine(f.error) });
+    const perDay = latestDataDay(site)?.perDay?.failed ?? [];
+    const pictures = site.days.find((d) => d.day === today)?.pictures?.failed ?? [];
+    // login ล้มทั้งรอบ (ใบ 02) = เรื่องเดียว ไม่ไล่ชื่อทุกรายงานที่ล้มด้วยเหตุผลเดียวกัน
+    if (site.loginFailure !== null && notLogin([...perDay, ...pictures]).length < perDay.length + pictures.length) {
+      out.push({ label, reason: `login failed — ${firstLine(site.loginFailure.detail)}` });
+    }
+    for (const f of notLogin(perDay)) out.push({ label: `${label}: ${f.report}`, reason: firstLine(f.error) });
+    for (const f of notLogin(pictures)) out.push({ label: `${label}: ${f.report} (snapshot)`, reason: firstLine(f.error) });
   }
   return out;
 }
@@ -264,7 +271,7 @@ function alertsOf(report: StatusReport, today: string): Alert[] {
         out.push({ key: `state@${site.site}@${d.day}`, line: `${at}: ${d.state === 'running' ? 'run did not finish' : '_run.json unreadable'}` });
         continue;
       }
-      for (const f of d.perDay?.failed ?? []) {
+      for (const f of notLogin(d.perDay?.failed ?? [])) {
         out.push({ key: `failed@${site.site}@${d.day}@${f.report}`, line: `${at}: ${f.report} failed — ${firstLine(f.error)}`, covered: d === latestDataDay(site) });
       }
       // โหมดพนักงานกด: ยังไม่ได้ดึง = เรื่อง "ไม่ได้กด" (เตือนแยก) ไม่ใช่ปัญหาของวันนั้น
@@ -272,7 +279,7 @@ function alertsOf(report: StatusReport, today: string): Alert[] {
         for (const id of d.perDay?.notFetched ?? []) out.push({ key: `missing@${site.site}@${d.day}@${id}`, line: `${at}: ${id} not fetched` });
       }
       if (d.day === today && d.pictures && (site.mode === 'auto' || time >= MANUAL_PICTURE_ALERT_AT)) {
-        for (const f of d.pictures.failed) out.push({ key: `picture@${site.site}@${d.day}@${f.report}`, line: `${at}: snapshot ${f.report} could not be taken — ${firstLine(f.error)}`, covered: true });
+        for (const f of notLogin(d.pictures.failed)) out.push({ key: `picture@${site.site}@${d.day}@${f.report}`, line: `${at}: snapshot ${f.report} could not be taken — ${firstLine(f.error)}`, covered: true });
         for (const id of d.pictures.missing) out.push({ key: `picture@${site.site}@${d.day}@${id}`, line: `${at}: snapshot ${id} not taken yet` });
       }
     }
@@ -280,12 +287,16 @@ function alertsOf(report: StatusReport, today: string): Alert[] {
       if (c.level !== 'problem') continue;
       const lost = today > c.retryUntil;
       const period = c.period === 'year' ? `year ${c.periodEnd.slice(0, 4)}` : `month ${c.periodEnd.slice(0, 7)}`;
-      for (const id of [...c.failed.map((f) => f.report), ...c.missing]) {
+      for (const id of [...notLogin(c.failed).map((f) => f.report), ...c.missing]) {
         out.push({
           key: `close@${site.site}@${c.periodEnd}@${id}${lost ? '@lost' : ''}`,
           line: `${label} period-close snapshot for ${period}: ${id} ${lost ? 'lost for good (retry window is over)' : `not taken yet — retrying until ${c.retryUntil}`}`,
         });
       }
+    }
+    // login ล้มทั้งรอบ (ใบ 02) — เรื่องเดียวแทนทุกรายงาน · อยู่ในก้อน Failed/Problems ของสรุปแล้ว (covered)
+    if (site.loginFailure?.level === 'problem') {
+      out.push({ key: `login-failed@${site.site}@${today}`, line: `${label} login failed — ${firstLine(site.loginFailure.detail)}`, covered: true });
     }
     if (site.backlogDays > 0) {
       out.push({ key: `backlog@${site.site}@${today}`, line: `${label}: ${plural(site.backlogDays, 'day')} of data missing, more than one run can fill` });

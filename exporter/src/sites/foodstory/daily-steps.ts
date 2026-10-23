@@ -1,4 +1,5 @@
 import type { WorkPlan } from '../../core/run-planner.ts';
+import { loginFailureReason } from '../../core/run-record.ts';
 import { ID as RESERVATION_ID } from './reservation-report.ts';
 
 /**
@@ -13,6 +14,18 @@ export type FoodStoryStep =
   | { readonly kind: 'set-range'; readonly day: string }
   | { readonly kind: 'report'; readonly report: string; readonly day: string; readonly periodClose: boolean }
   | { readonly kind: 'reservation'; readonly day: string };
+/** ขั้นที่ได้ผลเป็นรายงาน (ไม่ใช่การตั้งช่วง) */
+export type ReportStep = Extract<FoodStoryStep, { kind: 'report' | 'reservation' }>;
+
+/**
+ * login ล้ม (exporter-foodstory-scheduled-daily ใบ 02) → ทุกขั้นที่ได้ผลเป็นรายงานในแผนของรอบนี้ล้มด้วยเหตุผลเดียวที่มีตัวบอก login ล้ม — ผู้เรียก
+ * บันทึกผลตามทางเดิม ให้ status/Discord เห็นว่ารอบนี้รันแล้วแต่ login ไม่ผ่าน (เดิมไม่มีบันทึกเลย จึงดูเหมือนยังไม่มีใครรัน) · แผนมีเฉพาะรายงานที่ยังไม่
+ * สำเร็จ จึงไม่มีผลที่เคยผ่านถูกทับ · รอบเก็บตกถัดไปลองใหม่เอง (ADR-0008)
+ */
+export function loginFailedSteps(steps: readonly FoodStoryStep[], reason: string): { readonly step: ReportStep; readonly error: string }[] {
+  const error = loginFailureReason(reason);
+  return steps.filter((s): s is ReportStep => s.kind !== 'set-range').map((step) => ({ step, error }));
+}
 
 export function foodstoryDailySteps(plan: WorkPlan): FoodStoryStep[] {
   const steps: FoodStoryStep[] = [];

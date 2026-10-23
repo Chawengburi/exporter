@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { discordMessages, postDiscord, SECTION_BREAK } from '../src/core/discord.ts';
 import type { PlannedReport } from '../src/core/run-planner.ts';
-import type { RunRecord } from '../src/core/run-record.ts';
+import { loginFailureReason, type RunRecord } from '../src/core/run-record.ts';
 import { buildStatus, type Folder, type StatusSetup, type StoreSnapshot } from '../src/core/status.ts';
 
 // ใบ 08: ข้อความ Discord เป็นฟังก์ชันล้วนจากผลของ `exporter status` (seam S2 ขยาย) — สรุปวันละข้อความ + แจ้งเตือนเมื่อมีเรื่องต้องดู ·
@@ -345,6 +345,28 @@ test('🔴 FoodStory รันตามเวลา: รายงาน snapshot
   const key = 'picture@foodstory@2026-10-14@current_stock@2026-10-14';
   assert.ok(keysOf(discordMessages(buildStatus(store, thai('2026-10-14T16:00'), SCHEDULED), { summary: false, alreadySent: NONE })).includes(key));
   assert.ok(!keysOf(discordMessages(buildStatus(store, thai('2026-10-14T16:00'), SETUP), { summary: false, alreadySent: NONE })).includes(key));
+});
+
+// ใบ 02 — login ล้ม: ทุกรายงานในแผนล้มด้วยเหตุผลเดียว → Discord บอกบรรทัดเดียวว่า login ล้มเพราะอะไร ไม่ไล่ชื่อรายงานทีละใบ
+const LOGIN = loginFailureReason('แก้ reCAPTCHA อัตโนมัติไม่สำเร็จ: ERROR_ZERO_BALANCE');
+const loginFailed = (): StoreSnapshot => {
+  const s = healthy();
+  return { ...s, foodstoryDaily: [s.foodstoryDaily[0]!, folder('2026-10-13', { salebybill: ['failed', LOGIN], pay: ['failed', LOGIN] }, { current_stock: 'data' }),
+    folder('2026-10-14', undefined, { current_stock: ['failed', LOGIN] })] };
+};
+
+test('🔴 FoodStory login ล้ม: สรุปรอบมี "login failed — <เหตุผล>" บรรทัดเดียวในก้อน Failed ไม่ไล่ชื่อรายงาน', () => {
+  const [m] = discordMessages(buildStatus(loginFailed(), thai('2026-10-14T12:30'), SCHEDULED), { summary: true, alreadySent: NONE });
+  assert.match(m!.content, /\*\*Failed \(1\)\*\*\n• FoodStory: login failed — แก้ reCAPTCHA อัตโนมัติไม่สำเร็จ: ERROR_ZERO_BALANCE/);
+  assert.doesNotMatch(m!.content, /FoodStory: (salebybill|pay|current_stock)/);
+});
+
+test('🔴 FoodStory login ล้ม: แจ้งเตือน (หลังรอบเก็บตก) เป็นเรื่องเดียว กุญแจ login-failed — ไม่มี failed@/picture@ ของ FoodStory ทีละใบ', () => {
+  const ms = discordMessages(buildStatus(loginFailed(), thai('2026-10-14T19:00'), SCHEDULED), { summary: false, alreadySent: NONE });
+  const keys = keysOf(ms);
+  assert.ok(keys.includes('login-failed@foodstory@2026-10-14'), keys.join());
+  assert.ok(!keys.some((k) => /^(failed|picture)@foodstory@/.test(k)), keys.join());
+  assert.match(ms.map((x) => x.content).join('\n'), /FoodStory login failed — แก้ reCAPTCHA อัตโนมัติไม่สำเร็จ: ERROR_ZERO_BALANCE/);
 });
 
 test('🔴 ตัวส่ง: rate limit / 5xx ลองซ้ำเองตาม retry_after (สูงสุด 2 ครั้ง) — ครั้งที่สองผ่าน = สำเร็จ', async () => {

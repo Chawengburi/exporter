@@ -87,6 +87,20 @@ const RECORD_FILE = '_run.json';
 const SUMMARY_FILE = '_summary.txt';
 
 /**
+ * ตัวบอกว่าผลล้มมาจาก **login ล้มทั้งรอบ** (exporter-foodstory-scheduled-daily ใบ 02) — รอบที่ login ไม่ผ่านบันทึกทุกรายงานในแผนเป็นล้มด้วยเหตุผล
+ * `<prefix><รายละเอียด><suffix>` ให้ status/Discord รวมเป็นบรรทัดเดียว แทนการไล่ชื่อรายงานที่ล้มด้วยเหตุผลเดียวกัน · ที่เดียวทั้งฝั่งเขียน (Site) และฝั่งอ่าน
+ * (status/Discord) — แบบเดียวกับตัวบอก "ยังไม่มี document_type" ใน uploader.ts: เช็คทั้ง prefix และ suffix (code review ใบ 02) เพราะข้อความ error จาก
+ * เว็บ/Playwright ขึ้นต้นด้วยอะไรก็ได้ แต่ไม่มีทางลงท้ายด้วยแท็กภายในของเราเอง — เช็คแค่ prefix เสี่ยงกลืนความล้มจริงแบบเงียบ ๆ
+ */
+const LOGIN_FAILED_PREFIX = 'login ล้มทั้งรอบ: ';
+const LOGIN_FAILED_SUFFIX = ' [exporter:login-failed]';
+export const loginFailureReason = (detail: string): string => `${LOGIN_FAILED_PREFIX}${detail}${LOGIN_FAILED_SUFFIX}`;
+export const isLoginFailureReason = (error: string): boolean => error.startsWith(LOGIN_FAILED_PREFIX) && error.endsWith(LOGIN_FAILED_SUFFIX);
+/** รายละเอียดของ login ที่ล้ม (ไม่มีตัวบอก) · ผลล้มแบบอื่น = null */
+export const loginFailureDetail = (error: string): string | null =>
+  isLoginFailureReason(error) ? error.slice(LOGIN_FAILED_PREFIX.length, -LOGIN_FAILED_SUFFIX.length) : null;
+
+/**
  * 0 = ผ่านหมด · 2 = ผ่านบางใบ · 1 = ไม่ได้อะไรเลย (ConfigError ของทั้งรอบ ผู้เรียกคืน 1 เองก่อนถึงตรงนี้)
  * · ไม่มีใบไหนต้องรันเลย (ทุกใบถูกข้าม) = 0 เพราะไม่มีอะไรล้ม — พฤติกรรมเดิมก่อนมีบันทึกผลรอบ
  */

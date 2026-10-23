@@ -9,6 +9,8 @@ import {
   currentBaselineFor,
   exitCodeFor,
   findOutcomeForFile,
+  isLoginFailureReason,
+  loginFailureReason,
   readRunRecord,
   recordRun,
   type ReportOutcome,
@@ -120,6 +122,22 @@ test('ใบที่เคยข้ามแล้วรอบนี้รั�
   await recordRun(folder, { ...BASE, outcomes: [ok('arrivals')], skipped: [{ report: 'housekeeping', reason: 'ทดสอบ' }] });
   await recordRun(folder, { ...BASE, outcomes: [ok('housekeeping')] });
   assert.deepEqual((await readRunRecord(folder))?.skipped, []);
+});
+
+test('🔴 login ล้มทั้งรอบ (scheduled-daily ใบ 02): บันทึกผลล้มลงวันเดิมแบบ merge — รายงานอื่นที่ ok ยังเป็น ok · ถ้าใบที่เคย ok ถูกบันทึกล้ม ไฟล์ที่ผ่านยังนับ (previousOk)', async () => {
+  const { folder } = await dayFolder();
+  await recordRun(folder, { ...BASE, outcomes: [ok('salebybill', 7)] });
+  const reason = loginFailureReason('แก้ reCAPTCHA อัตโนมัติไม่สำเร็จ: ERROR_ZERO_BALANCE');
+  // ตัวที่กันไม่ให้ทับ ok จริง ๆ คือแผนรายวัน (มีเฉพาะที่ยังไม่สำเร็จ — salebybill ไม่อยู่ในแผน มีแต่ pay) · recordRun เองเป็นแค่ merge
+  await recordRun(folder, { ...BASE, outcomes: [failed('pay', reason)] });
+  const record = await readRunRecord(folder);
+  assert.equal(record?.reports['salebybill']?.status, 'ok');
+  const pay = record?.reports['pay'];
+  assert.ok(pay?.status === 'failed' && isLoginFailureReason(pay.error));
+  // แม้มีใบที่เคย ok ถูกบันทึกล้มซ้ำ ไฟล์ที่ผ่านของรอบก่อนยังนับ (previousOk)
+  await recordRun(folder, { ...BASE, outcomes: [failed('salebybill', reason)] });
+  const again = (await readRunRecord(folder))?.reports['salebybill'];
+  assert.equal(again?.status === 'failed' ? again.previousOk?.rows : undefined, 7);
 });
 
 test('รันซ้ำแล้วล้ม — บันทึกว่าล้ม แต่บอกด้วยว่าไฟล์ที่ผ่านของรอบก่อนยังอยู่', async () => {

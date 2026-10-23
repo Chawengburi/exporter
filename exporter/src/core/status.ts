@@ -9,7 +9,7 @@ import {
   CATCH_UP_CAP_DAYS, GO_LIVE_ENV, PERIOD_CLOSE_SUFFIX, PERIOD_CLOSE_WINDOW_DAYS, isDone, lastDueDay, parseGoLive, periodCloseRetryUntil, planDailyRun,
   stateKey, storeStateFrom, type DayStatus, type PlannedItem, type PlannedReport,
 } from './run-planner.ts';
-import type { RunRecord } from './run-record.ts';
+import { isLoginFailureReason, loginFailureDetail, type RunRecord } from './run-record.ts';
 import { thaiClock, thaiDateOf, thaiToday, type ThaiClock } from './thai-time.ts';
 import type { UploadBacklogView } from './uploader.ts';
 
@@ -134,7 +134,10 @@ export type SiteView = {
   /** วันที่ (เวลาไทย) ของรอบล่าสุด และห่างจากวันนี้กี่วัน (FoodStory: ไม่ได้กดมากี่วัน) */
   readonly lastRunDay: string | null;
   readonly daysSinceLastRun: number | null;
+  /** login ล้มทั้งรอบ (ใบ 02 ของ exporter-foodstory-scheduled-daily) ในช่วงที่ดู — รายละเอียดล่าสุด + ระดับตามกติกาเวลา · ไม่มี = null */
+  readonly loginFailure: LoginFailure | null;
 };
+export type LoginFailure = { readonly detail: string; readonly level: StatusLevel };
 
 export type StatusLine = { readonly level: StatusLevel; readonly text: string };
 export type StatusSection = { readonly title: string; readonly lines: readonly StatusLine[] };
@@ -159,7 +162,9 @@ const WINDMILL_RUNS = 'http://localhost:8000/runs';
 const SCHEDULED_NOON_DEADLINE_MIN = 15 * 60; // รอบเที่ยงใช้ไม่ถึง 15 นาที (เพดาน 3 วัน) — 15:00 แล้วยังไม่มี = รอบเที่ยงไม่ได้รัน
 /** รอบเก็บตกสุดท้าย 18:00 — หลัง 18:30 ยังล้ม = ปัญหา · การแจ้ง Discord ของรอบที่จบหลัง 18:00 ประเมินที่เวลานี้ (notify.ts) */
 export const SCHEDULED_CATCHUP_DONE_MIN = 18 * 60 + 30;
-const SCHEDULED_TITLE = '(รันเองทุกวัน 12:00 · เก็บตก 15:00/18:00)';
+const SCHEDULE = '12:00 · เก็บตก 15:00/18:00';
+const SCHEDULED_TITLE = `(รันเองทุกวัน ${SCHEDULE})`;
+const RETRY_BY_HAND = 'ดับเบิลคลิกใหม่ ถ้ายังล้มแจ้งผู้ดูแลระบบ';
 const MONTHLY_DUE_DAY = 5;
 const NAMES_SHOWN = 6;
 
@@ -188,7 +193,7 @@ function perDayLevel(v: PerDayView, day: string, mode: Mode, now: Clock): Judged
   if (v.failed.length === 0 && v.notFetched.length === 0) return { level: 'ok', note: '' };
   if (mode === 'manual') {
     return v.failed.length > 0
-      ? { level: 'problem', note: 'ดับเบิลคลิกใหม่ ถ้ายังล้มแจ้งผู้ดูแลระบบ' }
+      ? { level: 'problem', note: RETRY_BY_HAND }
       : { level: 'info', note: 'กดครั้งถัดไปเติมให้' };
   }
   if (day === now.due) {
@@ -311,16 +316,52 @@ function siteView(
 
   const plan = planDailyRun({ now: at, reports: catalog, state, goLive });
   const lastRunDay = readable.flatMap((f) => f.record.runs.map((r) => thaiDateOf(r.startedAt) ?? '')).sort().at(-1) || null;
+  const closes = closesOf(readable, catalog, state, plan.periodCloses, now.today, windowDays).map((c) => ({ ...c, ...closeLevel(c, mode, now) }));
+  // login ล้มทั้งรอบ (ใบ 02): ตัดสินระดับจากกติกาเวลาเดิมก่อน แล้วบรรทัด login บรรทัดเดียวเล่าแทน — วัน/งวดที่ล้มเพราะ login อย่างเดียวไม่นับซ้ำเป็นปัญหา
+  const loginFailure = loginFailureOf(days, closes);
+  const withoutLogin = (failed: readonly FailedReport[]) => failed.filter((f) => !isLoginFailureReason(f.error));
   return {
     site,
     mode,
     start: perDayStart,
-    days,
-    closes: closesOf(readable, catalog, state, plan.periodCloses, now.today, windowDays).map((c) => ({ ...c, ...closeLevel(c, mode, now) })),
+    days: days.map((d) => (!hasLoginFailure([...(d.perDay?.failed ?? []), ...(d.pictures?.failed ?? [])]) ? d : {
+      ...d,
+      ...excusingLogin(dayLevel({
+        ...d,
+        perDay: d.perDay && { ...d.perDay, failed: withoutLogin(d.perDay.failed) },
+        pictures: d.pictures && { ...d.pictures, failed: withoutLogin(d.pictures.failed) },
+      }, mode, now)),
+    })),
+    closes: closes.map((c) => (!hasLoginFailure(c.failed) ? c : { ...c, ...excusingLogin(closeLevel({ ...c, failed: withoutLogin(c.failed) }, mode, now)) })),
     backlogDays: goLive === null ? 0 : plan.backlogDays,
     lastRunDay,
     daysSinceLastRun: lastRunDay === null ? null : daysBetween(lastRunDay, now.today),
+    loginFailure,
   };
+}
+
+const hasLoginFailure = (failed: readonly FailedReport[]) => failed.some((f) => isLoginFailureReason(f.error));
+/** ระดับของวัน/งวดเมื่อไม่นับผลที่ล้มเพราะ login — ไม่เหลือเรื่องอื่น = info (ยังมีผลล้ม แต่บรรทัด login ด้านล่างเล่าแล้ว) */
+function excusingLogin(rest: Judged): Judged {
+  return rest.level === 'ok' ? { level: 'info', note: 'ล้มเพราะ login — ดูบรรทัดสรุปด้านล่าง' } : rest;
+}
+
+/**
+ * login ล้มทั้งรอบในช่วงที่ดู — รายละเอียดของวันล่าสุดที่เจอ (งวดเป็นทางสุดท้าย) + ระดับที่หนักที่สุดตามกติกาเวลาเดิมของวัน/งวดเหล่านั้น ·
+ * ผลล้มแบบอื่นไม่นับ
+ */
+function loginFailureOf(days: readonly DayView[], closes: readonly CloseView[]): LoginFailure | null {
+  const hits: { detail: string; level: StatusLevel }[] = [];
+  const scan = (failed: readonly FailedReport[], level: StatusLevel) => {
+    for (const f of failed) {
+      const detail = loginFailureDetail(f.error);
+      if (detail !== null) hits.push({ detail, level });
+    }
+  };
+  for (const c of closes) scan(c.failed, c.level);
+  for (const d of days) scan([...(d.perDay?.failed ?? []), ...(d.pictures?.failed ?? [])], d.level);
+  const last = hits.at(-1);
+  return last === undefined ? null : { detail: last.detail, level: worst(hits.map((h) => h.level)) };
 }
 
 /**
@@ -390,11 +431,18 @@ class SectionBuilder {
   }
 }
 
+/** ผลล้มในบรรทัดของวัน — ที่ล้มเพราะ login ทั้งรอบนับรวมเป็นตัวเลขเดียว (สาเหตุอยู่ในบรรทัด login บรรทัดเดียว ไม่โชว์ตัวบอกภายใน) */
+function failedParts(failed: readonly FailedReport[]): string {
+  const other = failed.filter((f) => !isLoginFailureReason(f.error));
+  const login = failed.length - other.length;
+  return (other.length > 0 ? ` · ล้ม ${other.length} (${failSummary(other)})` : '') + (login > 0 ? ` · ล้มเพราะ login ${login}` : '');
+}
+
 function perDayPart(v: PerDayView): string {
   return (
     `ตามวัน ${v.total}: มีข้อมูล ${v.data}` +
     (v.empty.length > 0 ? ` · ว่าง ${v.empty.length} (${names(v.empty)})` : '') +
-    (v.failed.length > 0 ? ` · ล้ม ${v.failed.length} (${failSummary(v.failed)})` : '') +
+    failedParts(v.failed) +
     (v.notFetched.length > 0 ? ` · ยังไม่ได้ดึง ${v.notFetched.length} (${names(v.notFetched)})` : '')
   );
 }
@@ -402,7 +450,7 @@ function picturePart(v: PictureView, lost: boolean): string {
   if (v.failed.length === 0 && v.missing.length === 0) return `snapshot ครบ ${v.taken}/${v.total}`;
   return (
     `snapshot ได้ ${v.taken}/${v.total}` +
-    (v.failed.length > 0 ? ` · ล้ม ${v.failed.length} (${failSummary(v.failed)})` : '') +
+    failedParts(v.failed) +
     (v.missing.length > 0 ? ` · ยังไม่ได้ถ่าย ${v.missing.length} (${names(v.missing)})` : '') +
     (lost ? ' — หายถาวร เติมไม่ได้' : '')
   );
@@ -427,8 +475,10 @@ function siteLines(view: SiteView, now: Clock, out: SectionBuilder): void {
   }
   for (const c of view.closes) {
     const label = c.period === 'year' ? `snapshot ปิดงวดปี ${c.periodEnd.slice(0, 4)}` : `snapshot ปิดงวดเดือน ${c.periodEnd.slice(0, 7)}`;
-    const bad = [...c.failed, ...c.missing.map((report) => ({ report, error: 'ยังไม่ได้ถ่าย' }))];
-    const body = bad.length === 0 ? `ครบ ${c.ok}/${c.total}` : `ได้ ${c.ok}/${c.total} · ไม่ได้ ${bad.length} (${failSummary(bad)})`;
+    const bad = [...c.failed.filter((f) => !isLoginFailureReason(f.error)), ...c.missing.map((report) => ({ report, error: 'ยังไม่ได้ถ่าย' }))];
+    const login = c.failed.length + c.missing.length - bad.length;
+    const body = bad.length + login === 0 ? `ครบ ${c.ok}/${c.total}`
+      : `ได้ ${c.ok}/${c.total}${bad.length > 0 ? ` · ไม่ได้ ${bad.length} (${failSummary(bad)})` : ''}${login > 0 ? ` · ล้มเพราะ login ${login}` : ''}`;
     out.add(c.level, `${label}  ${body}${c.note ? ` — ${c.note}` : ''}`);
   }
 }
@@ -450,12 +500,28 @@ function scheduledSiteSection(view: SiteView, now: Clock, out: SectionBuilder): 
   }
 }
 
+/** บรรทัดเดียวว่า login ไม่สำเร็จเพราะอะไร + ทางไปต่อตามโหมด — แทนการให้คนไล่ชื่อรายงานที่ล้มด้วยเหตุผลเดียวกัน (ใบ 02) */
+function loginFailureLine(view: SiteView, out: SectionBuilder): void {
+  const f = view.loginFailure;
+  if (f === null) return;
+  const name = SITE_LABEL[view.site];
+  const detail = f.detail.split('\n')[0] ?? '';
+  // คำอังกฤษไป Discord — ไม่ใส่ลิงก์ localhost ของ Windmill (เปิดจากนอกเครื่องไม่ได้ เหมือนคำอังกฤษบรรทัดอื่น)
+  const [th, en] = view.mode === 'auto'
+    ? [`รอบถัดไป (${SCHEDULE}) ลองใหม่เอง — ถ้ายังล้มดู Windmill ที่ ${WINDMILL_RUNS} และยอดเงิน 2captcha`,
+      'the next run (12:00 · catch-up 15:00/18:00) retries by itself — if it keeps failing check Windmill and the 2captcha balance']
+    : [RETRY_BY_HAND, 'double-click again — if it keeps failing tell the admin'];
+  out.add(f.level, `${name} login ไม่สำเร็จ — ${detail} — ${th}`, `${name} login failed — ${detail} — ${en}`);
+}
+
 function foodstoryDailySection(view: SiteView, now: Clock, out: SectionBuilder): void {
   if (view.mode === 'auto') {
     scheduledSiteSection(view, now, out);
+    loginFailureLine(view, out);
     return;
   }
   siteLines(view, now, out);
+  loginFailureLine(view, out);
   const todayView = view.days.find((d) => d.day === now.today);
   const notFetched = view.days.some((d) => (d.perDay?.notFetched.length ?? 0) > 0);
   const todayPictures = todayView?.pictures ?? null;

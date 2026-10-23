@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { foodstoryDailySteps } from '../src/sites/foodstory/daily-steps.ts';
+import { isLoginFailureReason, loginFailureDetail } from '../src/core/run-record.ts';
+import { foodstoryDailySteps, loginFailedSteps } from '../src/sites/foodstory/daily-steps.ts';
 
 /**
  * ลำดับงานของรอบรายวัน FoodStory ใน login เดียว (ใบ 06) — ช่วงวันที่ของ FoodStory เป็นของ session ทั้งรอบ (ตั้งครั้งเดียวใช้ได้ทุกหน้า) จึงต้อง
@@ -59,4 +60,32 @@ test('🔴 1 ม.ค.: snapshot salebymonthsum ของวันนี้ได
     'range 2027-01-01', 'salebymonthsum 2027-01-01',
     'range 2026-12-31', 'salebymonthsum 2026-12-31 close',
   ]);
+});
+
+// exporter-foodstory-scheduled-daily ใบ 02 — login ล้ม = ทุกงานในแผนของรอบนั้นล้มด้วยเหตุผลเดียว (มีตัวบอกว่า login ล้ม) แล้วบันทึกผลตามปกติ
+// ให้ status/Discord เห็นว่ารอบนี้รันแล้วแต่ login ไม่ผ่าน · รอบเก็บตกถัดไปลองใหม่เอง (ทำเฉพาะที่ยังไม่สำเร็จ)
+test('🔴 login ล้ม: ทุกรายงานในแผน (ทุกวันของข้อมูล + snapshot + snapshot ปิดงวด + จองโต๊ะ) ล้มหนึ่งครั้งด้วยเหตุผลที่มีตัวบอก login ล้ม · ไม่มีขั้นตั้งช่วง', () => {
+  const steps = foodstoryDailySteps({
+    perDay: [{ report: 'salebybill', day: '2026-12-30' }, { report: 'reservation-report', day: '2026-12-30' }, { report: 'pay', day: '2026-12-31' }],
+    pictures: [{ report: 'current_stock', day: '2027-01-01' }],
+    periodCloses: [{ report: 'salebymonthsum', day: '2026-12-31' }],
+  });
+  const reason = 'แก้ reCAPTCHA อัตโนมัติไม่สำเร็จ: ERROR_ZERO_BALANCE';
+  const failed = loginFailedSteps(steps, reason);
+  const f0 = (xs: typeof failed) => xs[0]!.error;
+  assert.deepEqual(show(failed.map((f) => f.step)), [
+    'salebybill 2026-12-30', 'pay 2026-12-31', 'current_stock 2027-01-01', 'salebymonthsum 2026-12-31 close', 'reservation 2026-12-30',
+  ]);
+  for (const f of failed) {
+    assert.ok(isLoginFailureReason(f.error), f.error);
+    assert.equal(loginFailureDetail(f.error), reason);
+  }
+  assert.equal(isLoginFailureReason('Timeout 60000ms exceeded'), false);
+  // ข้อความจากเว็บที่บังเอิญขึ้นต้นเหมือนกันไม่ถูกกลืนเป็น login ล้ม — ต้องมีแท็กท้ายของเราเองด้วย (code review ใบ 02)
+  assert.equal(isLoginFailureReason(f0(failed).replace(/ \[[^\]]+\]$/, '')), false);
+  assert.equal(loginFailureDetail('Timeout 60000ms exceeded'), null);
+});
+
+test('login ล้มแต่แผนว่าง = ไม่มีผลให้บันทึก', () => {
+  assert.deepEqual(loginFailedSteps([], 'x'), []);
 });

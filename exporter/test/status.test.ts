@@ -6,7 +6,7 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { PlannedReport } from '../src/core/run-planner.ts';
-import type { RunRecord } from '../src/core/run-record.ts';
+import { loginFailureReason, type RunRecord } from '../src/core/run-record.ts';
 import { buildStatus, renderStatus, type Folder, type MonthRun, type StatusSetup, type StoreSnapshot } from '../src/core/status.ts';
 
 // `exporter status` (Ubuntu ticket 05 → ใบ 07 ของ exporter-daily-per-day-raw) — สรุปภาษาไทยหน้าเดียว ตามโมเดลใหม่: สถานะต่อ **วันของข้อมูล**
@@ -208,6 +208,45 @@ test('FoodStory รันตามเวลา: รายเดือนไม�
   const failed = buildStatus({ ...healthy(), foodstoryMonthly: [month('2026-09', 2)] }, EVENING_14, SCHEDULED);
   assert.doesNotMatch([...failed.problems, ...failed.notes.problems].join('\n'), /--headful|captcha/);
   assert.match(buildStatus(s, EVENING_14, SETUP).actions.join('\n'), /--headful \(ต้องกด captcha\)/);
+});
+
+// ── login ล้ม (exporter-foodstory-scheduled-daily ใบ 02) — รอบที่ login ไม่ผ่านบันทึกทุกรายงานในแผนเป็นล้มด้วยเหตุผลที่มีตัวบอก login ล้ม ·
+// status พูดบรรทัดเดียวว่า login ไม่สำเร็จเพราะอะไร แทนที่จะให้คนอ่านไล่ชื่อรายงานที่ล้มด้วยเหตุผลเดียวกัน ──
+const LOGIN = loginFailureReason('แก้ reCAPTCHA อัตโนมัติไม่สำเร็จ: ERROR_ZERO_BALANCE');
+const loginFailed = (s: StoreSnapshot): StoreSnapshot => ({
+  ...s,
+  foodstoryDaily: replace(replace(s.foodstoryDaily,
+    folder('2026-10-13', { perDay: { salebybill: ['failed', LOGIN], pay: ['failed', LOGIN] }, pictures: PICS_FS })),
+  folder('2026-10-14', { pictures: { current_stock: ['failed', LOGIN], salebymonthsum: ['failed', LOGIN] } })),
+});
+
+test('🔴 FoodStory login ล้ม (รันตามเวลา): บรรทัดเดียวบอกเหตุผล · ก่อน 18:30 = รอรอบเก็บตก · หลังจากนั้น = ปัญหาชี้ Windmill · ไม่ใช่ "ให้ไปกด"', () => {
+  const noon = buildStatus(loginFailed(healthy()), thai('2026-10-14T12:30'), SCHEDULED);
+  const line = noon.sections.flatMap((x) => x.lines).filter((l) => /login ไม่สำเร็จ/.test(l.text));
+  assert.equal(line.length, 1, text(noon));
+  assert.equal(line[0]!.level, 'wait');
+  assert.match(line[0]!.text, /FoodStory login ไม่สำเร็จ — แก้ reCAPTCHA อัตโนมัติไม่สำเร็จ: ERROR_ZERO_BALANCE[^\n]*ลองใหม่เอง/);
+  const evening = buildStatus(loginFailed(healthy()), thai('2026-10-14T19:00'), SCHEDULED);
+  assert.equal(evening.verdict, 'problem');
+  // บรรทัดเดียว "แทน" การไล่รายงาน — บรรทัดของวันที่ล้มเพราะ login อย่างเดียวไม่นับซ้ำเป็นปัญหา (code review ใบ 02)
+  assert.equal(evening.problems.length, 1, evening.problems.join('\n'));
+  assert.match(evening.problems[0]!, /^FoodStory login ไม่สำเร็จ[^\n]*ERROR_ZERO_BALANCE[^\n]*Windmill/);
+  assert.match(text(evening), /2026-10-13[^\n]*ล้มเพราะ login 2/);
+  // ตัวบอกภายในไม่หลุดไปให้คนอ่าน
+  assert.doesNotMatch(renderStatus(evening), /login ล้มทั้งรอบ|exporter:login-failed/);
+  const en = evening.notes.problems.filter((n) => /login failed/.test(n));
+  assert.equal(en.length, 1, evening.notes.problems.join('\n'));
+  assert.match(en[0]!, /^FoodStory login failed — แก้ reCAPTCHA อัตโนมัติไม่สำเร็จ: ERROR_ZERO_BALANCE — [^\n]*Windmill/);
+  assert.doesNotMatch(text(evening), STAFF_WORDING);
+  assert.doesNotMatch(notesOf(evening), STAFF_WORDING_EN);
+});
+
+test('FoodStory login ล้ม (พนักงานกด): บรรทัดเดียวบอกเหตุผล ให้ดับเบิลคลิกใหม่ · รายงานล้มแบบอื่นไม่มีบรรทัด login', () => {
+  const r = buildStatus(loginFailed(healthy()), thai('2026-10-14T19:00'), SETUP);
+  assert.match(r.problems.join('\n'), /FoodStory login ไม่สำเร็จ[^\n]*ERROR_ZERO_BALANCE[^\n]*ดับเบิลคลิกใหม่/);
+  const s = healthy();
+  const other = buildStatus({ ...s, foodstoryDaily: replace(s.foodstoryDaily, folder('2026-10-13', { perDay: { ...ALL_FS, pay: ['failed', 'x'] }, pictures: PICS_FS })) }, thai('2026-10-14T19:00'), SCHEDULED);
+  assert.doesNotMatch(`${text(other)}\n${notesOf(other)}`, /login/);
 });
 
 test('🔴 สิ่งที่ต้องทำ: ยังไม่ตั้งวันเริ่มใช้งาน · ยังไม่ตั้ง URL ของ webhook · วันขาดเกินที่รอบเดียวเติมได้', () => {

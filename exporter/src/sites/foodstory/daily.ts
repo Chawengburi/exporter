@@ -13,7 +13,7 @@ import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type RunReco
 import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { XlsxError, readSheetNames } from '../../core/xlsx.ts';
 import { loadConfig, loadCredentials, type Config } from './config.ts';
-import { foodstoryDailySteps, type FoodStoryStep } from './daily-steps.ts';
+import { foodstoryDailySteps, loginFailedSteps, type ReportStep } from './daily-steps.ts';
 import { DateRangeNotAppliedError } from './interactions.ts';
 import {
   closeSessionWithTimeout, exportOneReport, exportReservationReport, exportSaleByChannel, groupOf, resetSessionDateRange,
@@ -34,7 +34,7 @@ const SESSION_FILTER = 'ช่วงวันที่ระดับ session (�
 const SESSION_FILTER_NOTE = 'FoodStory กรองทุกรายงานด้วยช่วงวันที่ของ session ที่ตั้งครั้งเดียวต่อรอบ (สเปกต้นทาง §4.2) — รายงาน snapshot ไม่กรองตามวัน';
 
 /** ผลของรายงานหนึ่งตัวในวันหนึ่ง พร้อมว่าไปลงโฟลเดอร์ไหน */
-type Done = { readonly step: Extract<FoodStoryStep, { kind: 'report' | 'reservation' }>; readonly result: FoodStoryReportResult; readonly fetchedAt: Date };
+type Done = { readonly step: ReportStep; readonly result: FoodStoryReportResult; readonly fetchedAt: Date };
 
 export async function runFoodStoryDaily(opts: FoodStoryExportOptions): Promise<number> {
   let redact: Redactor = createRedactor([]);
@@ -92,8 +92,21 @@ export async function runFoodStoryDaily(opts: FoodStoryExportOptions): Promise<n
       const id = step.kind === 'reservation' ? RESERVATION_ID : step.report;
       return { id, label: id, group: groupOf(id), path: '', status: 'failed', rowCountReported: null, rowsExported: null, files: [], note };
     };
+    // login ล้ม (ใบ 02 ของ exporter-foodstory-scheduled-daily) = บันทึกทุกงานในแผนเป็นล้มด้วยเหตุผลที่มีตัวบอก login ล้ม แทนที่จะจบโดยไม่มีบันทึก
+    // (เดิม status/Discord จึงเข้าใจว่า "ยังไม่มีใครรัน" แล้วบอกให้ไปดับเบิลคลิก) · รอบเก็บตกถัดไปลองใหม่เอง · เก็บแค่ข้อความ (status/Discord อ่านเป็น
+    // บรรทัดเดียว) — stack ลง stderr ให้ log ของรอบ (Windmill) ใช้ไล่สาเหตุ
+    const loginError = await login(session, cfg, creds).then(() => null, (err: unknown) => {
+      console.error(redactError(err, redact));
+      return redact(err instanceof Error ? err.message : String(err));
+    });
+    if (loginError !== null) {
+      await closeSessionWithTimeout(session);
+      for (const f of loginFailedSteps(steps, loginError)) done.push({ step: f.step, result: failed(f.step, f.error), fetchedAt: new Date() });
+      if (!opts.json) console.error(`✘ login ไม่สำเร็จ — บันทึกงาน ${done.length} รายการเป็นล้ม (รอบถัดไปลองใหม่เอง)`);
+      return await finish(opts, cfg, done, folderOf, today, warnings, now, 'login_failed');
+    }
+
     try {
-      await login(session, cfg, creds);
       if (!opts.json) console.log(`✔ login สำเร็จ — งาน ${todo} รายการ`);
       let range: DateRange | null = null;
       let rangeError: string | null = null; // ตั้งช่วงไม่สำเร็จ = ทุกรายงานของช่วงนั้นล้ม (ไม่ export ผิดช่วง)
@@ -207,6 +220,7 @@ async function finish(
   today: string,
   warnings: readonly string[],
   startedAt: Date,
+  code: 'exported_all' | 'login_failed' = 'exported_all',
 ): Promise<number> {
   const days = [...new Set(done.map((d) => d.step.day))].sort();
   const outcomes: ReportOutcome[] = [];
@@ -254,7 +268,7 @@ async function finish(
 
   const failedCount = outcomes.filter((o) => o.status === 'failed').length;
   if (opts.json) {
-    console.log(JSON.stringify({ ok: failedCount === 0, code: 'exported_all', reports: outcomes, warnings, outDirs }, null, 2));
+    console.log(JSON.stringify({ ok: failedCount === 0, code, reports: outcomes, warnings, outDirs }, null, 2));
   } else {
     console.log(`\nสำเร็จ ${outcomes.length - failedCount}/${outcomes.length} — ล้ม ${failedCount}`);
     for (const d of outDirs) console.log(`ไฟล์อยู่ที่ ${path.relative(cfg.dataDir, d)}/ (สรุปใน _summary.txt)`);
