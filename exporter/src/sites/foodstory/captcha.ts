@@ -24,14 +24,19 @@ export type CaptchaSolver = {
   solve(input: { readonly sitekey: string; readonly pageurl: string }): Promise<string>;
 };
 
-export type LoginMode = 'auto-solve' | 'human-wait';
+export type LoginMode = 'auto-solve' | 'human-wait' | 'cannot-solve';
 
 /**
- * เลือกเส้นทาง login จาก **การมี solver** (= มี `TWOCAPTCHA_API_KEY` ตั้งไว้ไหม) ไม่ใช่ flag ตายตัว
- * โค้ดชุดเดียวจึงรันได้ทั้งบน Mac (ไม่มี key → รอคนกด) และ Ubuntu (มี key → แก้อัตโนมัติ)
+ * เลือกเส้นทาง login จาก **การมี solver** (= มี `TWOCAPTCHA_API_KEY` ตั้งไว้ไหม) + **เบราว์เซอร์มีหน้าจอไหม** — ไม่ใช่ flag ตายตัว
+ * โค้ดชุดเดียวจึงรันได้ทั้งบน Mac (ไม่มี key + headful → รอคนกด) และ Ubuntu (มี key → แก้อัตโนมัติ)
+ *
+ * ไม่มี solver + headless = `cannot-solve` (exporter-foodstory-scheduled-daily ใบ 03) — ไม่มีใครเห็นหน้าจอให้แก้ captcha (เช่น worker ของ
+ * Windmill ที่ยังไม่ได้ใส่คีย์) จึงล้มทันที แทนการรอคน 5 นาทีแล้วค่อยล้ม · `headless` ต้องเป็นของเบราว์เซอร์ที่เปิดจริง ไม่ใช่ค่าใน config
+ * (`--headful` เปลี่ยนค่าตอนเปิด session)
  */
-export function selectLoginMode(opts: { readonly hasSolver: boolean }): LoginMode {
-  return opts.hasSolver ? 'auto-solve' : 'human-wait';
+export function selectLoginMode(opts: { readonly hasSolver: boolean; readonly headless: boolean }): LoginMode {
+  if (opts.hasSolver) return 'auto-solve';
+  return opts.headless ? 'cannot-solve' : 'human-wait';
 }
 
 /**

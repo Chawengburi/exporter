@@ -28,7 +28,7 @@ export function createTwoCaptchaSolver(apiKey: string): CaptchaSolver {
   };
 }
 
-/** สร้าง solver จาก config — ไม่มีคีย์ = undefined (login จะรอคนกดเอง ตาม `selectLoginMode`) */
+/** สร้าง solver จาก config — ไม่มีคีย์ = undefined (login รอคนกดเองเมื่อ headful · ล้มทันทีเมื่อ headless ตาม `selectLoginMode`) */
 export function captchaSolverFromConfig(cfg: Config): CaptchaSolver | undefined {
   return cfg.captchaApiKey ? createTwoCaptchaSolver(cfg.captchaApiKey) : undefined;
 }

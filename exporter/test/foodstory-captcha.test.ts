@@ -13,9 +13,15 @@ import {
  * และไม่จ่ายเครดิต 2captcha — port `CaptchaSolver` ถูก fake ทั้งหมด
  */
 
-test('selectLoginMode: มี solver → auto-solve, ไม่มี → human-wait', () => {
-  assert.equal(selectLoginMode({ hasSolver: true }), 'auto-solve');
-  assert.equal(selectLoginMode({ hasSolver: false }), 'human-wait');
+test('selectLoginMode: มี solver → auto-solve (headless หรือไม่ก็ได้) · ไม่มี + headful → human-wait', () => {
+  assert.equal(selectLoginMode({ hasSolver: true, headless: true }), 'auto-solve');
+  assert.equal(selectLoginMode({ hasSolver: true, headless: false }), 'auto-solve');
+  assert.equal(selectLoginMode({ hasSolver: false, headless: false }), 'human-wait');
+});
+
+// exporter-foodstory-scheduled-daily ใบ 03 — ไม่มีคีย์ + headless = ไม่มีใครเห็นหน้าจอให้แก้ captcha: ล้มทันที แทนการรอคน 5 นาทีแล้วค่อยล้ม
+test('🔴 selectLoginMode: ไม่มี solver + headless → cannot-solve (login ล้มทันที ไม่รอคนที่มองไม่เห็นหน้าจอ)', () => {
+  assert.equal(selectLoginMode({ hasSolver: false, headless: true }), 'cannot-solve');
 });
 
 // --- extractSitekey: data-sitekey attribute ชนะ, ไม่งั้นอ่าน k จาก src ของ anchor iframe ---

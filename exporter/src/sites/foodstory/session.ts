@@ -5,6 +5,7 @@ import { type CaptchaSolver, DEFAULT_SOLVE_ATTEMPTS, extractSitekey, selectLogin
 import { captchaSolverFromConfig } from './two-captcha.ts';
 import { installInFlightTracker, settlePageRequests } from './inflight.ts';
 import { browserEnv } from '../../core/browser-env.ts';
+import { TWOCAPTCHA_KEY_ENV } from '../../core/status.ts';
 
 export class LoginError extends Error {
   override readonly name = 'LoginError';
@@ -14,6 +15,8 @@ export type Session = {
   readonly browser: Browser;
   readonly context: BrowserContext;
   readonly page: Page;
+  /** เบราว์เซอร์ที่เปิดจริงไม่มีหน้าจอ — `login()` ใช้ตัดสินว่ามีคนแก้ captcha ได้ไหม (ค่าใน config อาจถูก `--headful` เปลี่ยนตอนเปิด session) */
+  readonly headless: boolean;
   close(): Promise<void>;
 };
 
@@ -43,6 +46,7 @@ export async function openSession(cfg: Config): Promise<Session> {
     browser,
     context,
     page,
+    headless: cfg.headless,
     async close() {
       await context.close().catch(() => undefined);
       await browser.close().catch(() => undefined);
@@ -75,11 +79,13 @@ export type LoginDeps = {
  * ล็อกอินเข้า FoodStory
  *
  * หน้า login ฝัง reCAPTCHA ไว้ตั้งแต่โหลดมาเลย (ยืนยันแล้วทั้ง headless และ headful ให้ผลเหมือนกัน
- * จึงไม่ใช่แค่ fingerprint ของ headless) · มีสองเส้นทางตามการมี solver (ADR-0010):
+ * จึงไม่ใช่แค่ fingerprint ของ headless) · มีสามเส้นทางตามการมี solver + เบราว์เซอร์มีหน้าจอไหม (ADR-0010):
  *   - **auto-solve** (มี `TWOCAPTCHA_API_KEY`): แก้ reCAPTCHA อัตโนมัติผ่าน 2captcha — ให้ production
  *     บน Ubuntu ที่ไม่มีคนเฝ้ารันเองได้ · solve ล้มครบ → `LoginError` (รอบรายวันแจ้ง Discord)
  *   - **human-wait** (ไม่มีคีย์): กรอกอีเมล/รหัสผ่านไว้ล่วงหน้าให้ แล้ว "รอ" ให้คนแก้ captcha +
  *     กด submit เอง — ใช้ตอนพัฒนาบน Mac แบบ headful
+ *   - **cannot-solve** (ไม่มีคีย์ + headless — exporter-foodstory-scheduled-daily ใบ 03): ไม่มีใครเห็นหน้าจอ → `LoginError` ทันที
+ *     ก่อนเปิดหน้าเว็บ แทนการรอคน 5 นาทีแล้วค่อยล้ม
  *
  * ไม่ส่ง `deps` = หา solver จาก config (ดู `captchaSolverFromConfig`) · ส่ง `deps` เอง = คุมเต็มที่
  *
@@ -96,7 +102,13 @@ export async function login(
   const { page } = session;
   const resolved: LoginDeps = deps ?? { solver: captchaSolverFromConfig(cfg) };
   const { solver } = resolved;
-  const mode = selectLoginMode({ hasSolver: solver != null });
+  const mode = selectLoginMode({ hasSolver: solver != null, headless: session.headless });
+  if (mode === 'cannot-solve') {
+    throw new LoginError(
+      `ไม่มีคีย์ 2captcha (${TWOCAPTCHA_KEY_ENV}) และเบราว์เซอร์ไม่มีหน้าจอ (headless) — ไม่มีใครแก้ reCAPTCHA ได้ · ` +
+        `ตั้ง ${TWOCAPTCHA_KEY_ENV} ใน exporter/.env หรือรันใหม่ด้วย --headful แล้วแก้ captcha เอง`,
+    );
+  }
 
   await page.goto(cfg.baseUrl);
   await fillCredentials(page, creds);
@@ -104,8 +116,11 @@ export async function login(
   // `&& solver` คงไว้เพื่อให้ TS narrow เป็น non-null — mode มาจาก `solver != null` อยู่แล้ว
   if (mode === 'auto-solve' && solver) {
     await solveCaptchaAndSubmit(page, solver, cfg.timeoutMs);
-  } else {
+  } else if (mode === 'human-wait') {
     await waitForHumanToPassLogin(page);
+  } else {
+    // cannot-solve โยนไปแล้วก่อนเปิดหน้าเว็บ — มาถึงตรงนี้ = มีเส้นทางใหม่ที่ยังไม่ได้จัดการ: ล้มดัง ๆ ไม่ตกไปรอคน 5 นาทีเงียบ ๆ (code review ใบ 03)
+    throw new LoginError(`เส้นทาง login ที่ยังไม่ได้จัดการ: ${mode}`);
   }
 
   await waitForUrlToSettle(page);
