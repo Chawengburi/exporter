@@ -79,7 +79,7 @@ export async function runFoodStoryDaily(opts: FoodStoryExportOptions): Promise<n
     redact = createRedactor([creds.password, creds.email]);
     const session = await openSession({ ...cfg, headless: opts.headful ? false : cfg.headless, slowMoMs: opts.slowMoMs ?? cfg.slowMoMs });
     const { page } = session;
-    // ลองใหม่บน page เดิมที่ล็อกอินค้างไว้ — ไม่ล็อกอินใหม่ เพราะต้องมีคนกด captcha (ADR-0006)
+    // ลองใหม่บน page เดิมที่ล็อกอินค้างไว้ — ไม่ล็อกอินใหม่ เพราะ login ใหม่ต้องแก้ captcha อีกรอบ (ADR-0010)
     const retry = <T>(task: () => Promise<T>, label: string, isRetryable = isTransientOnSamePage) =>
       withBrowserRetry(task, {
         label, describe: (err) => redactError(err, redact), isRetryable,

@@ -60,10 +60,10 @@ import type { Report } from './reports/_types.ts';
  * owner.foodstory.co ค้างอยู่ (ticket 11 พิสูจน์แล้ว) ซึ่งทำได้ใน process/captcha เดียวกัน แต่พอข้าม
  * ไปแล้วไม่กลับมา owner อีก — รายงานอื่นทุกใบจึงต้องจบก่อน (ดู `planFoodStoryRun`)
  *
- * 🔴 **login ต้องมีคนอยู่หน้าจอแก้ reCAPTCHA เสมอ** (ดู `session.ts::login`) — runner นี้จึง
- * "รันได้เอง" แค่ตั้งแต่หลัง login สำเร็จเท่านั้น ไม่ใช่ automation ไร้คนดูแลแบบ HotelTime บน
- * Windmill schedule จริง — และรันบน Windmill ไม่ได้เลยแม้กดรันเอง (worker เป็น headless container
- * ไม่มีหน้าจอให้คนแก้ captcha — ticket 12 §Comments) ต้องรันจากเครื่องที่มีหน้าจอ `--headful` เท่านั้น
+ * login แก้ reCAPTCHA ได้ 2 ทางตามการมี `TWOCAPTCHA_API_KEY` (ADR-0010, ดู `session.ts::login`):
+ * มีคีย์ → แก้อัตโนมัติ รันไร้คนดูแลบน Windmill headless container ได้เหมือน HotelTime · ไม่มีคีย์ →
+ * รอคนแก้ captcha เอง ต้องรันจากเครื่องที่มีหน้าจอ `--headful` (dev บน Mac) · ไม่ว่าทางไหน runner นี้
+ * ยังทำงานแบบ login เดียวต่อรอบเหมือนเดิม (กลับคำจาก ADR-0006 ที่เคยบังคับว่าต้องมีคนเสมอ)
  */
 
 export const ALL_REPORTS = 'all';
@@ -762,7 +762,8 @@ export async function runFoodStoryExport(opts: FoodStoryExportOptions): Promise<
     });
     const { page } = session;
 
-    // ลองใหม่บน page เดิมที่ล็อกอินค้างไว้ — ไม่ล็อกอินใหม่ เพราะต้องมีคนกด captcha (ADR-0006) · page ตาย
+    // ลองใหม่บน page เดิมที่ล็อกอินค้างไว้ — ไม่ล็อกอินใหม่ เพราะ login ใหม่ต้องแก้ captcha อีกรอบ (เสีย
+    // เครดิต 2captcha หรือต้องมีคน — ADR-0010) · page ตาย
     // แล้วไม่ลองซ้ำ (isTransientOnSamePage) ไม่งั้นทุกใบที่เหลือจะรอเปล่า ๆ ใบละ 90 วินาที
     const retryOnSamePage = <T>(task: () => Promise<T>, label: string) =>
       withBrowserRetry(task, {

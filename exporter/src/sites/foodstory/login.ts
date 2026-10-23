@@ -9,7 +9,8 @@ export type LoginCheckOptions = {
 
 /**
  * ตรวจว่า login เข้า FoodStory ได้จริง — ต่างจาก HotelTime ตรงที่ `session.ts::login` ของที่นี่
- * ไม่คืน cookie/title กลับมา (ต้องมีคนแก้ reCAPTCHA เองเสมอ ไม่มี LoginResult แบบ HotelTime)
+ * ไม่คืน cookie/title กลับมา (login จัดการ reCAPTCHA เองภายใน — อัตโนมัติเมื่อมีคีย์ 2captcha หรือรอคน
+ * เมื่อไม่มีคีย์ ตาม ADR-0010 — ไม่มี LoginResult แบบ HotelTime)
  * และไม่ต้อง redact อะไรเพราะไม่มี error message ที่มีรหัสผ่านปนอยู่ (ต่างจาก HotelTime ที่
  * ASP.NET error บางเคสมี query string ติดมาด้วย)
  */

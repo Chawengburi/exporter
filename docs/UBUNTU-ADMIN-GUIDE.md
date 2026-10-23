@@ -183,8 +183,27 @@ cd ~/chawengburi-exporter && git pull && bash deploy/ubuntu/install.sh
 - **อย่าอัปเดตช่วง 11:55–12:30 และช่วง 15:00 / 18:00** (HotelTime กำลังรัน) หรือตอนพนักงานกำลังดึง FoodStory
 - ตัวติดตั้งรันซ้ำปลอดภัย: ไม่ถามรหัสซ้ำ ไม่แตะค่าใน `.env` (เติมแค่ที่ยังไม่มี) ติดตั้ง package ใหม่เฉพาะเมื่อเปลี่ยน และ deploy สคริปต์ Windmill
   ที่เปลี่ยนให้เอง
+- 🔴 **ต้องรัน `bash deploy/ubuntu/install.sh` ทุกครั้งหลัง `git pull`** — ไม่ใช่ `git pull` เฉย ๆ แล้วไปตั้ง Windmill ต่อเลย · install.sh เป็น
+  ตัวที่ติดตั้ง package ใหม่ให้ (เช่นรอบที่เพิ่ม `@2captcha` สำหรับ FoodStory) · ถ้าลืม HotelTime **ยังรันได้** (ออกแบบให้ไม่ผูกกับ package
+  ของ FoodStory) แต่ FoodStory จะ error จนกว่าจะรัน install.sh
 - ถ้าผู้พัฒนาบอกว่าตัวรัน Windmill เปลี่ยน: `cd ~/chawengburi-exporter/windmill && docker compose up -d --build`
 - อย่าแก้ไฟล์ใน `~/chawengburi-exporter` เอง (ยกเว้น `.env`) — `git pull` ครั้งต่อไปจะชนกัน
+
+## เปิดให้ FoodStory แก้ reCAPTCHA เองอัตโนมัติ (2captcha)
+
+ปกติ FoodStory ต้องมีคนนั่งแก้ reCAPTCHA ตอน login (รันจากเครื่องที่มีหน้าจอ `--headful`) · ถ้าตั้งคีย์ 2captcha ไว้ `login`
+จะแก้ captcha เองและรันบนเครื่องไม่มีคนเฝ้า (Ubuntu/Windmill headless) ได้เหมือน HotelTime (ADR-0010)
+
+```bash
+nano ~/chawengburi-exporter/exporter/.env
+```
+
+เพิ่ม/แก้บรรทัด `TWOCAPTCHA_API_KEY=` ใส่คีย์จาก 2captcha.com (เติมเงินแล้ว) · 🔴 เป็นความลับ + บริการเสียเงิน ห้ามส่งให้ใครหรือ commit
+
+- ทดสอบ: `cd ~/chawengburi-exporter/exporter && node src/index.ts login --site foodstory --check --json` → เห็น `"ok": true` = แก้ captcha เองได้
+- ไม่ตั้งคีย์ = พฤติกรรมเดิม (รอคนแก้บนเบราว์เซอร์ headful) — ไม่พัง แค่รันไร้คนไม่ได้
+- ⚠️ **ตอนนี้ยังไม่มี schedule FoodStory อัตโนมัติใน Windmill** — ตั้งคีย์แล้วใช้ได้แค่ตอนสั่งรันเอง · การตั้ง schedule อัตโนมัติเป็นงานที่
+  ผู้พัฒนาจะเพิ่มทีหลัง (รอผลเรื่อง session หลายตัวพร้อมกันก่อน)
 
 ## เปลี่ยนรหัสผ่าน HotelTime / FoodStory
 
