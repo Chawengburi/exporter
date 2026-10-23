@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import type { Config, Credentials } from './config.ts';
+import { type CaptchaSolver, selectLoginMode } from './captcha.ts';
 import { installInFlightTracker, settlePageRequests } from './inflight.ts';
 import { browserEnv } from '../../core/browser-env.ts';
 
@@ -48,32 +49,60 @@ const LOGIN_WAIT_TIMEOUT_MS = 5 * 60_000;
 // เพดานรอ request ของหน้า landing (/th/summary) ให้จบ — สเปกต้นทาง §4.4 วัดว่าหน้านี้โหลดได้ถึง 40 วิ
 const LANDING_SETTLE_TIMEOUT_MS = 90_000;
 
+/** สิ่งที่ฉีดเข้า `login()` ได้ — ตอนนี้มีแค่ตัวแก้ reCAPTCHA (ไม่ส่ง = รอคนกดเอง) */
+export type LoginDeps = {
+  /** บริการแก้ reCAPTCHA — มีเมื่อ `TWOCAPTCHA_API_KEY` ถูกตั้ง (ต่อจริงใน ticket 02) */
+  readonly solver?: CaptchaSolver;
+};
+
 /**
  * ล็อกอินเข้า FoodStory
  *
- * 🔴 ต้องมีคนอยู่หน้าจอเสมอ — หน้า login ฝัง reCAPTCHA ไว้ตั้งแต่โหลดมาเลย (ยืนยันแล้วทั้ง
- * headless และ headful ให้ผลเหมือนกัน จึงไม่ใช่แค่ fingerprint ของ headless — ดู ticket 02
- * §Comments) ฟังก์ชันนี้กรอกอีเมล/รหัสผ่านไว้ล่วงหน้าให้ แล้ว "รอ" ให้คนแก้ captcha + กด
- * submit เอง — ไม่พยายามหลีกเลี่ยง/แก้ captcha อัตโนมัติเด็ดขาด (ตัดสินใจแล้วว่าไม่ทำ เพราะ
- * เป็นการหลบเลี่ยงระบบป้องกันบอทโดยตรง)
+ * หน้า login ฝัง reCAPTCHA ไว้ตั้งแต่โหลดมาเลย (ยืนยันแล้วทั้ง headless และ headful ให้ผลเหมือนกัน
+ * จึงไม่ใช่แค่ fingerprint ของ headless) · มีสองเส้นทางตามการมี solver (ADR-0010):
+ *   - **auto-solve** (มี `deps.solver` = ตั้ง `TWOCAPTCHA_API_KEY` ไว้): แก้ reCAPTCHA อัตโนมัติ
+ *     ผ่าน 2captcha — ให้ production บน Ubuntu ที่ไม่มีคนเฝ้ารันเองได้ (ต่อจริงใน ticket 02)
+ *   - **human-wait** (ไม่มี solver): กรอกอีเมล/รหัสผ่านไว้ล่วงหน้าให้ แล้ว "รอ" ให้คนแก้ captcha +
+ *     กด submit เอง — ใช้ตอนพัฒนาบน Mac แบบ headful
  *
- * เซสชันที่ได้ใช้ได้แค่ใน process นี้เท่านั้น — พิสูจน์แล้ว (ticket 02 §Comments) ว่า
- * storageState ที่ capture ไว้ใช้ซ้ำข้าม process ไม่ได้ เซิร์ฟเวอร์ปฏิเสธด้วย 302 แม้ cookie
- * ยังไม่หมดอายุ จึงต้อง login ใหม่ทุกครั้งที่ต้องการรัน โดยมีคนช่วยแก้ captcha
+ * เซสชันที่ได้ใช้ได้แค่ใน process นี้เท่านั้น — พิสูจน์แล้วว่า storageState ที่ capture ไว้ใช้ซ้ำข้าม
+ * process ไม่ได้ เซิร์ฟเวอร์ปฏิเสธด้วย 302 แม้ cookie ยังไม่หมดอายุ จึงต้อง login ใหม่ทุกครั้งที่ต้องการรัน
+ * (การเลี้ยง session ให้ไม่หมดอายุเพื่อลดการแก้ captcha เป็นงานแยก — ดู spec captcha-solver §Out of Scope)
  */
-export async function login(session: Session, cfg: Config, creds: Credentials): Promise<void> {
+export async function login(
+  session: Session,
+  cfg: Config,
+  creds: Credentials,
+  deps: LoginDeps = {},
+): Promise<void> {
   const { page } = session;
-  await submitAndWaitForLanding(page, cfg, creds);
+  const mode = selectLoginMode({ hasSolver: deps.solver != null });
+
+  await page.goto(cfg.baseUrl);
+  await fillCredentials(page, creds);
+
+  if (mode === 'auto-solve') {
+    // ticket 02: แก้ reCAPTCHA ด้วย deps.solver (extractSitekey → solveWithRetry → ยัด token → submit)
+    // แล้วค่อยรอ URL นิ่ง · ยังไม่ถูกต่อในใบ 01 และไม่มี caller ไหนส่ง solver มา จึงยังไม่มีทางเข้าถึง
+    throw new LoginError(
+      'FoodStory auto-solve (2captcha) ยังไม่ถูกต่อ — ดู ticket 02 ของ exporter-foodstory-captcha-solver',
+    );
+  }
+
+  await waitForHumanToPassLogin(page);
+  await waitForUrlToSettle(page);
   // หน้า landing (/th/summary) ยิง POST /summary/get-* ที่พกช่วงวันที่เดิมของ session — ต้องรอให้
   // จบฝั่ง server ก่อน ไม่งั้นมันเขียน session ทับช่วงวันที่ที่ caller จะตั้งต่อ ดู inflight.ts
   await settlePageRequests(page, LANDING_SETTLE_TIMEOUT_MS);
 }
 
-async function submitAndWaitForLanding(page: Page, cfg: Config, creds: Credentials): Promise<void> {
-  await page.goto(cfg.baseUrl);
+async function fillCredentials(page: Page, creds: Credentials): Promise<void> {
   await page.fill('input[name="email"]', creds.email);
   await page.fill(PASSWORD_FIELD_SELECTOR, creds.password);
+}
 
+/** รอให้คนแก้ reCAPTCHA + กด submit เองจนฟอร์มรหัสผ่านหายไป (เส้นทาง human-wait) */
+async function waitForHumanToPassLogin(page: Page): Promise<void> {
   console.log(
     'เปิดเบราว์เซอร์แล้ว — กรอกอีเมล/รหัสผ่านไว้ให้ล่วงหน้า เหลือแค่แก้ reCAPTCHA แล้วกด\n' +
       `เข้าสู่ระบบเอง — จะรอจนล็อกอินสำเร็จ (สูงสุด ${LOGIN_WAIT_TIMEOUT_MS / 1000} วินาที)`,
@@ -92,7 +121,9 @@ async function submitAndWaitForLanding(page: Page, cfg: Config, creds: Credentia
     }
     await page.waitForTimeout(LOGIN_POLL_INTERVAL_MS);
   }
+}
 
+async function waitForUrlToSettle(page: Page): Promise<void> {
   // 🔴 พังจริง 2026-09-23: ทันทีที่ช่องรหัสผ่านหายไป แอปยังไม่ได้ redirect ถึงปลายทางสุดท้าย
   // (ไป `/` ก่อนแล้ว JS ฝั่ง client ค่อย redirect ต่อไป `/th/summary`) การ goto() ต่อทันที
   // ชนกับ navigation ที่ยังค้างอยู่ ("interrupted by another navigation") — รอจน URL นิ่ง
