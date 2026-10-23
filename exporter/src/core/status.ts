@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseDotenv } from 'dotenv';
 import { addDaysISO, formatISO, utcDate } from './order.ts';
+import { SITE_LABEL } from './placement.ts';
 import {
   CATCH_UP_CAP_DAYS, GO_LIVE_ENV, PERIOD_CLOSE_SUFFIX, PERIOD_CLOSE_WINDOW_DAYS, isDone, lastDueDay, parseGoLive, periodCloseRetryUntil, planDailyRun,
   stateKey, storeStateFrom, type DayStatus, type PlannedItem, type PlannedReport,
@@ -20,9 +21,11 @@ import type { UploadBacklogView } from './uploader.ts';
  * (สถานะเดียวกับที่ตัววางแผนใช้ตัดสินว่าต้องดึงอะไร — `storeStateFrom`) · รายงาน snapshot ที่ถ่ายในวันนั้น · snapshot ปิดงวดแยกเป็นเรื่องของงวด
  *
  * กติกา:
- * - HotelTime รันเอง (Windmill 12:00 + เก็บตก 15:00/18:00): เมื่อวานยังไม่ได้ดึงหลัง 15:00 / ล้มหลัง 18:30 = ปัญหา (ก่อนนั้น = รอ) · วันก่อนหน้า
- *   ที่ขาด/ล้ม = ปัญหา (รอบไหนก็เติมเองได้ — ยังขาดแปลว่ารอบไม่ได้รันหรือล้มซ้ำ) · รายงาน snapshot ของวันนี้เหมือนเมื่อวาน
- * - FoodStory คนกด: ยังไม่ได้ดึง / รายงาน snapshot ของวันนี้ยังไม่ได้ถ่าย = สิ่งที่ต้องทำบรรทัดเดียว "กด" (บอกว่าไม่ได้กดมากี่วัน) · ล้ม = ปัญหา
+ * - Site ที่รันเองตามเวลา (Windmill 12:00 + เก็บตก 15:00/18:00 — HotelTime เสมอ, FoodStory เมื่อเครื่องมีคีย์ 2captcha): เมื่อวานยังไม่ได้ดึงหลัง
+ *   15:00 / ล้มหลัง 18:30 = ปัญหา (ก่อนนั้น = รอ) · วันก่อนหน้าที่ขาด/ล้ม = ปัญหา (รอบไหนก็เติมเองได้ — ยังขาดแปลว่ารอบไม่ได้รันหรือล้มซ้ำ) ·
+ *   รายงาน snapshot ของวันนี้เหมือนเมื่อวาน
+ * - FoodStory คนกด (เครื่องที่ไม่มีคีย์ 2captcha): ยังไม่ได้ดึง / รายงาน snapshot ของวันนี้ยังไม่ได้ถ่าย = สิ่งที่ต้องทำบรรทัดเดียว "กด" (บอกว่าไม่ได้กด
+ *   มากี่วัน) · ล้ม = ปัญหา
  * - รายงาน snapshot ของวันที่ผ่านไปแล้วที่หาย = บอกว่าหายถาวร เติมไม่ได้ (ไม่ใช่ปัญหา — ไม่มีอะไรให้ทำ · user story 30)
  * - วันก่อน **วันเริ่มใช้งาน** (หรือก่อนวันแรกที่มีผลแบบใหม่ ถ้ายังไม่ได้ตั้ง) ไม่นับว่าขาด · โฟลเดอร์ของรอบรูปแบบเดิมแสดงเป็นประวัติ
  * - วันขาดเกินที่รอบเดียวเติมได้ / ยังไม่ตั้ง (หรือตั้งผิด) วันเริ่มใช้งาน / ยังไม่ตั้ง URL ของ webhook = สิ่งที่ต้องทำ · `_run.json` อ่านไม่ได้ = ปัญหาเสมอ
@@ -42,6 +45,11 @@ export const WEBHOOK_ENV_UPLOAD = 'DISCORD_WEBHOOK_URL_UPLOAD';
 /** ชนิดของ webhook — ตัวส่ง (ใบ 08) ใช้เลือกว่าจะอ่าน URL ของ channel ไหน */
 export type WebhookChannel = 'export' | 'upload';
 const WEBHOOK_ENV: Readonly<Record<WebhookChannel, string>> = { export: WEBHOOK_ENV_EXPORT, upload: WEBHOOK_ENV_UPLOAD };
+/**
+ * คีย์ 2captcha ของ FoodStory (ADR-0010) — มีคีย์ = `login()` แก้ reCAPTCHA เอง → Windmill รัน FoodStory ตามเวลาได้ status จึงพูดแบบ Site ที่รันเอง ·
+ * ไม่มี = พนักงานกด (exporter-foodstory-scheduled-daily ใบ 01) · ความลับ: status ดูแค่ว่ามีหรือไม่ ไม่เคยอ่านค่าออกมาใช้
+ */
+export const TWOCAPTCHA_KEY_ENV = 'TWOCAPTCHA_API_KEY';
 
 export type FailedReport = { readonly report: string; readonly error: string };
 /** `running` = มีโฟลเดอร์แต่ยังไม่มี `_run.json` (กำลังรัน หรือรอบนั้นตายกลางทาง) · `unreadable` = `_run.json` เสีย/ผิดรูป */
@@ -70,6 +78,8 @@ export type StatusSetup = {
   readonly goLiveError?: string;
   readonly webhookExport: boolean;
   readonly webhookUpload: boolean;
+  /** FoodStory รันตามเวลาบน Windmill (เครื่องมีคีย์ 2captcha) · false = พนักงานกด */
+  readonly foodstoryScheduled: boolean;
 };
 
 export type StatusLevel = 'ok' | 'info' | 'wait' | 'action' | 'problem';
@@ -113,6 +123,8 @@ export type CloseView = Judged & {
 };
 export type SiteView = {
   readonly site: 'hoteltime' | 'foodstory';
+  /** รันเองตามเวลา หรือรอคนกด — ใบ 08 ใช้ตัดสินว่าจะเตือนแบบไหน (ไม่เดาจากชื่อ Site) */
+  readonly mode: Mode;
   /** วันของข้อมูลแรกที่นับสถานะ — วันเริ่มใช้งาน หรือวันแรกที่มีผลแบบใหม่ · null = ยังไม่มีเลย */
   readonly start: string | null;
   readonly days: readonly DayView[];
@@ -136,12 +148,18 @@ export type StatusReport = {
   readonly notes: { readonly problems: readonly string[]; readonly actions: readonly string[] };
   readonly sections: readonly StatusSection[];
   readonly sites: readonly SiteView[];
-  readonly setup: { readonly goLive: string | null; readonly goLiveError?: string; readonly webhookExport: boolean; readonly webhookUpload: boolean };
+  readonly setup: {
+    readonly goLive: string | null; readonly goLiveError?: string; readonly webhookExport: boolean; readonly webhookUpload: boolean;
+    readonly foodstoryScheduled: boolean;
+  };
 };
 
 const WINDMILL_RUNS = 'http://localhost:8000/runs';
-const HOTELTIME_TODAY_DEADLINE_MIN = 15 * 60; // รอบเที่ยงใช้ไม่ถึง 15 นาที (เพดาน 3 วัน) — 15:00 แล้วยังไม่มี = รอบเที่ยงไม่ได้รัน
-const HOTELTIME_CATCHUP_DONE_MIN = 18 * 60 + 30; // รอบเก็บตกสุดท้าย 18:00
+// เวลาของ Site ที่รันเองตามเวลา (HotelTime เสมอ, FoodStory เมื่อมีคีย์ — schedule เดียวกันใน windmill/setup.mjs)
+const SCHEDULED_NOON_DEADLINE_MIN = 15 * 60; // รอบเที่ยงใช้ไม่ถึง 15 นาที (เพดาน 3 วัน) — 15:00 แล้วยังไม่มี = รอบเที่ยงไม่ได้รัน
+/** รอบเก็บตกสุดท้าย 18:00 — หลัง 18:30 ยังล้ม = ปัญหา · การแจ้ง Discord ของรอบที่จบหลัง 18:00 ประเมินที่เวลานี้ (notify.ts) */
+export const SCHEDULED_CATCHUP_DONE_MIN = 18 * 60 + 30;
+const SCHEDULED_TITLE = '(รันเองทุกวัน 12:00 · เก็บตก 15:00/18:00)';
 const MONTHLY_DUE_DAY = 5;
 const NAMES_SHOWN = 6;
 
@@ -161,8 +179,8 @@ function failSummary(failed: readonly FailedReport[]): string {
 const counted = (r: Counts) => `${r.passed}/${r.total}${r.fromEarlier ? ` (ใช้ไฟล์รอบก่อน ${r.fromEarlier} ใบ)` : ''}`;
 
 type Clock = { readonly clock: ThaiClock; readonly today: string; readonly due: string; readonly minutes: number };
-/** HotelTime รันเองตามเวลา · FoodStory รอคนกด */
-type Mode = 'auto' | 'manual';
+/** รันเองตามเวลา (HotelTime เสมอ · FoodStory เมื่อมีคีย์ 2captcha) · รอคนกด (FoodStory ที่ไม่มีคีย์) */
+export type Mode = 'auto' | 'manual';
 
 // ── ระดับของแต่ละเรื่อง (กติกาที่หัวไฟล์) ──
 
@@ -175,11 +193,11 @@ function perDayLevel(v: PerDayView, day: string, mode: Mode, now: Clock): Judged
   }
   if (day === now.due) {
     if (v.notFetched.length > 0) {
-      return now.minutes < HOTELTIME_TODAY_DEADLINE_MIN
+      return now.minutes < SCHEDULED_NOON_DEADLINE_MIN
         ? { level: 'wait', note: 'รอรอบเที่ยง (12:00)' }
         : { level: 'problem', note: `รอบเที่ยงไม่ได้ดึง — ดู Windmill ที่ ${WINDMILL_RUNS}` };
     }
-    return now.minutes < HOTELTIME_CATCHUP_DONE_MIN
+    return now.minutes < SCHEDULED_CATCHUP_DONE_MIN
       ? { level: 'wait', note: 'รอรอบเก็บตก 15:00/18:00' }
       : { level: 'problem', note: 'ยังล้มหลังรอบเก็บตก — ดู _summary.txt ของวันนั้น' };
   }
@@ -195,8 +213,8 @@ function pictureLevel(v: PictureView, day: string, mode: Mode, now: Clock): Judg
   if (mode === 'manual') {
     return v.failed.length > 0 ? { level: 'problem', note: 'ดับเบิลคลิกใหม่ — รายงาน snapshot ของวันนี้ถ่ายได้ถึงสิ้นวัน' } : { level: 'info', note: '' };
   }
-  if (v.missing.length > 0 && now.minutes < HOTELTIME_TODAY_DEADLINE_MIN) return { level: 'wait', note: 'รอรอบเที่ยง (12:00)' };
-  if (v.missing.length === 0 && now.minutes < HOTELTIME_CATCHUP_DONE_MIN) return { level: 'wait', note: 'รอรอบเก็บตก 15:00/18:00' };
+  if (v.missing.length > 0 && now.minutes < SCHEDULED_NOON_DEADLINE_MIN) return { level: 'wait', note: 'รอรอบเที่ยง (12:00)' };
+  if (v.missing.length === 0 && now.minutes < SCHEDULED_CATCHUP_DONE_MIN) return { level: 'wait', note: 'รอรอบเก็บตก 15:00/18:00' };
   return { level: 'problem', note: `ถ้าไม่ได้ภายในวันนี้จะหายถาวร — ดู Windmill ที่ ${WINDMILL_RUNS}` };
 }
 
@@ -218,7 +236,7 @@ function dayLevel(d: Omit<DayView, keyof Judged>, mode: Mode, now: Clock): Judge
 }
 
 /**
- * snapshot ปิดงวด (เจ้าของเลือก 2026-10-14: แบบเดียวกับรายงานตามวัน) — ครบ = ok · HotelTime วันแรกของงวดถัดไป: ยังไม่มีรอบไหนลองก่อน 15:00 / ล้มก่อน
+ * snapshot ปิดงวด (เจ้าของเลือก 2026-10-14: แบบเดียวกับรายงานตามวัน) — ครบ = ok · Site ที่รันตามเวลา วันแรกของงวดถัดไป: ยังไม่มีรอบไหนลองก่อน 15:00 / ล้มก่อน
  * 18:30 = รอ หลังจากนั้นและวันต่อ ๆ ไป = ปัญหา (รอบรายวันยังลองซ้ำเองถึง `retryUntil`) · FoodStory ล้ม = ปัญหา (กดซ้ำ) ยังไม่มีใครกด = รวมในบรรทัด "กด" ·
  * พ้นช่วงลองซ้ำ = ปัญหา "หายถาวร" ให้คนเห็นว่าหายจริง (แสดงอยู่ในช่วงที่ดู)
  */
@@ -230,8 +248,8 @@ function closeLevel(c: Omit<CloseView, keyof Judged>, mode: Mode, now: Clock): J
     return untried ? { level: 'info', note: `กดครั้งถัดไปถ่ายให้ (ได้ถึง ${c.retryUntil})` } : { level: 'problem', note: `กดซ้ำได้ถึง ${c.retryUntil} พ้นแล้วหายถาวร` };
   }
   if (now.today === addDaysISO(c.periodEnd, 1)) {
-    if (untried && now.minutes < HOTELTIME_TODAY_DEADLINE_MIN) return { level: 'wait', note: 'รอรอบเที่ยง (12:00)' };
-    if (now.minutes < HOTELTIME_CATCHUP_DONE_MIN) return { level: 'wait', note: 'รอรอบเก็บตก 15:00/18:00' };
+    if (untried && now.minutes < SCHEDULED_NOON_DEADLINE_MIN) return { level: 'wait', note: 'รอรอบเที่ยง (12:00)' };
+    if (now.minutes < SCHEDULED_CATCHUP_DONE_MIN) return { level: 'wait', note: 'รอรอบเก็บตก 15:00/18:00' };
   }
   return { level: 'problem', note: `รอบรายวันลองซ้ำเองถึง ${c.retryUntil} พ้นแล้วหายถาวร — ถ้ายังล้มดู _summary.txt ของวันนั้น` };
 }
@@ -295,6 +313,7 @@ function siteView(
   const lastRunDay = readable.flatMap((f) => f.record.runs.map((r) => thaiDateOf(r.startedAt) ?? '')).sort().at(-1) || null;
   return {
     site,
+    mode,
     start: perDayStart,
     days,
     closes: closesOf(readable, catalog, state, plan.periodCloses, now.today, windowDays).map((c) => ({ ...c, ...closeLevel(c, mode, now) })),
@@ -414,21 +433,28 @@ function siteLines(view: SiteView, now: Clock, out: SectionBuilder): void {
   }
 }
 
-function hoteltimeSection(view: SiteView, now: Clock, out: SectionBuilder): void {
+/** Site ที่รันเองตามเวลาบน Windmill — HotelTime เสมอ, FoodStory เมื่อมีคีย์ 2captcha (ไม่มีคำของ "พนักงานกด" เลย) */
+function scheduledSiteSection(view: SiteView, now: Clock, out: SectionBuilder): void {
+  const name = SITE_LABEL[view.site];
   if (view.lastRunDay === null && view.days.every((d) => d.state === undefined)) {
-    out.add('problem', `ยังไม่เคยมีรอบ HotelTime เลย — เช็คว่าเปิด Windmill และตั้งค่าแล้ว (node windmill/setup.mjs) แล้วดู Windmill ที่ ${WINDMILL_RUNS}`,
-      'No HotelTime run has ever been recorded — check that Windmill is running and set up (node windmill/setup.mjs)');
+    out.add('problem', `ยังไม่เคยมีรอบ ${name} เลย — เช็คว่าเปิด Windmill และตั้งค่าแล้ว (node windmill/setup.mjs) แล้วดู Windmill ที่ ${WINDMILL_RUNS}`,
+      `No ${name} run has ever been recorded — check that Windmill is running and set up (node windmill/setup.mjs)`);
     return;
   }
   siteLines(view, now, out);
   if (view.backlogDays > 0) {
-    out.add('action', `HotelTime ขาดอีก ${view.backlogDays} วันของข้อมูล เกินที่รอบเดียวเติมได้ (${CATCH_UP_CAP_DAYS}) — รอบ Windmill ถัดไปเติมต่อเอง ` +
-      `(วันละ 3 รอบ) ถ้าต้องการเร็วกว่านั้นสั่ง --date ทีละวัน`,
-      `HotelTime is ${view.backlogDays} days behind, more than one run can catch up (${CATCH_UP_CAP_DAYS}) — the next Windmill runs keep filling it`);
+    // FoodStory ไม่มี --date (ดึงวันเดียวแยก) — บอกทางเร่งเฉพาะ HotelTime
+    out.add('action', `${name} ขาดอีก ${view.backlogDays} วันของข้อมูล เกินที่รอบเดียวเติมได้ (${CATCH_UP_CAP_DAYS}) — รอบ Windmill ถัดไปเติมต่อเอง ` +
+      `(วันละ 3 รอบ)${view.site === 'hoteltime' ? ' ถ้าต้องการเร็วกว่านั้นสั่ง --date ทีละวัน' : ''}`,
+      `${name} is ${view.backlogDays} days behind, more than one run can catch up (${CATCH_UP_CAP_DAYS}) — the next Windmill runs keep filling it`);
   }
 }
 
 function foodstoryDailySection(view: SiteView, now: Clock, out: SectionBuilder): void {
+  if (view.mode === 'auto') {
+    scheduledSiteSection(view, now, out);
+    return;
+  }
   siteLines(view, now, out);
   const todayView = view.days.find((d) => d.day === now.today);
   const notFetched = view.days.some((d) => (d.perDay?.notFetched.length ?? 0) > 0);
@@ -457,21 +483,25 @@ function foodstoryDailySection(view: SiteView, now: Clock, out: SectionBuilder):
   }
 }
 
-function foodstoryMonthlySection(runs: readonly MonthRun[], now: Clock, out: SectionBuilder): void {
+/** `scheduled` = เครื่องมีคีย์ 2captcha — login แก้ captcha เอง จึงไม่ต้องบอกให้เปิด --headful แล้วกด */
+function foodstoryMonthlySection(runs: readonly MonthRun[], now: Clock, out: SectionBuilder, scheduled: boolean): void {
   const lastOfPrev = utcDate(now.clock.year, now.clock.month, 0); // วันที่ 0 ของเดือนนี้ = วันสุดท้ายของเดือนที่แล้ว
   const period = `${lastOfPrev.getUTCFullYear()}-${pad2(lastOfPrev.getUTCMonth() + 1)}`;
   const run = runs.find((m) => m.period === period);
-  const command = 'ในโฟลเดอร์ exporter รัน: node src/index.ts export --site foodstory --report all --headful (ต้องกด captcha)';
+  const cli = 'node src/index.ts export --site foodstory --report all';
+  // ไม่มีคีย์ = ข้อความเดิมทุกตัวอักษร (ต้องเปิด --headful ให้คนกด captcha)
+  const [byHandTh, byHandEn, rerunEn] = scheduled ? ['', '', ''] : [' --headful (ต้องกด captcha)', ' --headful (captcha needed)', ' with --headful'];
+  const command = `ในโฟลเดอร์ exporter รัน: ${cli}${byHandTh}`;
   if (!run) {
     if (now.clock.day > MONTHLY_DUE_DAY) out.add('action', `ยังไม่ได้ดึงรายเดือนของ ${period} — ${command}`,
-      `Monthly FoodStory reports for ${period} not pulled yet — run on the machine: node src/index.ts export --site foodstory --report all --headful (captcha needed)`);
+      `Monthly FoodStory reports for ${period} not pulled yet — run on the machine: ${cli}${byHandEn}`);
     else out.add('info', `ยังไม่ได้ดึงรายเดือนของ ${period} — ควรดึงภายในวันที่ ${MONTHLY_DUE_DAY}`);
   } else if (run.state === 'unreadable') {
     out.add('problem', `_run.json ของรายเดือน ${period} อ่านไม่ได้ (ไฟล์เสีย) — ถ่ายรูปหน้าจอนี้ส่งผู้ดูแลระบบ`,
       `Monthly _run.json for ${period} is unreadable (corrupt file)`);
   } else if (run.failed.length > 0) {
     out.add('problem', `${period} มี ${run.failed.length} ใบที่ยังไม่เคยดึงสำเร็จ: ${failSummary(run.failed)} — ${command}`,
-      `Monthly ${period}: ${run.failed.length} reports never pulled successfully (${names(run.failed.map((f) => f.report))}) — rerun the monthly pull with --headful`);
+      `Monthly ${period}: ${run.failed.length} reports never pulled successfully (${names(run.failed.map((f) => f.report))}) — rerun the monthly pull${rerunEn}`);
   } else {
     out.add('ok', `${period}  ${counted(run)} (ดึงล่าสุด ${run.pulledOn})`);
   }
@@ -495,8 +525,6 @@ function setupSection(setup: StatusSetup, now: Clock, out: SectionBuilder): void
   else out.add('ok', 'ตั้ง Discord webhook ขา upload แล้ว');
 }
 
-const UPLOAD_SITE_LABEL: Readonly<Record<UploadBacklogView['site'], string>> = { hoteltime: 'HotelTime', foodstory: 'FoodStory' };
-
 /**
  * ticket 06 ของ exporter-upload-to-uploader — แยกตัวเลขตามสถานะ ไม่ปนเป็นก้อนเดียว เพื่อให้รู้ว่าต้องทำอะไรต่อ:
  * รอส่ง/ว่าง = ปล่อยไว้เฉย ๆ (ไม่กระทบ verdict) · บล็อกเพราะ as_of ย้อนหลัง = ต้องคุยกับทีม uploader (action) ·
@@ -509,7 +537,7 @@ const UPLOAD_SITE_LABEL: Readonly<Record<UploadBacklogView['site'], string>> = {
  */
 function uploadBacklogSection(backlog: readonly UploadBacklogView[], out: SectionBuilder): void {
   for (const b of backlog) {
-    const label = UPLOAD_SITE_LABEL[b.site];
+    const label = SITE_LABEL[b.site];
     if (b.pending === 0 && b.blocked === 0 && b.stuck === 0 && b.empty === 0) {
       out.add('ok', `${label}: ไม่มีไฟล์ค้าง`);
       continue;
@@ -535,8 +563,9 @@ export function buildStatus(
   const windowDays = opts.windowDays ?? 7;
   const clock = thaiClock(at);
   const now: Clock = { clock, today: formatISO(thaiToday(at)), due: lastDueDay(at), minutes: clock.hour * 60 + clock.minute };
+  const { foodstoryScheduled } = setup;
   const hoteltime = siteView('hoteltime', 'auto', snapshot.hoteltime, setup.catalog.hoteltime, at, now, windowDays, setup.goLive);
-  const foodstory = siteView('foodstory', 'manual', snapshot.foodstoryDaily, setup.catalog.foodstory, at, now, windowDays, setup.goLive);
+  const foodstory = siteView('foodstory', foodstoryScheduled ? 'auto' : 'manual', snapshot.foodstoryDaily, setup.catalog.foodstory, at, now, windowDays, setup.goLive);
   const problems: string[] = [];
   const actions: string[] = [];
   const notes = { problems: [] as string[], actions: [] as string[] };
@@ -546,9 +575,9 @@ export function buildStatus(
     return { title, lines: out.lines };
   };
   const sections = [
-    section('HotelTime (รันเองทุกวัน 12:00 · เก็บตก 15:00/18:00) — ต่อวันของข้อมูล', (out) => hoteltimeSection(hoteltime, now, out)),
-    section('FoodStory รายวัน (พนักงานกด) — ต่อวันของข้อมูล', (out) => foodstoryDailySection(foodstory, now, out)),
-    section('FoodStory รายเดือน', (out) => foodstoryMonthlySection(snapshot.foodstoryMonthly, now, out)),
+    section(`HotelTime ${SCHEDULED_TITLE} — ต่อวันของข้อมูล`, (out) => scheduledSiteSection(hoteltime, now, out)),
+    section(`FoodStory รายวัน ${foodstoryScheduled ? SCHEDULED_TITLE : '(พนักงานกด)'} — ต่อวันของข้อมูล`, (out) => foodstoryDailySection(foodstory, now, out)),
+    section('FoodStory รายเดือน', (out) => foodstoryMonthlySection(snapshot.foodstoryMonthly, now, out, foodstoryScheduled)),
     section('ค่าตั้งของเครื่องนี้', (out) => setupSection(setup, now, out)),
     // ticket 06 ของ exporter-upload-to-uploader — ไม่ใส่ `opts.uploadBacklog` = ไม่มี section นี้เลย (เผื่อผู้เรียกเดิม
     // ที่ยังไม่พร้อมอ่านดิสก์ของขาอัปโหลด เช่นเทสต์เก่า)
@@ -564,7 +593,7 @@ export function buildStatus(
     sites: [hoteltime, foodstory],
     setup: {
       goLive: setup.goLive, ...(setup.goLiveError !== undefined ? { goLiveError: setup.goLiveError } : {}),
-      webhookExport: setup.webhookExport, webhookUpload: setup.webhookUpload,
+      webhookExport: setup.webhookExport, webhookUpload: setup.webhookUpload, foodstoryScheduled,
     },
   };
 }
@@ -590,18 +619,20 @@ export function defaultDataDir(): string {
 }
 
 /**
- * ค่าตั้งสองค่าที่ status ต้องรู้ — env ของ shell ชนะ `exporter/.env` (เหมือน dotenv ของ Site) · อ่านเฉพาะสองคีย์นี้ ไม่โหลดทั้งไฟล์เข้า env
- * (ไม่แตะรหัสผ่าน) · URL ของ webhook คืนแค่ว่ามีหรือไม่ ไม่เคยคืนค่า
+ * ค่าตั้งที่ status ต้องรู้ — env ของ shell ชนะ `exporter/.env` (เหมือน dotenv ของ Site) · อ่านเฉพาะคีย์เหล่านี้ ไม่โหลดทั้งไฟล์เข้า env
+ * (ไม่แตะรหัสผ่าน) · URL ของ webhook และคีย์ 2captcha คืนแค่ว่ามีหรือไม่ ไม่เคยคืนค่า
  */
 export function readSetupValues(
   envFile: string, env: NodeJS.ProcessEnv = process.env,
-): Pick<StatusSetup, 'goLive' | 'goLiveError' | 'webhookExport' | 'webhookUpload'> {
+): Pick<StatusSetup, 'goLive' | 'goLiveError' | 'webhookExport' | 'webhookUpload' | 'foodstoryScheduled'> {
   const pick = envPicker(envFile, env);
   const goLive = parseGoLive(pick(GO_LIVE_ENV));
+  const has = (key: string) => (pick(key) ?? '').trim() !== '';
   return {
     ...('error' in goLive ? { goLive: null, goLiveError: goLive.error } : { goLive: goLive.goLive }),
-    webhookExport: (pick(WEBHOOK_ENV.export) ?? '').trim() !== '',
-    webhookUpload: (pick(WEBHOOK_ENV.upload) ?? '').trim() !== '',
+    webhookExport: has(WEBHOOK_ENV.export),
+    webhookUpload: has(WEBHOOK_ENV.upload),
+    foodstoryScheduled: has(TWOCAPTCHA_KEY_ENV),
   };
 }
 

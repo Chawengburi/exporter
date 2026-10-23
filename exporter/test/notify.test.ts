@@ -9,6 +9,7 @@ import { after, test } from 'node:test';
 import { notifyLogPath } from '../src/core/discord.ts';
 import { notifyDiscord, notifyUpload } from '../src/notify.ts';
 import type { UploadRunResult } from '../src/core/uploader.ts';
+import { plannedReports } from '../src/sites/foodstory/reports/index.ts';
 
 // ใบ 08: แจ้งผลหลังรอบรายวัน — ใช้แคตตาล็อกจริงของทั้งสอง Site กับคลังปลอม + เซิร์ฟเวอร์ Discord ปลอม · ไม่ส่งซ้ำ · ส่งไม่ได้ไม่โยน error และบันทึกไว้ ·
 // URL ของ webhook ไม่อยู่ในบันทึก
@@ -17,6 +18,7 @@ import type { UploadRunResult } from '../src/core/uploader.ts';
 delete process.env.DISCORD_WEBHOOK_URL_EXPORT;
 delete process.env.DISCORD_WEBHOOK_URL_UPLOAD;
 delete process.env.EXPORTER_GO_LIVE;
+delete process.env.TWOCAPTCHA_API_KEY;
 
 const thai = (iso: string) => new Date(`${iso}+07:00`);
 const dirs: string[] = [];
@@ -96,6 +98,31 @@ test('🔴 รอบ HotelTime ที่จบหลัง 18:00 = รอบส�
   } finally {
     await discord.close();
   }
+});
+
+test('🔴 FoodStory รันตามเวลา (มีคีย์ 2captcha): รอบ FoodStory ที่จบหลัง 18:00 = รอบสุดท้ายของวัน ประเมินเหมือน 18:30 เหมือน HotelTime', async () => {
+  const s = await fakeStore();
+  // FoodStory วันที่ 13: รายงานตามวันของแคตตาล็อกจริงครบ ยกเว้น salebybill ล้ม — โหมดรันตามเวลา: ก่อน 18:30 = รอรอบเก็บตก · หลังจากนั้น = ปัญหา
+  const ids = plannedReports().filter((r) => r.family === 'per-day').map((r) => r.id);
+  const reports = Object.fromEntries(ids.map((id) => [id, id === 'salebybill'
+    ? { report: id, status: 'failed', error: 'login ok แต่ export ไม่ผ่าน', attempts: 3, finishedAt: '2026-10-14T05:10:00.000Z' }
+    : { report: id, status: 'ok', rows: 1, range: { from: '2026-10-13', to: '2026-10-13' }, actualRange: null, files: [], attempts: 1, finishedAt: '2026-10-14T05:10:00.000Z' }]));
+  const folder = path.join(s.dataDir, 'foodstory', 'daily', '2026-10', '2026-10-13');
+  await mkdir(folder, { recursive: true });
+  await writeFile(path.join(folder, '_run.json'), JSON.stringify({
+    site: 'foodstory', kind: 'daily', dataThrough: '2026-10-13', skipped: [],
+    runs: [{ startedAt: '2026-10-14T05:00:00.000Z', finishedAt: '2026-10-14T05:10:00.000Z', reports: ids }], reports,
+  }));
+  const envFile = await s.envFile('http://127.0.0.1:9/api/webhooks/1/x'); // dry run — ไม่ส่งจริง
+  const alertKeys = async (trigger: 'manual' | 'foodstory-daily', key: boolean) => {
+    await writeFile(envFile, `EXPORTER_GO_LIVE=2026-10-13\nDISCORD_WEBHOOK_URL_EXPORT=http://127.0.0.1:9/api/webhooks/1/x\n${key ? 'TWOCAPTCHA_API_KEY=k\n' : ''}`);
+    const r = await notifyDiscord({ trigger, summary: false, dryRun: true, now: thai('2026-10-14T18:10'), dataDir: s.dataDir, envFile });
+    assert.equal(r.status, 'dry-run');
+    return r.status === 'dry-run' ? r.messages.flatMap((m) => m.keys) : [];
+  };
+  const failedKey = 'failed@foodstory@2026-10-13@salebybill@2026-10-14';
+  assert.ok((await alertKeys('foodstory-daily', true)).includes(failedKey)); // รอบสุดท้ายของวัน → ประเมิน 18:30 → ปัญหา
+  assert.ok(!(await alertKeys('manual', true)).includes(failedKey)); // สั่งเองตอน 18:10 ไม่ถูกเลื่อน → ยังรอรอบเก็บตก
 });
 
 test('รอบเที่ยง (ยังมีรอบเก็บตก): ส่งสรุปของรอบ (ทุกรอบมีสรุป) แต่รายงานที่ล้มยังเป็น "รอ" — ไม่แจ้งเตือน ไม่ขึ้นสีปัญหา', async () => {

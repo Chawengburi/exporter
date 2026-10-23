@@ -8,7 +8,7 @@ import {
   writeNotifyLog,
   type DiscordMessage,
 } from './core/discord.ts';
-import { buildStatus, defaultDataDir, readStoreSnapshot, readWebhookUrl, type Folder } from './core/status.ts';
+import { SCHEDULED_CATCHUP_DONE_MIN, buildStatus, defaultDataDir, readStoreSnapshot, readWebhookUrl, type Folder } from './core/status.ts';
 import { formatISO } from './core/order.ts';
 import { thaiClock, thaiToday } from './core/thai-time.ts';
 import { defaultEnvFile, statusSetup } from './status-setup.ts';
@@ -20,8 +20,9 @@ import type { UploadRunResult } from './core/uploader.ts';
  * เรียกหลังจบ `export --daily` ทุกรอบ (ทั้งสอง Site) และจาก `exporter notify` · **ไม่โยน error และไม่เปลี่ยน exit code ของรอบ export**: ไม่มี URL = ข้าม ·
  * ส่งไม่ได้ (Discord ล่ม/rate limit หลังลองซ้ำแล้ว) = บันทึกว่าส่งไม่ได้แล้วจบ (เรื่องที่ยังไม่ได้ส่ง ส่งในครั้งถัดไปเอง) · URL ไม่ถูกพิมพ์หรือบันทึกที่ไหน
  *
- * จังหวะ: **ทุกรอบรายวัน** ส่งสรุปหนึ่งข้อความ (2026-10-21 — เดิมวันละครั้งตอน 18:00) · รอบรายวัน HotelTime ที่จบตั้งแต่ 18:00 คือรอบเก็บตกสุดท้ายของวัน →
- * ประเมิน status เหมือนเป็น 18:30 (หลังรอบเก็บตก — ล้ม = ปัญหา ไม่ใช่ "รอ") · `exporter notify --summary` สั่งส่งสรุปเองได้
+ * จังหวะ: **ทุกรอบรายวัน** ส่งสรุปหนึ่งข้อความ (2026-10-21 — เดิมวันละครั้งตอน 18:00) · รอบรายวันของ Site ที่รันตามเวลา (HotelTime เสมอ, FoodStory
+ * เมื่อมีคีย์ 2captcha) ที่จบตั้งแต่ 18:00 คือรอบเก็บตกสุดท้ายของวัน → ประเมิน status เหมือนเป็น 18:30 (หลังรอบเก็บตก — ล้ม = ปัญหา ไม่ใช่ "รอ") ·
+ * `exporter notify --summary` สั่งส่งสรุปเองได้
  *
  * `notifyUpload` (ticket 05 ของ `exporter-upload-to-uploader`) ใช้ log/ตัวส่งไฟล์เดียวกันนี้ (`sendAndLog`) แต่คนละ Discord
  * channel กับขา export — เจ้าของระบบขอ 2026-10-18 ให้แยก channel กัน: `DISCORD_WEBHOOK_URL_EXPORT` (ขา export, ฟังก์ชันนี้)
@@ -37,13 +38,16 @@ export type NotifyResult =
 
 const FINAL_RUN_HOUR = 18;
 const TRIGGER_LABEL: Readonly<Record<NotifyTrigger, string>> = { 'hoteltime-daily': 'HotelTime daily run', 'foodstory-daily': 'FoodStory run', manual: 'manual' };
-const FINAL_EVALUATION_MIN = 18 * 60 + 30;
 
-/** รอบรายวัน HotelTime ที่จบหลัง 18:00 = รอบสุดท้ายของวัน → ประเมินเหมือนเป็น 18:30 (ไม่ถอยเวลา ถ้าเลย 18:30 แล้ว) */
-function evaluationTime(now: Date, trigger: NotifyTrigger): Date {
+/**
+ * รอบรายวันของ Site ที่รันตามเวลาที่จบหลัง 18:00 = รอบสุดท้ายของวัน → ประเมินเหมือนเป็น 18:30 (ไม่ถอยเวลา ถ้าเลย 18:30 แล้ว) · FoodStory นับเฉพาะเมื่อ
+ * รันตามเวลา (มีคีย์ 2captcha) — โหมดพนักงานกดไม่มี "รอบสุดท้าย" (กดซ้ำได้ทั้งวัน)
+ */
+function evaluationTime(now: Date, trigger: NotifyTrigger, foodstoryScheduled: boolean): Date {
   const c = thaiClock(now);
-  if (trigger !== 'hoteltime-daily' || c.hour < FINAL_RUN_HOUR || c.hour * 60 + c.minute >= FINAL_EVALUATION_MIN) return now;
-  return new Date(now.getTime() + (FINAL_EVALUATION_MIN - (c.hour * 60 + c.minute)) * 60_000 - c.second * 1000);
+  const scheduledRun = trigger === 'hoteltime-daily' || (trigger === 'foodstory-daily' && foodstoryScheduled);
+  if (!scheduledRun || c.hour < FINAL_RUN_HOUR || c.hour * 60 + c.minute >= SCHEDULED_CATCHUP_DONE_MIN) return now;
+  return new Date(now.getTime() + (SCHEDULED_CATCHUP_DONE_MIN - (c.hour * 60 + c.minute)) * 60_000 - c.second * 1000);
 }
 
 /**
@@ -105,7 +109,8 @@ export async function notifyDiscord(opts: {
     // สรุปทุกรอบรายวัน (2026-10-21) · `exporter notify` เปล่า ๆ ไม่ส่งสรุป ต้องสั่ง --summary
     const summary = opts.summary ?? opts.trigger !== 'manual';
     const snapshot = await readStoreSnapshot(dataDir);
-    const report = buildStatus(snapshot, evaluationTime(now, opts.trigger), statusSetup(envFile));
+    const setup = statusSetup(envFile);
+    const report = buildStatus(snapshot, evaluationTime(now, opts.trigger, setup.foodstoryScheduled), setup);
     // เผื่อ 60 วินาทีก่อนเริ่มรอบ (นาฬิกา/เวลาเริ่มโปรเซส) — เส้นแบ่งว่าไฟล์ไหนเป็นของรอบนี้
     const since = opts.durationMs !== undefined ? now.getTime() - opts.durationMs - 60_000 : undefined;
     const c = thaiClock(now);

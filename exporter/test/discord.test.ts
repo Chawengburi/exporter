@@ -18,7 +18,7 @@ const HT: readonly PlannedReport[] = [
 const FS: readonly PlannedReport[] = [
   { id: 'salebybill', family: 'per-day' }, { id: 'pay', family: 'per-day' }, { id: 'current_stock', family: 'picture', period: 'none' },
 ];
-const SETUP: StatusSetup = { catalog: { hoteltime: HT, foodstory: FS }, goLive: '2026-10-12', webhookExport: true, webhookUpload: true };
+const SETUP: StatusSetup = { catalog: { hoteltime: HT, foodstory: FS }, goLive: '2026-10-12', webhookExport: true, webhookUpload: true, foodstoryScheduled: false };
 
 type Result = 'data' | 'empty' | readonly ['failed', string];
 const outcome = (id: string, r: Result, day: string): RunRecord['reports'][string] =>
@@ -325,6 +325,26 @@ test('🔴 FoodStory "ยังไม่เคยกดเลย" เตือ�
   assert.ok(!keysOf(noGoLive).some((k) => k.startsWith('not-pressed')), keysOf(noGoLive).join());
   const withGoLive = discordMessages(buildStatus(store, thai('2026-10-14T18:30'), SETUP), { summary: false, alreadySent: NONE });
   assert.ok(keysOf(withGoLive).some((k) => k.startsWith('not-pressed')));
+});
+
+// exporter-foodstory-scheduled-daily ใบ 01 — FoodStory รันตามเวลา (มีคีย์ 2captcha) แจ้งเตือนแบบ Site ที่รันเองเหมือน HotelTime
+const SCHEDULED: StatusSetup = { ...SETUP, foodstoryScheduled: true };
+
+test('🔴 FoodStory รันตามเวลา: ไม่ได้รันมา 2 วัน = แจ้งรายงานที่ยังไม่ได้ดึง (เหมือน HotelTime) ไม่ใช่ "ให้พนักงานดับเบิลคลิก"', () => {
+  const r = buildStatus(healthy(), thai('2026-10-16T16:00'), SCHEDULED);
+  const ms = discordMessages(r, { summary: true, alreadySent: NONE });
+  const all = ms.map((m) => m.content).join('\n');
+  assert.doesNotMatch(all, /double-click|ask staff|Exporter - FoodStory Daily|solve the captcha/);
+  assert.ok(keysOf(ms).includes('missing@foodstory@2026-10-15@salebybill@2026-10-16'), keysOf(ms).join());
+  assert.ok(!keysOf(ms).some((k) => k.startsWith('not-pressed')), keysOf(ms).join());
+});
+
+test('🔴 FoodStory รันตามเวลา: รายงาน snapshot ของวันนี้ยังไม่ได้ถ่ายหลัง 15:00 = แจ้งเตือน (โหมดพนักงานกดยังไม่เตือน)', () => {
+  const s = healthy();
+  const store = { ...s, foodstoryDaily: [s.foodstoryDaily[0]!, s.foodstoryDaily[1]!] }; // วันนี้ (14) ยังไม่ได้ถ่าย
+  const key = 'picture@foodstory@2026-10-14@current_stock@2026-10-14';
+  assert.ok(keysOf(discordMessages(buildStatus(store, thai('2026-10-14T16:00'), SCHEDULED), { summary: false, alreadySent: NONE })).includes(key));
+  assert.ok(!keysOf(discordMessages(buildStatus(store, thai('2026-10-14T16:00'), SETUP), { summary: false, alreadySent: NONE })).includes(key));
 });
 
 test('🔴 ตัวส่ง: rate limit / 5xx ลองซ้ำเองตาม retry_after (สูงสุด 2 ครั้ง) — ครั้งที่สองผ่าน = สำเร็จ', async () => {

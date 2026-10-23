@@ -25,7 +25,7 @@ const FS: readonly PlannedReport[] = [
   { id: 'salebybill', family: 'per-day' }, { id: 'pay', family: 'per-day' },
   { id: 'current_stock', family: 'picture', period: 'none' }, { id: 'salebymonthsum', family: 'picture', period: 'year' },
 ];
-const SETUP: StatusSetup = { catalog: { hoteltime: HT, foodstory: FS }, goLive: '2026-10-08', webhookExport: true, webhookUpload: true };
+const SETUP: StatusSetup = { catalog: { hoteltime: HT, foodstory: FS }, goLive: '2026-10-08', webhookExport: true, webhookUpload: true, foodstoryScheduled: false };
 
 type Result = 'data' | 'empty' | readonly ['failed', string];
 const outcome = (id: string, r: Result, from: string, to: string): RunRecord['reports'][string] =>
@@ -148,6 +148,68 @@ test('FoodStory ดึงแล้วแต่มีรายงานล้ม 
   assert.match(r.problems.join('\n'), /2026-10-13[^\n]*pay/);
 });
 
+// ── FoodStory รันตามเวลา (exporter-foodstory-scheduled-daily ใบ 01) — เครื่องที่มีคีย์ 2captcha: Windmill รัน FoodStory 12:00 + เก็บตก 15:00/18:00
+// เหมือน HotelTime จึงใช้กติกาเวลาและคำพูดแบบ Site ที่รันเอง ไม่ใช่ "พนักงานกด" ──
+const SCHEDULED: StatusSetup = { ...SETUP, foodstoryScheduled: true };
+const STAFF_WORDING = /ดับเบิลคลิก|กด captcha|ไม่ได้กด|กดใหม่|กดซ้ำ|กดครั้งถัดไป|พนักงานกด/;
+/** คำอังกฤษที่ส่งเข้า Discord (`notes`) ต้องไม่มีคำของ "พนักงานกด" เช่นกัน */
+const STAFF_WORDING_EN = /double-click|solve the captcha|press again|Exporter - FoodStory Daily/;
+const notesOf = (r: ReturnType<typeof buildStatus>) => [...r.notes.problems, ...r.notes.actions].join('\n');
+
+test('🔴 FoodStory รันตามเวลา: เมื่อวานยังไม่ได้ดึงก่อน 15:00 = รอรอบเที่ยง · หลัง 15:00 = ปัญหาชี้ Windmill · ไม่มีคำของ "พนักงานกด" เลย', () => {
+  const s = healthy();
+  const noYesterday = { ...s, foodstoryDaily: replace(without(s.foodstoryDaily, '2026-10-14'), folder('2026-10-13', { pictures: PICS_FS })) };
+  const early = buildStatus(noYesterday, thai('2026-10-14T11:00'), SCHEDULED);
+  assert.equal(early.verdict, 'ok', text(early));
+  assert.match(text(early), /FoodStory รายวัน \(รันเองทุกวัน 12:00 · เก็บตก 15:00\/18:00\)/);
+  assert.match(text(early), /2026-10-13[^\n]*รอรอบเที่ยง/);
+  assert.doesNotMatch(text(early), STAFF_WORDING);
+  const late = buildStatus(noYesterday, thai('2026-10-14T15:30'), SCHEDULED);
+  assert.equal(late.verdict, 'problem');
+  assert.match(late.problems.join('\n'), /2026-10-13[\s\S]*Windmill/);
+  assert.doesNotMatch(text(late), STAFF_WORDING);
+  assert.doesNotMatch(notesOf(late), STAFF_WORDING_EN);
+  assert.equal(late.sites[1]!.mode, 'auto');
+  assert.equal(late.setup.foodstoryScheduled, true);
+  // เครื่องที่ไม่มีคีย์ = พนักงานกดเหมือนเดิม
+  const manual = buildStatus(noYesterday, thai('2026-10-14T15:30'), SETUP);
+  assert.equal(manual.sites[1]!.mode, 'manual');
+  assert.match(text(manual), /FoodStory รายวัน \(พนักงานกด\)/);
+  assert.equal(manual.setup.foodstoryScheduled, false);
+});
+
+test('🔴 FoodStory รันตามเวลา: รายงานล้มก่อน 18:30 = รอรอบเก็บตก · หลังจากนั้น = ปัญหา (ไม่ให้ไปกดใหม่)', () => {
+  const s = healthy();
+  const failing = { ...s, foodstoryDaily: replace(s.foodstoryDaily, folder('2026-10-13', { perDay: { ...ALL_FS, pay: ['failed', 'x'] }, pictures: PICS_FS })) };
+  assert.equal(buildStatus(failing, thai('2026-10-14T16:00'), SCHEDULED).verdict, 'ok');
+  const evening = buildStatus(failing, thai('2026-10-14T19:00'), SCHEDULED);
+  assert.equal(evening.verdict, 'problem');
+  assert.match(evening.problems.join('\n'), /2026-10-13[^\n]*pay/);
+  assert.doesNotMatch(text(evening), STAFF_WORDING);
+});
+
+test('🔴 FoodStory รันตามเวลา: ยังไม่เคยมีรอบเลย = ปัญหาให้เช็ค Windmill (เหมือน HotelTime) · ขาดเกินเพดาน = รอบ Windmill ถัดไปเติมเอง', () => {
+  const s = healthy();
+  const never = buildStatus({ ...s, foodstoryDaily: [] }, EVENING_14, SCHEDULED);
+  assert.match(never.problems.join('\n'), /ยังไม่เคยมีรอบ FoodStory[\s\S]*Windmill/);
+  assert.ok(never.notes.problems.some((n) => /No FoodStory run has ever been recorded/.test(n)), never.notes.problems.join('\n'));
+  assert.doesNotMatch(text(never), STAFF_WORDING);
+  const backlog = buildStatus(s, EVENING_14, { ...SCHEDULED, goLive: '2026-10-01' });
+  assert.match(backlog.actions.join('\n'), /FoodStory[^\n]*ขาดอีก 4 วัน[^\n]*Windmill/);
+  assert.doesNotMatch(backlog.actions.join('\n'), STAFF_WORDING);
+  assert.doesNotMatch(`${notesOf(never)}\n${notesOf(backlog)}`, STAFF_WORDING_EN);
+});
+
+test('FoodStory รันตามเวลา: รายเดือนไม่บอกให้กด captcha / --headful (login แก้ captcha เองแล้ว) · ไม่มีคีย์ = ข้อความเดิม', () => {
+  const s = { ...healthy(), foodstoryMonthly: [] };
+  const scheduled = buildStatus(s, EVENING_14, SCHEDULED);
+  assert.match(scheduled.actions.join('\n'), /ยังไม่ได้ดึงรายเดือนของ 2026-09[^\n]*--report all/);
+  assert.doesNotMatch([...scheduled.actions, ...scheduled.notes.actions].join('\n'), /--headful|captcha/);
+  const failed = buildStatus({ ...healthy(), foodstoryMonthly: [month('2026-09', 2)] }, EVENING_14, SCHEDULED);
+  assert.doesNotMatch([...failed.problems, ...failed.notes.problems].join('\n'), /--headful|captcha/);
+  assert.match(buildStatus(s, EVENING_14, SETUP).actions.join('\n'), /--headful \(ต้องกด captcha\)/);
+});
+
 test('🔴 สิ่งที่ต้องทำ: ยังไม่ตั้งวันเริ่มใช้งาน · ยังไม่ตั้ง URL ของ webhook · วันขาดเกินที่รอบเดียวเติมได้', () => {
   const s = healthy();
   const unset = buildStatus(s, EVENING_14, { ...SETUP, goLive: null, webhookExport: false, webhookUpload: false });
@@ -193,7 +255,7 @@ test('🔴 --json: ต่อ Site × วันของข้อมูล มี
   assert.deepEqual(d13.perDay, { total: 3, data: 1, empty: [], failed: [{ report: 'postings', error: 'x' }], notFetched: ['cancelled'] });
   assert.deepEqual(d13.pictures, { total: 2, taken: 1, empty: [], failed: [], missing: ['trial-balance'] });
   assert.equal(ht.days.find((d) => d.day === '2026-10-14')!.perDay, null); // วันนี้ยังไม่ถึงกำหนด
-  assert.deepEqual(r.setup, { goLive: '2026-10-08', webhookExport: true, webhookUpload: true });
+  assert.deepEqual(r.setup, { goLive: '2026-10-08', webhookExport: true, webhookUpload: true, foodstoryScheduled: false });
 });
 
 test('FoodStory รายเดือนของเดือนที่แล้ว: ยังไม่มีก่อนวันที่ 5 = แสดงเฉย ๆ · หลังวันที่ 5 = ต้องทำ · มีแต่ล้ม = ปัญหา', () => {
@@ -243,7 +305,7 @@ async function writeFolder(dataDir: string, site: string, f: Folder): Promise<vo
 }
 function status(dataDir: string, at: string, env: Record<string, string>, json = false) {
   const r = spawnSync(process.execPath, ['src/index.ts', 'status', '--data', dataDir, '--at', at, ...(json ? ['--json'] : [])],
-    { cwd: EXPORTER, encoding: 'utf8', env: { ...process.env, EXPORTER_GO_LIVE: '', DISCORD_WEBHOOK_URL_EXPORT: '', DISCORD_WEBHOOK_URL_UPLOAD: '', ...env } });
+    { cwd: EXPORTER, encoding: 'utf8', env: { ...process.env, EXPORTER_GO_LIVE: '', DISCORD_WEBHOOK_URL_EXPORT: '', DISCORD_WEBHOOK_URL_UPLOAD: '', TWOCAPTCHA_API_KEY: '', ...env } });
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
 }
 
@@ -255,8 +317,13 @@ test('exporter status กับคลังปลอม: แคตตาล็�
   const r = status(dataDir, '2026-10-14T20:00', env, true);
   assert.equal(r.code, 1, r.out); // HotelTime วันที่ 13 ยังไม่ได้ดึงเกือบทุกรายงานของแคตตาล็อกจริง
   const parsed = JSON.parse(r.out);
-  assert.deepEqual(parsed.setup, { goLive: '2026-10-13', webhookExport: true, webhookUpload: false });
+  assert.deepEqual(parsed.setup, { goLive: '2026-10-13', webhookExport: true, webhookUpload: false, foodstoryScheduled: false });
   assert.doesNotMatch(r.out, /secret-token/);
+  // มีคีย์ 2captcha = FoodStory รันตามเวลา · บอกแค่ว่ามี ไม่เคยแสดงค่าคีย์
+  const keyed = JSON.parse(status(dataDir, '2026-10-14T20:00', { ...env, TWOCAPTCHA_API_KEY: 'secret-captcha-key' }, true).out);
+  assert.equal(keyed.setup.foodstoryScheduled, true);
+  assert.equal(keyed.sites[1].mode, 'auto');
+  assert.doesNotMatch(JSON.stringify(keyed), /secret-captcha-key/);
   const d13 = parsed.sites[0].days.find((d: { day: string }) => d.day === '2026-10-13');
   assert.equal(d13.perDay.total, 22);
   assert.equal(d13.perDay.data, 1); // postings เป็นรายงานตามวันจริงของ HotelTime

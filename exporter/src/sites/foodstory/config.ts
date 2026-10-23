@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config as loadDotenv } from 'dotenv';
 import { GO_LIVE_ENV, parseGoLive } from '../../core/run-planner.ts';
+import { TWOCAPTCHA_KEY_ENV } from '../../core/status.ts';
 
 /** รากของโปรเจกต์ — ไฟล์นี้อยู่ที่ src/sites/foodstory/config.ts จึงถอยขึ้นสามชั้น */
 export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -92,7 +93,7 @@ export function loadConfig(): Config {
     dataDir: path.join(PROJECT_ROOT, 'data'),
     goLive: goLiveFromEnv(),
     authStatePath: path.join(PROJECT_ROOT, '.auth', 'foodstory.json'),
-    captchaApiKey: envStr('TWOCAPTCHA_API_KEY', '') || null,
+    captchaApiKey: envStr(TWOCAPTCHA_KEY_ENV, '') || null,
   };
 }
 

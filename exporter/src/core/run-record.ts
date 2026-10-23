@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 'node:f
 import path from 'node:path';
 import type { RunKind } from './order.ts';
 import { thaiClock } from './thai-time.ts';
-import type { SiteId } from './placement.ts';
+import { SITE_LABEL, type SiteId } from './placement.ts';
 import { PERIOD_CLOSE_SUFFIX } from './run-planner.ts';
 
 /**
@@ -193,7 +193,6 @@ function mergeSkipped(
   return [...previous.filter((s) => !replaced.has(s.report)), ...now];
 }
 
-const SITE_LABEL: Readonly<Record<SiteId, string>> = { hoteltime: 'HotelTime', foodstory: 'FoodStory' };
 const KIND_LABEL: Readonly<Record<StoreKind, string>> = {
   daily: 'รอบรายวัน',
   baseline: 'baseline',

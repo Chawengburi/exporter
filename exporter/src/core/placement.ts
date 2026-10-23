@@ -11,6 +11,8 @@ import { thaiClock } from './thai-time.ts';
  */
 
 export type SiteId = 'hoteltime' | 'foodstory';
+/** ชื่อแสดงของ Site — ที่เดียวทั้ง status / Discord / บันทึกผล (code review ใบ 01 ของ exporter-foodstory-scheduled-daily: เคยซ้ำ 4 ชุด) */
+export const SITE_LABEL: Readonly<Record<SiteId, string>> = { hoteltime: 'HotelTime', foodstory: 'FoodStory' };
 
 /** ชื่อโฟลเดอร์ของชนิดรอบบนดิสก์ — `manual` (back-fill, `--from`/`--to`, `--last-days`) ใช้คำว่า backfill */
 const KIND_DIR: Readonly<Record<RunKind, string>> = { daily: 'daily', baseline: 'baseline', manual: 'backfill' };

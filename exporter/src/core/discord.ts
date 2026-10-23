@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { SITE_LABEL } from './placement.ts';
 import { createRedactor } from './redact.ts';
 import type { DayView, SiteView, StatusReport } from './status.ts';
 import { thaiClock } from './thai-time.ts';
@@ -12,10 +13,11 @@ import type { EmptyResultEntry, UploadFileResult, UploadRunResult } from './uplo
  * - **สรุปรอบ** (ทุกรอบรายวัน — เจ้าของระบบขอ 2026-10-21 ให้เหมือนขา upload): ต่อ Site บรรทัดเดียวแบบ log ok/ว่าง/ล้ม + snapshot ของวันนี้
  *   · Site ที่วันนี้ไม่ได้รันบอกว่าไม่ได้รัน
  * - **แจ้งเตือน**: ทุกเรื่องที่ status ตัดสินว่าเป็นปัญหา (รายงานยังล้ม/ขาดหลังรอบเก็บตก, รายงาน snapshot ของวันนี้ถ่ายไม่ได้, snapshot ปิดงวด, `_run.json` เสีย/รอบไม่จบ)
- *   + วันขาดเกินที่รอบเดียวเติมได้ + FoodStory ไม่ได้กดมา `NOT_PRESSED_ALERT_DAYS` วันขึ้นไป
+ *   + วันขาดเกินที่รอบเดียวเติมได้ + FoodStory โหมดพนักงานกดที่ไม่ได้กดมา `NOT_PRESSED_ALERT_DAYS` วันขึ้นไป
  * - ทุกเรื่องมีกุญแจ (`ชนิด@site@วัน@รายงาน@วันนี้`) — เรื่องเดียวกันไม่ส่งซ้ำในวันเดียวกัน (spec) · ยังไม่หายพรุ่งนี้ = เตือนอีกวันละครั้ง
- * - รายงาน snapshot ของวันนี้ของ FoodStory ล้ม = พนักงานกดใหม่ได้ทั้งวัน → เตือนตั้งแต่ 18:30 ("ถ่ายไม่ได้ทุกรอบ" — user story 39)
- * - FoodStory ยังไม่เคยกดเลย เตือนเฉพาะเครื่องที่ตั้งวันเริ่มใช้งานแล้ว (ยังไม่ตั้ง = ยังไม่เริ่มใช้งาน)
+ * - แบบการเตือนตัดสินจาก `SiteView.mode` ไม่ใช่ชื่อ Site — FoodStory ที่รันตามเวลา (มีคีย์ 2captcha) เตือนแบบเดียวกับ HotelTime
+ * - โหมดพนักงานกด: รายงาน snapshot ของวันนี้ล้ม = พนักงานกดใหม่ได้ทั้งวัน → เตือนตั้งแต่ 18:30 ("ถ่ายไม่ได้ทุกรอบ" — user story 39) ·
+ *   ยังไม่เคยกดเลย เตือนเฉพาะเครื่องที่ตั้งวันเริ่มใช้งานแล้ว (ยังไม่ตั้ง = ยังไม่เริ่มใช้งาน)
  */
 
 /** FoodStory ไม่ได้กดมากี่วันถึงเตือน — 2 = ไม่ได้กดทั้งเมื่อวานและวันนี้ */
@@ -23,7 +25,6 @@ export const NOT_PRESSED_ALERT_DAYS = 2;
 /** เพดานความยาวข้อความของ Discord คือ 2000 ตัวอักษร — เผื่อไว้ (เดิมเป็นเพดานของ `content` เฉย ๆ ตอนนี้ของ Text Display component แต่ยังอนุรักษ์นิยมไว้เท่าเดิม) */
 const MAX_CONTENT = 1900;
 const NAMES_SHOWN = 8;
-const SITE_LABEL: Readonly<Record<SiteView['site'], string>> = { hoteltime: 'HotelTime', foodstory: 'FoodStory' };
 /** เวลาไทยที่รายงาน snapshot ของวันนี้ของ FoodStory ล้มแล้วถือว่า "ถ่ายไม่ได้ทุกรอบ" — เท่ากับเส้นหลังรอบเก็บตกสุดท้ายของ HotelTime */
 const MANUAL_PICTURE_ALERT_AT = '18:30';
 /**
@@ -266,11 +267,11 @@ function alertsOf(report: StatusReport, today: string): Alert[] {
       for (const f of d.perDay?.failed ?? []) {
         out.push({ key: `failed@${site.site}@${d.day}@${f.report}`, line: `${at}: ${f.report} failed — ${firstLine(f.error)}`, covered: d === latestDataDay(site) });
       }
-      // FoodStory ที่ยังไม่ได้ดึง = เรื่อง "ไม่ได้กด" (เตือนแยก) ไม่ใช่ปัญหาของวันนั้น
-      if (site.site === 'hoteltime') {
+      // โหมดพนักงานกด: ยังไม่ได้ดึง = เรื่อง "ไม่ได้กด" (เตือนแยก) ไม่ใช่ปัญหาของวันนั้น
+      if (site.mode === 'auto') {
         for (const id of d.perDay?.notFetched ?? []) out.push({ key: `missing@${site.site}@${d.day}@${id}`, line: `${at}: ${id} not fetched` });
       }
-      if (d.day === today && d.pictures && (site.site === 'hoteltime' || time >= MANUAL_PICTURE_ALERT_AT)) {
+      if (d.day === today && d.pictures && (site.mode === 'auto' || time >= MANUAL_PICTURE_ALERT_AT)) {
         for (const f of d.pictures.failed) out.push({ key: `picture@${site.site}@${d.day}@${f.report}`, line: `${at}: snapshot ${f.report} could not be taken — ${firstLine(f.error)}`, covered: true });
         for (const id of d.pictures.missing) out.push({ key: `picture@${site.site}@${d.day}@${id}`, line: `${at}: snapshot ${id} not taken yet` });
       }
@@ -290,7 +291,7 @@ function alertsOf(report: StatusReport, today: string): Alert[] {
       out.push({ key: `backlog@${site.site}@${today}`, line: `${label}: ${plural(site.backlogDays, 'day')} of data missing, more than one run can fill` });
     }
     const neverPressed = site.daysSinceLastRun === null && report.setup.goLive !== null;
-    if (site.site === 'foodstory' && (neverPressed || (site.daysSinceLastRun ?? 0) >= NOT_PRESSED_ALERT_DAYS)) {
+    if (site.mode === 'manual' && (neverPressed || (site.daysSinceLastRun ?? 0) >= NOT_PRESSED_ALERT_DAYS)) {
       out.push({
         key: `not-pressed@${site.site}@${today}`,
         line: site.daysSinceLastRun === null ? 'FoodStory has never been run' : `FoodStory not run for ${site.daysSinceLastRun} days — ask staff to double-click "Exporter - FoodStory Daily"`,
