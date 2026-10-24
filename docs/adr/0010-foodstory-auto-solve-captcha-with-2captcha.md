@@ -42,3 +42,7 @@ Chromium จึงไม่กระทบ) · **แทนที่เฉพา�
 ไอคอนบน Desktop เหลือเป็นทางสำรองเมื่อ Discord แจ้งว่ารอบอัตโนมัติล้ม · login ล้มถูกบันทึกเป็นผลของรอบและแจ้งบรรทัดเดียว · ไม่ทำ ADR
 ใหม่ เพราะถอยกลับง่าย: ถอด job FoodStory ออกจาก `windmill/setup.mjs` แล้วอัปเดตเครื่อง (การปิดสวิตช์ใน Windmill อย่างเดียวอยู่ได้แค่ถึง
 การอัปเดตครั้งถัดไป — setup.mjs เปิด schedule ที่ถูกปิดคืนให้เองโดยตั้งใจ)
+
+**ผลทดสอบ multi-session 2026-10-24:** FoodStory ยอมให้ 1 บัญชีมีหลาย session พร้อมกัน — login สดด้วย 2captcha (2026-10-23 22:54) ไม่ตัด
+session ของ session-watch (ยัง OK รอบ 02:30 / 08:30 ถัดมา, อายุ session 41.2 ชม.) · จึงเลเยอร์ session-watch แบบ session แยกได้ ไม่ต้องเปลี่ยน
+เป็น export reuse state file ของ watch
