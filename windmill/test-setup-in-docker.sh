@@ -55,13 +55,18 @@ api GET /configs/get/worker__custom | node -e '
   const c = JSON.parse(require("fs").readFileSync(0)); if (JSON.stringify(c?.worker_tags) !== JSON.stringify(["chromium"])) process.exit(1)
 ' && pass "worker group custom ฟัง tag chromium" || fail "config worker__custom ไม่ถูก"
 
-for name in pms_export_daily pms_export_daily_catchup; do
+for name in pms_export_daily pms_export_daily_catchup foodstory_export_daily foodstory_export_daily_catchup; do
   api GET "/w/admins/scripts/get/p/u/$WHO/$name" >"$WORK/$name.json"
   node -e '
     const [file, json] = process.argv.slice(1); const fs = require("fs");
     const s = JSON.parse(fs.readFileSync(json)); const want = fs.readFileSync(file, "utf8");
     if (s.content !== want || s.language !== "bash" || s.tag !== "chromium") process.exit(1);
   ' "$SRC/scripts/$name.sh" "$WORK/$name.json" && pass "สคริปต์ u/$WHO/$name: เนื้อหาตรงไฟล์ใน repo, bash, tag chromium" || fail "สคริปต์ $name ไม่ถูก"
+done
+# exporter-foodstory-scheduled-daily ใบ 04: เพดานเวลาของ job FoodStory ตั้งที่สคริปต์เอง (ไม่พึ่งค่าตั้งต้นของ Windmill) — Windmill ต้องเก็บไว้จริง
+for name in foodstory_export_daily foodstory_export_daily_catchup; do
+  node -e 'if (JSON.parse(require("fs").readFileSync(process.argv[1])).timeout !== 3600) process.exit(1)' "$WORK/$name.json" \
+    && pass "สคริปต์ $name มีเพดานเวลา 3600 วินาที" || fail "สคริปต์ $name ไม่มีเพดานเวลา (Windmill ไม่เก็บ timeout?)"
 done
 
 check_schedule() { # <path> <cron> <script_path>
@@ -77,6 +82,10 @@ check_schedule "u/$WHO/pms_export_daily" "0 0 12 * * *" "u/$WHO/pms_export_daily
   && pass "schedule เที่ยง (Asia/Bangkok) เปิดอยู่ permissioned_as ผู้ที่ตั้ง" || fail "schedule เที่ยงไม่ถูก"
 check_schedule "u/$WHO/pms_export_daily_catchup" "0 0 15,18 * * *" "u/$WHO/pms_export_daily_catchup" \
   && pass "schedule เก็บตก 15:00/18:00 เปิดอยู่" || fail "schedule เก็บตกไม่ถูก"
+check_schedule "u/$WHO/foodstory_export_daily" "0 0 12 * * *" "u/$WHO/foodstory_export_daily" \
+  && pass "FoodStory: schedule เที่ยง (Asia/Bangkok) เปิดอยู่" || fail "FoodStory: schedule เที่ยงไม่ถูก"
+check_schedule "u/$WHO/foodstory_export_daily_catchup" "0 0 15,18 * * *" "u/$WHO/foodstory_export_daily_catchup" \
+  && pass "FoodStory: schedule เก็บตก 15:00/18:00 เปิดอยู่" || fail "FoodStory: schedule เก็บตกไม่ถูก"
 HASH1="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1])).hash)' "$WORK/pms_export_daily.json")"
 
 echo "== รันซ้ำ: ต้องไม่เปลี่ยนอะไร"

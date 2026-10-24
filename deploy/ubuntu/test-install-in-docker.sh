@@ -41,7 +41,8 @@ echo "== ติดตั้งรอบแรก — รหัสมีช่อ
 HOOK='https://discord.com/api/webhooks/123456789/fake-webhook-token-for-install-test'
 HOOK2='https://discord.com/api/webhooks/987654321/fake-upload-hook-test'
 TODAY="$(TZ=Asia/Bangkok date +%F)"
-ANSWERS=$'hotel-user\n p#ss w0rd!$x \nfood@example.com\nit\'s f00d $$ #1\n\n'"$HOOK"$'\n'"$HOOK2"$'\n'
+CAPKEY='0123456789abcdef0123456789abcdef' # คีย์ 2captcha ปลอม (32 ตัว) — ใบ 04 ของ exporter-foodstory-scheduled-daily
+ANSWERS=$'hotel-user\n p#ss w0rd!$x \nfood@example.com\nit\'s f00d $$ #1\n\n'"$HOOK"$'\n'"$HOOK2"$'\n'"$CAPKEY"$'\n'
 as_user_answering "$ANSWERS" "$INSTALL" >/tmp/first.out 2>&1 || { cat /tmp/first.out; fail "ติดตั้งรอบแรก exit"; }
 cat /tmp/first.out
 [ -d $R/exporter/node_modules/playwright ] && pass "node_modules" || fail "ไม่มี node_modules"
@@ -62,6 +63,11 @@ as_user "cd exporter && node -e '
 '" && pass "วันเริ่มใช้งาน = วันที่ติดตั้ง ($TODAY) · URL ของ webhook ทั้งสอง channel อ่านกลับได้ตรง" || fail "วันเริ่มใช้งาน/URL ของ webhook ไม่ถูกตั้ง"
 if grep -q "fake-webhook-token-for-install-test\|fake-webhook-token-upload-for-install-test" /tmp/first.out; then fail "URL ของ webhook โผล่บนจอ"; fi
 pass "URL ของ webhook ไม่แสดงบนจอ (ทั้งสอง channel)"
+as_user "cd exporter && node -e '
+  if (require(\"dotenv\").config({ quiet: true }).parsed.TWOCAPTCHA_API_KEY !== \"$CAPKEY\") process.exit(1);
+'" && pass "คีย์ 2captcha อ่านกลับได้ตรง" || fail "คีย์ 2captcha ไม่ถูกบันทึก"
+if grep -q "$CAPKEY" /tmp/first.out; then fail "คีย์ 2captcha โผล่บนจอ"; fi
+pass "คีย์ 2captcha ไม่แสดงบนจอ"
 [ "$(stat -c %a $R/windmill/.env)" = 600 ] && pass "windmill/.env 600" || fail "windmill/.env สิทธิ์ไม่ใช่ 600"
 PG="$(grep '^POSTGRES_PASSWORD=' $R/windmill/.env | cut -d= -f2-)"
 [ -n "$PG" ] && [ "$PG" != changeme ] && grep -q "^DATABASE_URL=postgres://postgres:$PG@" $R/windmill/.env \
@@ -83,10 +89,12 @@ as_user "$INSTALL" >/tmp/rerun.out 2>&1 || { cat /tmp/rerun.out; fail "รัน
 if grep -qi "apt-get\|Installing dependencies" /tmp/rerun.out; then cat /tmp/rerun.out; fail "รันซ้ำเรียก apt"; fi
 pass "ไม่เรียก apt ซ้ำ (library ของ Chromium ครบแล้ว)"
 
-echo "== เครื่องที่ติดตั้งก่อนใบ 10 (ไม่มีวันเริ่มใช้งาน/URL): รันซ้ำเติมวันเริ่มใช้งาน ไม่แตะค่าอื่น · ข้าม URL ได้ (บอกในสิ่งที่ยังต้องทำ)"
-sed -i -e '/^EXPORTER_GO_LIVE=/d' -e '/^DISCORD_WEBHOOK_URL_EXPORT=/d' -e '/^DISCORD_WEBHOOK_URL_UPLOAD=/d' $R/exporter/.env
+echo "== เครื่องที่ติดตั้งก่อนใบ 10 / ก่อนมีคีย์ 2captcha: รันซ้ำเติมวันเริ่มใช้งาน ไม่แตะค่าอื่น · ข้าม URL และคีย์ได้ (บอกในสิ่งที่ยังต้องทำ)"
+sed -i -e '/^EXPORTER_GO_LIVE=/d' -e '/^DISCORD_WEBHOOK_URL_EXPORT=/d' -e '/^DISCORD_WEBHOOK_URL_UPLOAD=/d' -e '/^TWOCAPTCHA_API_KEY=/d' $R/exporter/.env
 OLD_PASS="$(grep '^HOTELTIME_PASSWORD=' $R/exporter/.env)"
-as_user_answering $'\n\n' "$INSTALL" >/tmp/upgrade.out 2>&1 || { cat /tmp/upgrade.out; fail "รันซ้ำบนเครื่องเก่า exit"; }
+as_user_answering $'\n\n\n' "$INSTALL" >/tmp/upgrade.out 2>&1 || { cat /tmp/upgrade.out; fail "รันซ้ำบนเครื่องเก่า exit"; }
+if grep -q '^TWOCAPTCHA_API_KEY=' $R/exporter/.env; then fail "ข้ามคีย์ 2captcha แล้วยังเขียน TWOCAPTCHA_API_KEY"; fi
+grep -q "TWOCAPTCHA_API_KEY" /tmp/upgrade.out && pass "ข้ามคีย์ 2captcha: สรุปตอนจบบอกวิธีใส่ทีหลัง" || fail "ข้ามคีย์ 2captcha แล้วไม่บอกในสิ่งที่ยังต้องทำ"
 grep -qx "EXPORTER_GO_LIVE=$TODAY" $R/exporter/.env && pass "เติมวันเริ่มใช้งาน = วันนี้" || fail "ไม่เติมวันเริ่มใช้งาน"
 if grep -q '^DISCORD_WEBHOOK_URL_EXPORT=\|^DISCORD_WEBHOOK_URL_UPLOAD=' $R/exporter/.env; then fail "ข้าม URL แล้วยังเขียน DISCORD_WEBHOOK_URL_*"; fi
 [ "$OLD_PASS" = "$(grep '^HOTELTIME_PASSWORD=' $R/exporter/.env)" ] && pass "ค่าอื่นใน .env ไม่ถูกแตะ" || fail "รหัสผ่านเดิมเปลี่ยน"
@@ -94,7 +102,9 @@ grep -q "ยังต้องทำ" /tmp/upgrade.out && grep -q "DISCORD_WEBHO
   && pass "ข้าม URL ทั้งสอง channel: สรุปตอนจบบอกวิธีตั้งทีหลัง" || fail "ข้าม URL แล้วไม่บอกในสิ่งที่ยังต้องทำ"
 [ "$(stat -c %a $R/exporter/.env)" = 600 ] && pass "exporter/.env ยัง 600" || fail "exporter/.env สิทธิ์เปลี่ยน"
 sed -i "s/^EXPORTER_GO_LIVE=.*/EXPORTER_GO_LIVE=2026-01-02/" $R/exporter/.env
-as_user_answering $'\n\n' "$INSTALL" >/tmp/keep.out 2>&1 || { cat /tmp/keep.out; fail "รันซ้ำ exit"; }
+as_user_answering $'\n\nnot-a-2captcha-key\n' "$INSTALL" >/tmp/keep.out 2>&1 || { cat /tmp/keep.out; fail "รันซ้ำ exit"; }
+if grep -q '^TWOCAPTCHA_API_KEY=' $R/exporter/.env; then fail "คีย์ 2captcha ผิดรูปแบบแต่ยังถูกบันทึก"; fi
+grep -q "32 ตัว" /tmp/keep.out && pass "คีย์ 2captcha ผิดรูปแบบ: ไม่บันทึก และบอกรูปแบบที่ถูก" || fail "คีย์ผิดรูปแบบแล้วไม่บอก"
 grep -qx "EXPORTER_GO_LIVE=2026-01-02" $R/exporter/.env && pass "รันซ้ำไม่ทับวันเริ่มใช้งานที่ตั้งไว้" || fail "รันซ้ำทับวันเริ่มใช้งาน"
 [ "$(grep -c '^EXPORTER_GO_LIVE=' $R/exporter/.env)" = 1 ] && pass "ไม่มีบรรทัดซ้ำ" || fail "EXPORTER_GO_LIVE ซ้ำหลายบรรทัด"
 

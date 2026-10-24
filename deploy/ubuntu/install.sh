@@ -172,33 +172,51 @@ else
   append_env "EXPORTER_GO_LIVE=$GO_LIVE"
   ok "ตั้งวันเริ่มใช้งานเป็นวันนี้ $GO_LIVE — ตั้งแต่วันนี้ วันไหนขาด ระบบเติมให้เอง (เปลี่ยนได้ที่ EXPORTER_GO_LIVE ใน exporter/.env)"
 fi
-# เจ้าของระบบขอ 2026-10-18: แยก channel Discord ระหว่างขา export กับขา upload — ถามทีละตัว คนละตัวแปร
-# ask_webhook <ENV_KEY> <ป้ายชื่อขา>
-ask_webhook() {
-  local key="$1" label="$2"
-  local todo="ตั้งการแจ้งเตือน Discord ขา $label: nano exporter/.env แล้วเพิ่มบรรทัด $key=<URL ของ webhook>"
+# ask_optional_secret <KEY> <regex> <ข้อความถาม> <มีแล้ว> <ข้าม> <บันทึกแล้ว> <ผิดรูปแบบ> <สิ่งที่ยังต้องทำ> — ค่าลับที่ไม่บังคับ (URL ของ webhook,
+# คีย์ 2captcha): ถามเฉพาะเมื่อยังไม่มี ไม่ทับค่าเดิม · ไม่แสดงบนจอระหว่างพิมพ์และไม่พิมพ์กลับ · ค่าผ่าน builtin/stdin เท่านั้น (ไม่ขึ้น argv ใน ps) ·
+# ว่าง/ผิดรูปแบบ = ไม่บันทึก แล้วจดวิธีทำทีหลังไว้ในสรุปตอนจบ (code review ใบ 04 ของ exporter-foodstory-scheduled-daily: เดิมเขียนซ้ำทีละตัว)
+ask_optional_secret() {
+  local key="$1" pattern="$2" prompt="$3" have="$4" skipped="$5" saved="$6" invalid="$7" todo="$8"
   if env_has "$key"; then
-    ok "มี URL ของ Discord webhook ขา $label แล้ว ไม่แตะ"
+    ok "$have"
     return
   fi
-  # URL ของ webhook = ความลับ (ใครมีก็โพสต์เข้าห้องได้) — ไม่แสดงบนจอระหว่างพิมพ์และไม่พิมพ์กลับ
-  local webhook=""
-  IFS= read -r -s -p "   URL ของ Discord webhook ขา $label (วางแล้วกด Enter — ไม่แสดงบนจอ · กด Enter เฉย ๆ = ข้ามไปก่อน): " webhook || true
+  local value=""
+  IFS= read -r -s -p "   $prompt (วางแล้วกด Enter — ไม่แสดงบนจอ · กด Enter เฉย ๆ = ข้ามไปก่อน): " value || true
   echo
-  webhook="$(printf '%s' "$webhook" | tr -d '[:space:]')"
-  if [ -z "$webhook" ]; then
-    warn "ข้ามไปก่อน — ยังไม่มีการแจ้งเตือนขา $label ทาง Discord"
+  value="$(printf '%s' "$value" | tr -d '[:space:]')"
+  if [ -z "$value" ]; then
+    warn "$skipped"
     PENDING+=("$todo")
-  elif printf '%s' "$webhook" | grep -qE '^https://((ptb|canary)\.)?(discord|discordapp)\.com/api/(v[0-9]+/)?webhooks/[0-9]+/[A-Za-z0-9_-]+$'; then
-    append_env "$key=$webhook"
-    ok "บันทึก URL ของ Discord webhook ขา $label แล้ว (ไม่แสดงบนจอ)"
+  elif printf '%s' "$value" | grep -qE "$pattern"; then
+    append_env "$key=$value"
+    ok "$saved"
   else
-    warn "ไม่ใช่ URL webhook ของ Discord (ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/) — ไม่บันทึก"
+    warn "$invalid"
     PENDING+=("$todo")
   fi
 }
+# เจ้าของระบบขอ 2026-10-18: แยก channel Discord ระหว่างขา export กับขา upload — ถามทีละตัว คนละตัวแปร · URL ของ webhook = ความลับ (ใครมีก็โพสต์เข้าห้องได้)
+ask_webhook() { # ask_webhook <ENV_KEY> <ป้ายชื่อขา>
+  ask_optional_secret "$1" '^https://((ptb|canary)\.)?(discord|discordapp)\.com/api/(v[0-9]+/)?webhooks/[0-9]+/[A-Za-z0-9_-]+$' \
+    "URL ของ Discord webhook ขา $2" \
+    "มี URL ของ Discord webhook ขา $2 แล้ว ไม่แตะ" \
+    "ข้ามไปก่อน — ยังไม่มีการแจ้งเตือนขา $2 ทาง Discord" \
+    "บันทึก URL ของ Discord webhook ขา $2 แล้ว (ไม่แสดงบนจอ)" \
+    "ไม่ใช่ URL webhook ของ Discord (ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/) — ไม่บันทึก" \
+    "ตั้งการแจ้งเตือน Discord ขา $2: nano exporter/.env แล้วเพิ่มบรรทัด $1=<URL ของ webhook>"
+}
 ask_webhook DISCORD_WEBHOOK_URL_EXPORT "export"
 ask_webhook DISCORD_WEBHOOK_URL_UPLOAD "upload"
+# ── 4c. คีย์ 2captcha (ADR-0010 · ใบ 04 ของ exporter-foodstory-scheduled-daily) — มีคีย์ = login ของ FoodStory แก้ reCAPTCHA เอง จึงรันเองตามเวลา
+# บน Windmill ได้ · ความลับ + บริการเสียเงิน · คีย์ของ 2captcha เป็นตัวอักษร/ตัวเลข 32 ตัว (ผิดรูปแบบ = ไม่บันทึก ใส่เองด้วย nano ได้เสมอ)
+ask_optional_secret TWOCAPTCHA_API_KEY '^[A-Za-z0-9]{32}$' \
+  "คีย์ 2captcha ให้ FoodStory แก้ reCAPTCHA เอง" \
+  "มีคีย์ 2captcha แล้ว ไม่แตะ — FoodStory รันเองทุกวันบน Windmill" \
+  "ข้ามไปก่อน — FoodStory รอบตามเวลาบน Windmill จะล้มทันที (แจ้ง Discord ว่าขาดคีย์) จนกว่าจะใส่คีย์ · ไอคอน FoodStory บน Desktop ยังใช้ได้" \
+  "บันทึกคีย์ 2captcha แล้ว (ไม่แสดงบนจอ) — FoodStory รันเองทุกวันบน Windmill" \
+  "คีย์ 2captcha ต้องเป็นตัวอักษร/ตัวเลข 32 ตัว (ดูที่หน้า Dashboard ของ 2captcha.com) — ไม่บันทึก" \
+  "ใส่คีย์ 2captcha ให้ FoodStory รันเองตามเวลา: nano exporter/.env แล้วเพิ่มบรรทัด TWOCAPTCHA_API_KEY=<คีย์จาก 2captcha.com>"
 keep_private "$EXPORTER/.env"
 
 # ── 5. windmill/.env ──
@@ -223,7 +241,7 @@ ok "ไฟล์ที่ดึงมาจะอยู่ที่ exporter/dat
 bash "$EXPORTER/launchers/install-desktop-launcher.sh" | sed 's/^/   /' || stop "วางไอคอนไม่สำเร็จ (ดูข้อความด้านบน)"
 
 # ── 7. Windmill ──
-step "เปิด Windmill (ตัวตั้งเวลาให้ HotelTime รันทุกวัน)"
+step "เปิด Windmill (ตัวตั้งเวลาให้ HotelTime และ FoodStory รันทุกวัน)"
 WINDMILL_UP=0
 if [ "$SKIP_WINDMILL" = 1 ]; then
   warn "ข้ามตามที่สั่ง (--skip-windmill)"
@@ -269,7 +287,7 @@ else
   for item in "${PENDING[@]}"; do i=$((i + 1)); echo "   $i. $item"; done
 fi
 echo
-[ "$WINDMILL_UP" = 1 ] && echo "   • HotelTime: รันเองทุกวัน 12:00 (เก็บตก 15:00/18:00) — ดูประวัติที่ http://localhost:8000/runs · ล็อกอิน admin@windmill.dev รหัสอยู่ใน windmill/.admin-password"
-echo "   • FoodStory: ดับเบิลคลิกไอคอน \"Exporter - FoodStory Daily\" บน Desktop (ครั้งแรกอาจต้องคลิกขวา → Allow Launching)"
+[ "$WINDMILL_UP" = 1 ] && echo "   • HotelTime + FoodStory: รันเองทุกวัน 12:00 (เก็บตก 15:00/18:00) — ดูประวัติที่ http://localhost:8000/runs · ล็อกอิน admin@windmill.dev รหัสอยู่ใน windmill/.admin-password"
+echo "   • FoodStory ทางสำรอง: ดับเบิลคลิกไอคอน \"Exporter - FoodStory Daily\" บน Desktop เมื่อ Discord แจ้งว่ารอบอัตโนมัติล้ม (ครั้งแรกอาจต้องคลิกขวา → Allow Launching)"
 echo "   • คู่มือพนักงาน: docs/FOODSTORY-DAILY-STAFF-GUIDE.md"
 echo "════════════════════════════════════════════════════════"

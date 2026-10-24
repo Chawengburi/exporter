@@ -36,3 +36,9 @@ login สด = multi-session) — ถ้าเป็น single-session ต้อ
 (solver รันฝั่ง Node อ่าน `process.env` ตรง ๆ `core/browser-env.ts` ที่กันความลับไม่ให้ส่งเข้า
 Chromium จึงไม่กระทบ) · **แทนที่เฉพาะกลไก "คนกด captcha" ของ ADR-0006** ส่วนที่ว่า FoodStory มีรอบ
 รายวันยังอยู่
+
+**เพิ่มเติม 2026-10-24 (exporter-foodstory-scheduled-daily):** เมื่อ login แก้ captcha เองได้ การเริ่ม **รอบรายวัน** ของ FoodStory ย้ายจาก
+พนักงานกดไอคอนไปเป็น Windmill schedule เวลาเดียวกับ HotelTime (12:00 + เก็บตก 15:00/18:00) ตามด้วยการอัปโหลดเข้า uploader ·
+ไอคอนบน Desktop เหลือเป็นทางสำรองเมื่อ Discord แจ้งว่ารอบอัตโนมัติล้ม · login ล้มถูกบันทึกเป็นผลของรอบและแจ้งบรรทัดเดียว · ไม่ทำ ADR
+ใหม่ เพราะถอยกลับง่าย: ถอด job FoodStory ออกจาก `windmill/setup.mjs` แล้วอัปเดตเครื่อง (การปิดสวิตช์ใน Windmill อย่างเดียวอยู่ได้แค่ถึง
+การอัปเดตครั้งถัดไป — setup.mjs เปิด schedule ที่ถูกปิดคืนให้เองโดยตั้งใจ)

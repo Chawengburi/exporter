@@ -180,7 +180,7 @@ cd ~/chawengburi-exporter/exporter && node src/index.ts export --site foodstory 
 cd ~/chawengburi-exporter && git pull && bash deploy/ubuntu/install.sh
 ```
 
-- **อย่าอัปเดตช่วง 11:55–12:30 และช่วง 15:00 / 18:00** (HotelTime กำลังรัน) หรือตอนพนักงานกำลังดึง FoodStory
+- **อย่าอัปเดตช่วง 11:55–12:45 และช่วง 15:00 / 18:00** (HotelTime และ FoodStory กำลังรัน — เข้าคิวต่อกัน) หรือตอนพนักงานกำลังดึง FoodStory
 - ตัวติดตั้งรันซ้ำปลอดภัย: ไม่ถามรหัสซ้ำ ไม่แตะค่าใน `.env` (เติมแค่ที่ยังไม่มี) ติดตั้ง package ใหม่เฉพาะเมื่อเปลี่ยน และ deploy สคริปต์ Windmill
   ที่เปลี่ยนให้เอง
 - 🔴 **ต้องรัน `bash deploy/ubuntu/install.sh` ทุกครั้งหลัง `git pull`** — ไม่ใช่ `git pull` เฉย ๆ แล้วไปตั้ง Windmill ต่อเลย · install.sh เป็น
@@ -189,10 +189,11 @@ cd ~/chawengburi-exporter && git pull && bash deploy/ubuntu/install.sh
 - ถ้าผู้พัฒนาบอกว่าตัวรัน Windmill เปลี่ยน: `cd ~/chawengburi-exporter/windmill && docker compose up -d --build`
 - อย่าแก้ไฟล์ใน `~/chawengburi-exporter` เอง (ยกเว้น `.env`) — `git pull` ครั้งต่อไปจะชนกัน
 
-## เปิดให้ FoodStory แก้ reCAPTCHA เองอัตโนมัติ (2captcha)
+## FoodStory รันเองทุกวันบน Windmill (2captcha)
 
-ปกติ FoodStory ต้องมีคนนั่งแก้ reCAPTCHA ตอน login (รันจากเครื่องที่มีหน้าจอ `--headful`) · ถ้าตั้งคีย์ 2captcha ไว้ `login`
-จะแก้ captcha เองและรันบนเครื่องไม่มีคนเฝ้า (Ubuntu/Windmill headless) ได้เหมือน HotelTime (ADR-0010)
+Windmill รัน FoodStory **เวลาเดียวกับ HotelTime**: รอบรายวัน 12:00 และรอบเก็บตก 15:00 / 18:00 (job `foodstory_export_daily` และ
+`foodstory_export_daily_catchup` — ตัวติดตั้งตั้งให้เอง) · แต่ละรอบดึงรายงานรายวันของ FoodStory แล้วอัปโหลดเข้า uploader ต่อ · login แก้
+reCAPTCHA เองด้วยบริการ 2captcha (ADR-0010) จึงต้องมีคีย์ — ตัวติดตั้งถามให้ตอนติดตั้ง/อัปเดตถ้ายังไม่มี หรือใส่เอง:
 
 ```bash
 nano ~/chawengburi-exporter/exporter/.env
@@ -201,9 +202,23 @@ nano ~/chawengburi-exporter/exporter/.env
 เพิ่ม/แก้บรรทัด `TWOCAPTCHA_API_KEY=` ใส่คีย์จาก 2captcha.com (เติมเงินแล้ว) · 🔴 เป็นความลับ + บริการเสียเงิน ห้ามส่งให้ใครหรือ commit
 
 - ทดสอบ: `cd ~/chawengburi-exporter/exporter && node src/index.ts login --site foodstory --check --json` → เห็น `"ok": true` = แก้ captcha เองได้
-- ไม่ตั้งคีย์ = พฤติกรรมเดิม (รอคนแก้บนเบราว์เซอร์ headful) — ไม่พัง แค่รันไร้คนไม่ได้
-- ⚠️ **ตอนนี้ยังไม่มี schedule FoodStory อัตโนมัติใน Windmill** — ตั้งคีย์แล้วใช้ได้แค่ตอนสั่งรันเอง · การตั้ง schedule อัตโนมัติเป็นงานที่
-  ผู้พัฒนาจะเพิ่มทีหลัง (รอผลเรื่อง session หลายตัวพร้อมกันก่อน)
+- ไม่มีคีย์ = รอบตามเวลาของ FoodStory **ล้มทันที** แล้ว Discord แจ้งว่า "FoodStory login failed — ไม่มีคีย์ 2captcha …" (ไม่ค้างรอ) ·
+  ไอคอน FoodStory บน Desktop ยังใช้ได้ (คนแก้ captcha เอง)
+- login ล้มด้วยเหตุผลอื่น (เช่น ยอดเงิน 2captcha หมด) = Discord แจ้งบรรทัดเดียวพร้อมเหตุผล · รอบเก็บตกถัดไปลองใหม่เอง · ล้มทั้งวัน = เช็คยอดเงินที่
+  2captcha.com และดู log ของรอบใน Windmill
+- อัปโหลดล้ม **ไม่ทำให้ job ใน Windmill ขึ้นแดง** — ไฟล์ที่ uploader ปฏิเสธแจ้งทีละไฟล์ใน Discord ขา upload · ไฟล์ค้างดูได้ที่ `exporter status`
+
+### หยุด FoodStory รอบอัตโนมัติชั่วคราว
+
+เข้า http://localhost:8000/schedules → ปิดสวิตช์ของ `foodstory_export_daily` และ `foodstory_export_daily_catchup` · 🔴 การรันตัวติดตั้ง
+(อัปเดตโปรแกรม) หรือ `node windmill/setup.mjs` ครั้งถัดไป **เปิดคืนให้เอง** (ตั้งใจ — ซ่อม schedule ที่ถูกปิดโดยไม่ตั้งใจ) ถ้าจะหยุดยาวให้แจ้งผู้พัฒนา
+
+### ครั้งแรกหลังอัปเดตเป็นเวอร์ชันที่มี FoodStory รันเอง
+
+1. อัปเดตตามหัวข้อ "อัปเดตโปรแกรม" (ใส่คีย์ 2captcha เมื่อถูกถาม) · ทดสอบ login ตามข้างบน
+2. **อัปโหลด FoodStory เองหนึ่งครั้งก่อน** — รอบแรกส่งไฟล์ค้างทั้งหมดตั้งแต่วันเริ่มใช้งาน: `cd ~/chawengburi-exporter/exporter && node src/index.ts upload --site foodstory`
+   แล้วดู Discord ขา upload ว่ามีไฟล์ถูกปฏิเสธไหม
+3. ดูรอบ 12:00 แรกที่ http://localhost:8000/runs (ต้องขึ้นเขียวทั้ง HotelTime และ FoodStory) และสรุปใน Discord ขา export
 
 ## เปลี่ยนรหัสผ่าน HotelTime / FoodStory
 

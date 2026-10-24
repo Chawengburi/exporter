@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * ตั้งค่า Windmill ให้รัน HotelTime ทุกวัน — แทนการคลิกหน้าเว็บตาม INSTALL.md ข้อ 4–6 (ข้อ 3 `docker compose up -d` ยังทำก่อน) (ticket 03 ของ exporter-ubuntu-deploy)
+ * ตั้งค่า Windmill ให้รัน HotelTime และ FoodStory ทุกวัน — แทนการคลิกหน้าเว็บตาม INSTALL.md ข้อ 4–6 (ข้อ 3 `docker compose up -d` ยังทำก่อน)
+ * (ticket 03 ของ exporter-ubuntu-deploy · FoodStory: ใบ 04 ของ exporter-foodstory-scheduled-daily)
  *
  *   node windmill/setup.mjs                 ← หลัง `docker compose up -d` · รันซ้ำได้ (ไม่มีอะไรเปลี่ยน = ไม่แตะอะไร)
  *   node windmill/setup.mjs --base http://127.0.0.1:18000
@@ -9,8 +10,9 @@
  *  1. เปลี่ยนรหัส admin@windmill.dev จากค่าเริ่มต้น `changeme` เป็นรหัสสุ่ม เก็บใน windmill/.admin-password (600, ไม่อยู่ใน git) —
  *     เขียนไฟล์ก่อนแล้วค่อยเปลี่ยนรหัส (เปลี่ยนสำเร็จแต่เขียนไฟล์ไม่ได้ = ล็อกตัวเองออก) · ถ้าไฟล์มีแต่รหัสยังเป็น changeme ให้ใช้รหัสในไฟล์
  *  2. worker group "custom" ฟัง tag `chromium` (worker ที่มี Chromium + mount exporter/)
- *  3. สคริปต์ `u/<ผู้ตั้ง>/pms_export_daily` และ `..._catchup` — เนื้อหาจาก windmill/scripts/*.sh (แก้ไฟล์ใน repo แล้วรันซ้ำ = deploy เวอร์ชันใหม่)
- *  4. schedule เที่ยง และ 15:00/18:00 (Asia/Bangkok) — permissioned_as เป็นผู้ที่รันสคริปต์นี้เสมอ (กับดักใน INSTALL.md §6: ผู้ที่ตั้งเดิม
+ *  3. สคริปต์ `u/<ผู้ตั้ง>/pms_export_daily`, `foodstory_export_daily` และ `..._catchup` ของแต่ละ Site — เนื้อหาจาก windmill/scripts/*.sh
+ *     (แก้ไฟล์ใน repo แล้วรันซ้ำ = deploy เวอร์ชันใหม่)
+ *  4. schedule เที่ยง และ 15:00/18:00 (Asia/Bangkok) — ทั้งสอง Site เวลาเดียวกัน (worker chromium มีตัวเดียว job เข้าคิวต่อกัน) — permissioned_as เป็นผู้ที่รันสคริปต์นี้เสมอ (กับดักใน INSTALL.md §6: ผู้ที่ตั้งเดิม
  *     ถูกลบแล้ว schedule ล้มเงียบ ๆ — รันซ้ำแก้ให้เอง)
  *
  * ข้อความเป็นภาษาไทยทั้งหมด (เครื่องปลายทางไม่มี AI ช่วยอ่าน) · ไม่พิมพ์ token/รหัสผ่านออกจอ
@@ -29,9 +31,17 @@ const WORKSPACE = 'admins';
 const WORKER_GROUP = 'worker__custom';
 const TAG = 'chromium';
 const TIMEZONE = 'Asia/Bangkok';
+// เพดานเวลาของ job FoodStory (วินาที) ตั้งที่สคริปต์เอง ไม่พึ่งค่าตั้งต้นของ Windmill: รอบปกติราว 5 นาที + วันที่ขาดวันละราว 3 นาที (สูงสุด 3 วัน) +
+// login/แก้ captcha (ลองซ้ำ 3 ครั้ง) — ราว 20 นาทีในกรณีหนัก เผื่อไว้ 1 ชั่วโมง · HotelTime ใช้ไม่ถึง 15 นาที ไม่ตั้ง (พฤติกรรมเดิม)
+const FOODSTORY_TIMEOUT_S = 3600;
+// ทั้งสอง Site เวลาเดียวกัน — status/Discord ใช้กติกาเวลาชุดเดียว (core/status.ts: เส้นตาย 15:00 / รอบสุดท้ายประเมินที่ 18:30)
+const DAILY_CRON = '0 0 12 * * *';
+const CATCHUP_CRON = '0 0 15,18 * * *';
 const JOBS = [
-  { name: 'pms_export_daily', summary: 'HotelTime รอบรายวัน (เที่ยง)', cron: '0 0 12 * * *' },
-  { name: 'pms_export_daily_catchup', summary: 'HotelTime รอบเก็บตก (15:00 / 18:00)', cron: '0 0 15,18 * * *' },
+  { name: 'pms_export_daily', summary: 'HotelTime รอบรายวัน (เที่ยง)', cron: DAILY_CRON },
+  { name: 'pms_export_daily_catchup', summary: 'HotelTime รอบเก็บตก (15:00 / 18:00)', cron: CATCHUP_CRON },
+  { name: 'foodstory_export_daily', summary: 'FoodStory รอบรายวัน (เที่ยง)', cron: DAILY_CRON, timeout: FOODSTORY_TIMEOUT_S },
+  { name: 'foodstory_export_daily_catchup', summary: 'FoodStory รอบเก็บตก (15:00 / 18:00)', cron: CATCHUP_CRON, timeout: FOODSTORY_TIMEOUT_S },
 ];
 
 class SetupError extends Error {}
@@ -121,7 +131,7 @@ async function ensureWorkerTag(token, report) {
 
 async function ensureScript(token, scriptPath, job, report) {
   const content = readFileSync(path.join(HERE, 'scripts', `${job.name}.sh`), 'utf8');
-  const wanted = { path: scriptPath, summary: job.summary, description: '', content, language: 'bash', tag: TAG };
+  const wanted = { path: scriptPath, summary: job.summary, description: '', content, language: 'bash', tag: TAG, ...(job.timeout ? { timeout: job.timeout } : {}) };
   const exists = await json('GET', `/w/${WORKSPACE}/scripts/exists/p/${scriptPath}`, { token });
   if (!exists) {
     await call('POST', `/w/${WORKSPACE}/scripts/create`, { token, body: wanted });
@@ -129,7 +139,7 @@ async function ensureScript(token, scriptPath, job, report) {
     return;
   }
   const current = await json('GET', `/w/${WORKSPACE}/scripts/get/p/${scriptPath}`, { token });
-  if (current.content === content && current.language === 'bash' && current.tag === TAG) return;
+  if (current.content === content && current.language === 'bash' && current.tag === TAG && (current.timeout ?? null) === (job.timeout ?? null)) return;
   await call('POST', `/w/${WORKSPACE}/scripts/create`, { token, body: { ...wanted, parent_hash: current.hash } });
   report(`deploy สคริปต์ ${scriptPath} เวอร์ชันใหม่ (เนื้อหาใน repo เปลี่ยน)`);
 }
@@ -172,7 +182,7 @@ async function main() {
     await ensureSchedule(token, scriptPath, job, who, report);
   }
   console.log(changes.length === 0 ? '   ✔ ไม่มีอะไรเปลี่ยน — ตั้งค่าไว้ครบอยู่แล้ว' : `   เปลี่ยน ${changes.length} อย่าง`);
-  console.log(`   HotelTime จะรันเองทุกวัน 12:00 (เก็บตก 15:00 / 18:00) · ดูประวัติการรันที่ ${BASE}/runs (ล็อกอิน ${ADMIN_EMAIL})`);
+  console.log(`   HotelTime และ FoodStory จะรันเองทุกวัน 12:00 (เก็บตก 15:00 / 18:00) · ดูประวัติการรันที่ ${BASE}/runs (ล็อกอิน ${ADMIN_EMAIL})`);
 }
 
 try {

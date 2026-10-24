@@ -55,8 +55,9 @@ publish ออก host เลย ดู § 7) เปลี่ยนได้ถ�
 
 หลัง `docker compose up -d` (ข้อ 3) รัน **`node windmill/setup.mjs`** แทนการคลิกหน้าเว็บข้อ 4–6 — เปลี่ยนรหัส
 `admin@windmill.dev` จาก `changeme` เป็นรหัสสุ่ม (เก็บใน `windmill/.admin-password` สิทธิ์ 600 ไม่อยู่ใน git), ผูก tag `chromium`
-ให้ worker "custom", deploy สคริปต์จาก `windmill/scripts/*.sh` เป็น `u/<ผู้ตั้ง>/pms_export_daily` และ `..._catchup`, ตั้ง schedule
-12:00 และ 15:00/18:00 (Asia/Bangkok) โดย "Permissioned as" เป็นผู้ที่รันเสมอ · รันซ้ำได้ (ไม่มีอะไรเปลี่ยน = ไม่แตะ) · แก้สคริปต์ใน
+ให้ worker "custom", deploy สคริปต์จาก `windmill/scripts/*.sh` เป็น `u/<ผู้ตั้ง>/pms_export_daily` (HotelTime) และ
+`u/<ผู้ตั้ง>/foodstory_export_daily` (FoodStory — ต้องมี `TWOCAPTCHA_API_KEY` ใน `exporter/.env`, เพดานเวลา 1 ชม.) พร้อม `..._catchup` ของแต่ละตัว,
+ตั้ง schedule 12:00 และ 15:00/18:00 (Asia/Bangkok) ทั้งสอง Site โดย "Permissioned as" เป็นผู้ที่รันเสมอ · รันซ้ำได้ (ไม่มีอะไรเปลี่ยน = ไม่แตะ) · แก้สคริปต์ใน
 repo แล้วรันซ้ำ = deploy เวอร์ชันใหม่ · บน Ubuntu `deploy/ubuntu/install.sh` เรียกให้เองหลังเปิด Windmill · ทดสอบด้วย
 `bash windmill/test-setup-in-docker.sh` (Windmill ชุดแยก พอร์ต 18000 ลบทิ้งเองหลังจบ) · ข้อ 4–6 ด้านล่างเก็บไว้เป็นทางสำรอง/อธิบายที่มา
 
