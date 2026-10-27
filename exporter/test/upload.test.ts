@@ -272,7 +272,7 @@ test('uploadFolder: document_type ไม่อยู่ใน catalog จริ�
   }
 });
 
-test('uploadFolder: FoodStory ยังไม่มี document_type → rejected ไม่ยิง ingest (ticket 08)', async () => {
+test('uploadFolder: FoodStory ยังไม่มี document_type → rejected ไม่ยิง ingest', async () => {
   const entry: RawFileEntry = { ...ENTRY_BASE, site: 'foodstory', file: 'sale.xlsx', report: 'salebysumdate' };
   const folder = await makeFolder([entry]);
   const fake = await fakeUploader({ catalog: [], ingest: () => ({ status: 200, body: {} }) });
@@ -779,7 +779,7 @@ test('uploadFolder: รายงานว่างที่ประกาศส
   }
 });
 
-test('uploadFolder: document_type หาไม่ได้ (FoodStory จนกว่า ticket 08) → fallback เงียบ ๆ เป็น ticket 04 เดิม ไม่ยิง ไม่ error', async () => {
+test('uploadFolder: document_type หาไม่ได้ (รายงานที่ยังไม่อยู่ในตาราง) → fallback เงียบ ๆ เป็น ticket 04 เดิม ไม่ยิง ไม่ error', async () => {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
   const fake = await fakeUploader({ catalog: [] });
   try {

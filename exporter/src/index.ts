@@ -271,8 +271,8 @@ program
 program
   .command('upload')
   .description(
-    'ส่งไฟล์ดิบเข้า uploader จริง (ticket 01-07 ของ exporter-upload-to-uploader — HotelTime เท่านั้นตอนนี้ ' +
-      'retry ความล้มเหลวชั่วคราวเอง กัน as_of ย้อนหลัง ข้ามรายงานว่าง และแจ้ง Discord — ดู ticket 08 สำหรับ FoodStory) ' +
+    'ส่งไฟล์ดิบเข้า uploader จริง (ticket 01-07 ของ exporter-upload-to-uploader — HotelTime และ FoodStory · ' +
+      'retry ความล้มเหลวชั่วคราวเอง กัน as_of ย้อนหลัง ข้ามรายงานว่าง และแจ้ง Discord) ' +
       'ใส่ --folder สำหรับโฟลเดอร์เดียว หรือ --site สำหรับทุกโฟลเดอร์ที่ยังค้างของ site นั้น (แบบที่ Windmill เรียก)',
   )
   .option('--folder <path>', 'โฟลเดอร์รอบเดียวที่มี _manifest.json/_run.json เช่น data/hoteltime/daily/2026-10/2026-10-15 — ใช้คู่กับ --site ไม่ได้')

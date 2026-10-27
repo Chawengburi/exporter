@@ -400,7 +400,7 @@ export function discordMessages(report: StatusReport, opts: { readonly summary: 
 // ให้รายงาน) + แจ้งทันทีเฉพาะไฟล์ที่ถูกปฏิเสธถาวร (`rejected` — convert/400, ไม่ retry ได้) เรื่องเดียวไม่ซ้ำในวันเดียวกัน
 
 /**
- * `rejected` ที่เกิดจากยังไม่มี `document_type` (FoodStory จนกว่า ticket 08) — รู้สาเหตุอยู่แล้วและทำอะไรไม่ได้
+ * `rejected` ที่เกิดจากยังไม่มี `document_type` (รายงานที่ยังไม่อยู่ในตาราง `FOODSTORY_DOCUMENT_TYPE`) — รู้สาเหตุอยู่แล้วและทำอะไรไม่ได้
  * ตอนนี้ ต่างจาก `rejected` แบบอื่น (catalog ไม่ตรง, as_of หาไม่เจอ, uploader ปฏิเสธจริง) ที่เป็นเรื่องผิดปกติ
  * ที่ต้องรีบดู — แยกออกจากทุกจุดที่ตัดสินความเร่งด่วน (verdict/สี/alert) ไม่ให้กลายเป็น "เรื่องต้องดู" ปลอม ๆ
  * (เจ้าของระบบขอ 2026-10-19 หลังเจอ FoodStory ยิง alert สแปม 57 ข้อความ) — ยังนับรวมอยู่ใน
@@ -445,7 +445,7 @@ function uploadSiteBlock(r: UploadRunResult): string {
   const pendingEmpty = r.emptyReports.length - announcedEmpty;
   if (announcedEmpty > 0) parts.push(`${announcedEmpty} empty announced`);
   if (pendingEmpty > 0) parts.push(`${pendingEmpty} empty not announced`);
-  // รอ document_type (FoodStory จนกว่า ticket 08) — นับให้เห็น backlog แต่ไม่ใช่ "failed" เพราะไม่ใช่เรื่องผิดปกติที่ต้องรีบดู
+  // รอ document_type (รายงานที่ยังไม่อยู่ในตาราง) — นับให้เห็น backlog แต่ไม่ใช่ "failed" เพราะไม่ใช่เรื่องผิดปกติที่ต้องรีบดู
   const pendingDocType = pendingDocumentTypeCount(r);
   if (pendingDocType > 0) parts.push(`${pendingDocType} waiting for document_type`);
   // ไฟล์ที่ติ๊ก "ยังรอส่ง (pending)" ใน ticket 05 — สาเหตุคือ as_of ย้อนหลัง ไม่ใช่แค่ยังไม่ถึงตา

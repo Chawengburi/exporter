@@ -33,7 +33,7 @@ import { loadUploaderSetup, type UploaderConfig, type UploaderCredentials } from
 /**
  * ขาอัปโหลด — shell บาง ๆ ที่ถือ network/disk I/O ทั้งหมด มิเรอร์ `notify.ts` (ตัว orchestrator ของ Discord):
  * ฟังก์ชันบริสุทธิ์อยู่ใน `core/uploader.ts` ไฟล์นี้แค่ login, ยิง HTTP พร้อม retry, และบันทึกผลกลับเข้า
- * `_manifest.json` + state ของตัวเอง — HotelTime เท่านั้นตอนนี้ (FoodStory รอ ticket 08)
+ * `_manifest.json` + state ของตัวเอง — HotelTime และ FoodStory (ticket 08 ปิดแล้ว)
  *
  * ticket 01: happy path · **ticket 02**: retry/stuck · **ticket 03**: กัน `as_of` ย้อนหลัง (state ข้ามโฟลเดอร์) ·
  * **ticket 04**: จับรายงานว่าง (state เดียวกับ ticket 03)
@@ -385,7 +385,7 @@ export async function uploadFolder(opts: {
       const key = asOfStateKey({ report, range: outcome.range });
       if (state.announcedEmpty[key] === true) continue; // ประกาศสำเร็จไปแล้วรอบก่อน ไม่ส่งซ้ำทุกรอบ
       const documentType = documentTypeFor(site, report);
-      // document_type หาไม่ได้ (FoodStory จนกว่า ticket 08) หรือไม่อยู่ใน catalog จริง — fallback เงียบ ๆ เป็น
+      // document_type หาไม่ได้ (รายงานที่ยังไม่อยู่ในตาราง) หรือไม่อยู่ใน catalog จริง — fallback เงียบ ๆ เป็น
       // ticket 04 เดิม (track local อย่างเดียว) ไม่ error ไม่ reject เพราะยังไม่ใช่ความผิดพลาดของ "ครั้งนี้"
       if (documentType === undefined || !catalog.has(documentType)) continue;
       candidates.push({ report, outcome, documentType });

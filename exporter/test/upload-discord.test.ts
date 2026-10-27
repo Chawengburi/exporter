@@ -164,8 +164,8 @@ test('uploadDiscordMessages: rejected ไฟล์เดิมขึ้นใน
   assert.match(day2[0]!.content, /\*\*Failed \(1\)\*\*\n• e: x/);
 });
 
-// พบจริง 2026-10-19: FoodStory 57 ไฟล์ rejected เพราะ document_type ยัง resolve ไม่ได้ (รู้สาเหตุอยู่แล้ว ticket 08
-// ยัง block) ทำให้ยิง alert "เรื่องที่ต้องดู" สแปม 57 ข้อความ ทั้งที่ไม่มีอะไรทำได้ตอนนี้ — ต้องไม่นับเป็นเรื่องเร่งด่วน
+// พบจริง 2026-10-19: FoodStory 57 ไฟล์ rejected เพราะ document_type ยัง resolve ไม่ได้ (รู้สาเหตุอยู่แล้ว ตอนนั้น ticket 08
+// ยัง block — ปิดแล้ว 2026-10-27) ทำให้ยิง alert "เรื่องที่ต้องดู" สแปม 57 ข้อความ ทั้งที่ไม่มีอะไรทำได้ตอนนี้ — ต้องไม่นับเป็นเรื่องเร่งด่วน
 test('uploadDiscordMessages: rejected เพราะ document_type ยัง resolve ไม่ได้ (FoodStory) → ไม่แจ้งเตือนสแปม ไม่ใช่ "เรื่องต้องดู" แต่ยังนับเป็น backlog ให้เห็นในสรุป', () => {
   const foodstoryPending: UploadRunResult = {
     ...base,

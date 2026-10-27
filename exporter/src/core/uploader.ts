@@ -8,8 +8,8 @@ import type { SiteId } from './placement.ts';
  * (shell บาง ๆ ที่ถือ HTTP) ตาม seam ที่ตกลงกันไว้ใน `.scratch/exporter-upload-to-uploader/spec.md`
  *
  * ticket 01: HotelTime happy path · **ticket 02**: แยก retryable/non-retryable + `rows_mismatch` + `stuck` ·
- * **ticket 03**: กัน `as_of` ย้อนหลัง · **ticket 04**: จับรายงานว่างไม่ให้ค้างเป็น backlog · ticket 08 เพิ่มตาราง
- * `document_type` ของ FoodStory
+ * **ticket 03**: กัน `as_of` ย้อนหลัง · **ticket 04**: จับรายงานว่างไม่ให้ค้างเป็น backlog · **ticket 08**: เพิ่มตาราง
+ * `document_type` ของ FoodStory (ปิดแล้ว 2026-10-27)
  */
 
 /** `source_system` ตามคู่มือ — FoodStory เปลี่ยนจาก `wongnai_pos` เป็น `foodstory` (migration
@@ -33,8 +33,9 @@ const HOTELTIME_DOCUMENT_TYPE_EXCEPTIONS: Readonly<Record<string, string>> = {
  * ทีม uploader ยืนยัน 2026-10-19 ว่าสูตรคือ `wongnai_X` → `foodstory_X` เหมือนเดิมทุกตัว (ไม่มีชื่อ
  * เปลี่ยนรูป แค่สับ prefix) — ตารางข้างล่างจับคู่เองจากความหมายของ label ไทยเทียบกับ slug จริงใน catalog
  * (เช็คสด 2026-10-19) 2 ตัวอย่างที่ส่งไปถาม (`salebybill`, `crm`) ตรงกับที่ทีม uploader ยืนยันกลับมาเป๊ะ
- * แต่ **ที่เหลือยังไม่ได้ยืนยันทีละตัว** ยังไม่ใช่แหล่งความจริงแบบเดียวกับ
- * `HOTELTIME_DOCUMENT_TYPE_EXCEPTIONS` — ticket 08 ยังไม่ปิดจนกว่าทีม uploader จะยืนยันทั้งตาราง
+ * ticket 08 ปิดแล้ว (2026-10-27) — เจ้าของระบบยืนยันว่าทีม uploader ตอบตารางนี้แล้ว และอัปโหลดจริงสำเร็จ
+ * (FoodStory 110/30/30 ไฟล์ วันที่ 24-26 ต.ค.) จึงใช้เป็นแหล่งความจริงแบบเดียวกับ
+ * `HOTELTIME_DOCUMENT_TYPE_EXCEPTIONS`
  * `purchase-detail`/`purchase_stock` ปลดบล็อกแล้ว (เทียบคอลัมน์จริงกับคำตอบทีม uploader 2026-10-19):
  * `purchase_stock` (คอลัมน์: วันที่/สถานะ/ผู้จัดจำหน่าย/PR/PO/GR/สาขา) ตรงกับ header ระดับเอกสารของ
  * `foodstory_purchase_orders`; `purchase-detail` (คอลัมน์: วันที่/รหัสวัตถุดิบ/PR/ค่าใช้จ่าย/PO/วันที่ออก PO)
@@ -93,8 +94,8 @@ const FOODSTORY_DOCUMENT_TYPE: Readonly<Record<string, string>> = {
 };
 
 /**
- * แปลง report id → `document_type` — HotelTime ยืนยันแล้วทั้งหมด FoodStory จับคู่เองจาก label (ดู
- * `FOODSTORY_DOCUMENT_TYPE`) ยังรอทีม uploader ยืนยันทั้งตาราง (ticket 08) รายงานที่ไม่อยู่ในตาราง
+ * แปลง report id → `document_type` — HotelTime ยืนยันแล้วทั้งหมด FoodStory ใช้ตาราง
+ * `FOODSTORY_DOCUMENT_TYPE` (ticket 08 ปิดแล้ว) รายงานที่ไม่อยู่ในตาราง
  * คืน `undefined` ผู้เรียกต้องปฏิเสธส่งไฟล์ที่ได้ `undefined` ไม่เดา type ใกล้เคียง (manual §6: "อย่าเดา
  * type ที่ใกล้เคียง")
  */
@@ -103,11 +104,11 @@ export function documentTypeFor(site: SiteId, report: string): string | undefine
   return HOTELTIME_DOCUMENT_TYPE_EXCEPTIONS[report] ?? `hoteltime_${report.replaceAll('-', '_')}`;
 }
 
-/** prefix คงที่ของเหตุผล `rejected` ที่เกิดจาก `documentTypeFor` คืน `undefined` (FoodStory จนกว่า ticket 08) — จุด
+/** prefix คงที่ของเหตุผล `rejected` ที่เกิดจาก `documentTypeFor` คืน `undefined` (เช่น FoodStory ที่เพิ่มรายงานใหม่แต่ยังไม่ใส่ตาราง) — จุด
  * เดียวที่สร้างข้อความนี้ (`unresolvedDocumentTypeReason`) และจุดเดียวที่เช็คว่าเป็นข้อความนี้ (`isUnresolvedDocumentTypeReason`)
  * เพื่อไม่ให้ต้อง duplicate string literal ข้ามไฟล์ (upload.ts สร้าง, discord.ts เช็ค) — เรื่องนี้ต่างจาก `rejected`
  * แบบอื่น (catalog ไม่ตรง, as_of หาไม่เจอ, uploader ปฏิเสธจริง) ตรงที่ **รู้สาเหตุอยู่แล้วและทำอะไรไม่ได้จนกว่า
- * ticket 08 จะปลดบล็อก** ไม่ควรแจ้งเตือนแบบเร่งด่วนซ้ำ ๆ ทุกไฟล์ (พบว่าสร้าง spam 57 ข้อความจริงกับ FoodStory 2026-10-19) */
+ * จะเพิ่มรายงานนั้นลงตาราง** (เดิมคือ ticket 08 ซึ่งปิดแล้ว) ไม่ควรแจ้งเตือนแบบเร่งด่วนซ้ำ ๆ ทุกไฟล์ (พบว่าสร้าง spam 57 ข้อความจริงกับ FoodStory 2026-10-19) */
 const UNRESOLVED_DOCUMENT_TYPE_PREFIX = 'ยังไม่มี document_type ของ site "';
 /** เลขอ้างอิง ticket ภายในของเราเอง — uploader (ฝั่งเซิร์ฟเวอร์จริง) ไม่มีทางรู้จักเลขนี้ จึงไม่มีทางส่ง reason
  * ที่ตรงกับทั้ง prefix และ suffix นี้มาเองโดยบังเอิญ (เทียบกับเช็ค prefix อย่างเดียว ซึ่งในทางทฤษฎี server อาจส่ง
@@ -298,7 +299,7 @@ export type UploadRunResult = {
  * - `blocked` ติด `as_of` ย้อนหลัง (ticket 03) — ต้องคุยกับทีม uploader ก่อนถ้าตั้งใจส่งจริง
  * - `stuck` ค้างถาวรหลังลองครบ 3 ครั้ง (ticket 02) — ต้องดูสาเหตุ
  * - `empty` รายงานว่างที่ไม่มีไฟล์ให้ส่ง (ticket 04) **ที่ยังไม่ถูกประกาศ `empty` สำเร็จ** (ticket 11-13) —
- *   ถ้า flag ปิด หรือ document_type ยัง resolve ไม่ได้ (FoodStory จนกว่า ticket 08) หรือลองส่งแล้วแต่ยังไม่ผ่าน
+ *   ถ้า flag ปิด หรือ document_type ยัง resolve ไม่ได้ (รายงานที่ยังไม่อยู่ในตาราง) หรือลองส่งแล้วแต่ยังไม่ผ่าน
  *   (ไม่นับที่ค้างถาวร — นั่นอยู่ใน `stuck` ด้วย เพราะ state.stuck ใช้ร่วมกับไฟล์) ยังนับที่นี่ · รายงานที่ประกาศ
  *   สำเร็จแล้วถูกเคลียร์ออกจากตัวนับนี้ (ดู `clearEmpty` ใน `upload.ts`) ไม่ต้องทำอะไรต่อจริง ๆ
  */

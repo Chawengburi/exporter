@@ -50,7 +50,7 @@ test('documentTypeFor: 3 ข้อยกเว้นที่ชื่อต่�
   assert.equal(documentTypeFor('hoteltime', 'reservations-cancelled'), 'hoteltime_reservation_cancelled');
 });
 
-test('documentTypeFor: FoodStory จับคู่ตามตาราง (ยังไม่ยืนยันจากทีม uploader, ticket 08)', () => {
+test('documentTypeFor: FoodStory จับคู่ตามตาราง (ticket 08 ปิดแล้ว)', () => {
   assert.equal(documentTypeFor('foodstory', 'salebysumdate'), 'foodstory_sales_by_day');
   assert.equal(documentTypeFor('foodstory', 'crm'), 'foodstory_customer_spend_by_phone');
 });
