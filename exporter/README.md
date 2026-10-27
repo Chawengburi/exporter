@@ -26,8 +26,8 @@
 | รอบรายวันแบบไฟล์ละวันของข้อมูล + เติมวันที่ขาดเอง + snapshot ปิดงวด + baseline | ✅ 2026-10-14 (ใบ 01–09 ของ `exporter-daily-per-day-raw`) |
 | `exporter status` + แจ้งเตือน Discord | ✅ 2026-10-14 (ใบ 07–08) |
 | ชั้นตรวจไฟล์ (`sites/hoteltime/verify.ts` + `core/verify.ts`) | ✅ เสร็จ — จับบั๊กจริงไปแล้ว 1 ตัว |
-| รองรับหลาย site (`src/sites/<site>/`) | ✅ HotelTime 48 รายงาน + FoodStory 49 รายงาน (FoodStory ต้องมีคนแก้ reCAPTCHA ทุกรอบ รันบน Windmill ไม่ได้) · rename เป็น `exporter` แล้ว 2026-09-28 (ADR-0004) |
-| ขาอัปโหลดเข้า uploader | ⛔ **นอกขอบเขตรอบนี้โดยเจตนา** |
+| รองรับหลาย site (`src/sites/<site>/`) | ✅ HotelTime 48 รายงาน + FoodStory 49 รายงาน (FoodStory แก้ reCAPTCHA เองด้วย 2captcha เมื่อมี `TWOCAPTCHA_API_KEY` จึงรันบน Windmill ได้ — ADR-0010 · ไม่มีคีย์ = คนกด captcha เหมือนเดิม) · rename เป็น `exporter` แล้ว 2026-09-28 (ADR-0004) |
+| ขาอัปโหลดเข้า uploader (`exporter upload`) | ✅ HotelTime + FoodStory (2026-10-24 รันเองตามเวลาบน Ubuntu) · ประกาศรายงานว่าง (`empty`) ยังปิดอยู่ (`UPLOADER_SEND_EMPTY`) — ดู ticket 14 |
 
 ## ติดตั้ง
 
@@ -57,7 +57,7 @@ npm link                            # ทำให้เรียก `exporter` 
 - **เติมวันที่ขาดเอง**: ทุกรอบดึง (รายงาน, วันของข้อมูล) ที่ยังไม่สำเร็จตั้งแต่ **วันเริ่มใช้งาน** (`EXPORTER_GO_LIVE` ใน `.env`) ใหม่สุดก่อน
   ไม่เกิน 3 วันต่อรอบ (เพดานจาก timeout 15 นาทีของ Windmill) · ไม่ตั้งวันเริ่มใช้งาน = ดึงแค่เมื่อวาน · **ว่าง** (เว็บไม่มีรายการ) นับว่าสำเร็จ ·
   ไม่มีงาน = จบทันทีไม่เปิดเบราว์เซอร์ — รอบเก็บตก 15:00/18:00 ของ Windmill จึงเป็นคำสั่งเดียวกับรอบเที่ยง
-- FoodStory: login ครั้งเดียว (คนกด reCAPTCHA) แล้วตั้งช่วงวันที่ทีละวันในรอบเดียว · พนักงานกดผ่านไอคอนบน Desktop
+- FoodStory: login ครั้งเดียว (แก้ reCAPTCHA เองด้วย 2captcha ถ้ามีคีย์ ไม่งั้นคนกด) แล้วตั้งช่วงวันที่ทีละวันในรอบเดียว · Windmill รันเองทุกวัน 12:00 (+ เก็บตก 15:00/18:00) · ไอคอนบน Desktop เป็นทางสำรอง
   (`exporter/launchers/foodstory-daily.command` — วางด้วย `bash exporter/launchers/install-desktop-launcher.sh`) คู่มือ:
   [`docs/FOODSTORY-DAILY-STAFF-GUIDE.md`](../docs/FOODSTORY-DAILY-STAFF-GUIDE.md)
 - หลังจบรอบรายวันทุกครั้งส่ง Discord (ด้านล่าง) · `data/<site>/daily/latest` ชี้โฟลเดอร์ของวันนี้
@@ -98,7 +98,7 @@ exporter login --check                       # ตรวจว่า credential 
 exporter reports                             # ดูรายงานที่รองรับ
 
 exporter export --report all --daily                          # HotelTime รอบรายวัน — คำสั่งเดียวกับที่ Windmill รันทั้ง 3 เวลา
-exporter export --site foodstory --report all --daily --headful   # FoodStory รอบรายวัน (คนกด reCAPTCHA) — สิ่งที่ไอคอนบน Desktop รัน
+exporter export --site foodstory --report all --daily --headful   # FoodStory รอบรายวัน (ไม่มีคีย์ 2captcha = คนกด reCAPTCHA) — สิ่งที่ไอคอนบน Desktop รัน
 exporter export --report all --date 2026-10-12                # ดึงวันของข้อมูลวันเดียวใหม่ (HotelTime)
 exporter export --report all --baseline --from 01/10/2026 --to 13/10/2026   # baseline ไฟล์ละวัน (HotelTime)
 exporter export --report reservations-search --from 01/07/2026 --to 08/09/2026   # back-fill
@@ -201,7 +201,7 @@ src/
     verify.ts                 ส่วนที่ผูกกับรูปร่าง Report ของ HotelTime (verifyChunk/RowCapError)
     export.ts / login.ts / sweep.ts   คำสั่งจริง — สั่งจาก index.ts
     reports/                  หนึ่งไฟล์ต่อหนึ่งรายงาน — 48 ใบ แต่ละใบบอกตระกูล (ตามวัน/snapshot) และงวด
-  sites/foodstory/            FoodStory — config.ts (prefix FOODSTORY_*) · login ต้องมีคนแก้ reCAPTCHA · daily.ts รอบรายวันใน login เดียว
+  sites/foodstory/            FoodStory — config.ts (prefix FOODSTORY_*) · login แก้ reCAPTCHA ด้วย 2captcha (หรือคนกดถ้าไม่มีคีย์) · daily.ts รอบรายวันใน login เดียว
                               reports/ 47 ใบ + salebychannel.ts + reservation-report.ts = 49 ใบใน --report all
   notify.ts                   แจ้ง Discord หลังรอบรายวัน / exporter notify (ประกอบ status + discord + บันทึกที่ส่งแล้ว)
 recon/NOTES.md          บันทึกเส้นทาง/filter/กับดักที่เจอตอนสำรวจ — ที่มาของทุกค่าในโค้ด
