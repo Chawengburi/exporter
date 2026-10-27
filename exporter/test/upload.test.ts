@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { RAW_MANIFEST, recordPublished, type RawFileEntry, type RawManifest } from '../src/core/raw-manifest.ts';
+import { uploadDiscordMessages } from '../src/core/discord.ts';
 import { recordRun, type ReportOutcome } from '../src/core/run-record.ts';
 import { describeUploadResult, readUploadBacklog, uploadFolder, uploadSite } from '../src/upload.ts';
 
@@ -613,6 +614,52 @@ test('uploadFolder: flag เปิด → ส่งรายงานว่า�
   }
 });
 
+test('uploadFolder: รันซ้ำโฟลเดอร์เดิมหลังประกาศ empty สำเร็จแล้ว → ไม่ยิงซ้ำ และไม่นับเป็น emptyReports ที่ "ยังไม่ประกาศ"', async () => {
+  const entry: RawFileEntry = { ...ENTRY_BASE, file: 'arrivals.xlsx', report: 'arrivals' };
+  const folder = await makeFolder([entry], { emptyReports: ['departures'] });
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  const fake = await fakeUploader({
+    catalog: ['hoteltime_arrivals', 'hoteltime_departures'],
+    ingest: () => ({ status: 200, body: { results: [{ index: 0, ok: true, file_id: 'f1' }] } }),
+    ingestEmpty: (entries) => ({ status: 200, body: { empty_results: entries.map((_, i) => ({ index: i, ok: true, superseded: [] })) } }),
+  });
+  try {
+    const config = configFor(fake.url, { sendEmpty: true });
+    const first = await uploadFolder({ folder, dataDir, config, credentials: CREDENTIALS });
+    assert.deepEqual(first.emptyReports, [{ report: 'departures' }]);
+    assert.equal(first.emptyResults.filter((e) => e.kind === 'announced').length, 1);
+
+    const second = await uploadFolder({ folder, dataDir, config, credentials: CREDENTIALS });
+    assert.equal(fake.emptyCalls.length, 1); // ไม่ส่งซ้ำ
+    // ประกาศไปแล้วรอบก่อน → ไม่ใช่ backlog อีก ไม่งั้น Discord จะบอก "N empty not announced" ตลอดไป
+    assert.deepEqual(second.emptyReports, []);
+    assert.deepEqual(second.emptyResults, []);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('uploadFolder: รันซ้ำเมื่อมี empty ที่ประกาศแล้วหนึ่งตัวกับที่ยังประกาศไม่ได้อีกหนึ่งตัว → Discord ขึ้นเฉพาะ "1 empty not announced"', async () => {
+  const folder = await makeFolder([], { finishedReports: [], emptyReports: ['departures', 'housekeeping'] });
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  const fake = await fakeUploader({
+    catalog: ['hoteltime_departures'], // housekeeping ไม่อยู่ใน catalog → ประกาศไม่ได้ (fallback track local)
+    ingestEmpty: (entries) => ({ status: 200, body: { empty_results: entries.map((_, i) => ({ index: i, ok: true, superseded: [] })) } }),
+  });
+  try {
+    const config = configFor(fake.url, { sendEmpty: true });
+    await uploadFolder({ folder, dataDir, config, credentials: CREDENTIALS });
+    const second = await uploadFolder({ folder, dataDir, config, credentials: CREDENTIALS });
+    assert.deepEqual(second.emptyReports, [{ report: 'housekeeping' }]); // departures ประกาศแล้ว ไม่ใช่ backlog
+    assert.deepEqual(second.emptyResults, []);
+    const [message] = uploadDiscordMessages(second, { at: '2026-10-15T12:00:05.000Z', alreadySent: new Set<string>() });
+    assert.match(message!.content, /1 empty not announced/);
+    assert.doesNotMatch(message!.content, /empty announced/);
+  } finally {
+    await fake.close();
+  }
+});
+
 // ── ticket 12: as_of guard ร่วมกับไฟล์ + retry policy เดียวกับไฟล์ ──
 
 test('uploadFolder: empty item ที่ as_of เก่ากว่าไฟล์จริงที่ส่งสำเร็จไปแล้วของ (รายงาน, ช่วง) เดียวกัน → blocked-as-of ไม่ถูกส่ง', async () => {
@@ -821,7 +868,7 @@ test('describeUploadResult: สรุปจำนวนและรายละ�
     emptyResults: [],
   });
   assert.match(text, /สำเร็จ 1/);
-  assert.match(text, /ว่าง\(ไม่มีอะไรต้องส่ง\) 1/);
+  assert.match(text, /ว่าง\(ยังไม่ประกาศ\) 1/);
   assert.match(text, /b\.xlsx.*เหตุผล/);
   assert.match(text, /c\.xlsx.*ค้างถาวรหลังลอง 3 ครั้ง/);
   assert.match(text, /d\.xlsx.*as_of ย้อนหลัง|d\.xlsx.*เก่ากว่า/);

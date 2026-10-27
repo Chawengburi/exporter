@@ -354,12 +354,14 @@ export async function uploadFolder(opts: {
   const emptyReports: { readonly report: string }[] = [];
   for (const [report, outcome] of Object.entries(runRecord.reports)) {
     if (outcome.status !== 'ok' || !isEmptyReportOutcome(outcome)) continue;
-    emptyReports.push({ report });
     // ticket 13: ประกาศสำเร็จไปแล้ว (รอบก่อน หรือรอบนี้ยังไม่ถึงตรงนั้น) ไม่ต้องตั้ง backlog กลับมาใหม่ — ไม่งั้น
     // รันซ้ำโฟลเดอร์เดิมหลังประกาศสำเร็จแล้วจะไปตั้ง state.empty คืนทุกครั้ง ทั้งที่ไม่มีการพยายามส่งใหม่เลยใน
     // รอบนั้น (candidate loop ข้างล่างข้ามไปเพราะเจอ announcedEmpty แล้ว ไม่มีทางได้ final.kind==='announced'
     // มาเคลียร์คืนให้ — พบจาก code review ของ ticket นี้)
+    // ที่ประกาศแล้วก็ไม่นับเป็น `emptyReports` ด้วย — ตัวนี้คือ "ว่างที่ยังไม่ประกาศ" (Discord คำนวณ pendingEmpty = emptyReports -
+    // announced รอบนี้) ถ้านับรวมรายการที่ประกาศไปแล้วรอบก่อน ซึ่งรอบนี้ไม่เข้า emptyResults จะขึ้น "not announced" ตลอดไป
     if (state.announcedEmpty[asOfStateKey({ report, range: outcome.range })] === true) continue;
+    emptyReports.push({ report });
     const key = `${report}@${runRecord.dataThrough}`;
     if (state.empty[key] !== true) await mergeUploadState(dataDir, site, { empty: { [key]: true } });
   }
@@ -544,7 +546,7 @@ export async function uploadSite(opts: {
 export function describeUploadResult(r: UploadRunResult | UploadSiteResult): string {
   const lines = [
     `อัปโหลด: สำเร็จ ${r.sent} · ซ้ำ(ไม่เปลือง LLM) ${r.duplicate} · แถวไม่ตรง(เข้าแล้ว) ${r.rowsMismatch} · ` +
-      `ปฏิเสธ ${r.rejected} · บล็อก(as_of ย้อนหลัง) ${r.blocked} · ค้างถาวร ${r.stuck} · ว่าง(ไม่มีอะไรต้องส่ง) ${r.emptyReports.length}`,
+      `ปฏิเสธ ${r.rejected} · บล็อก(as_of ย้อนหลัง) ${r.blocked} · ค้างถาวร ${r.stuck} · ว่าง(ยังไม่ประกาศ) ${r.emptyReports.length}`,
   ];
   for (const item of r.results) {
     if (item.kind === 'rejected') lines.push(`  ✘ ${item.file} (${item.report}): ${item.reason}`);

@@ -283,6 +283,8 @@ export type UploadRunResult = {
   readonly blocked: number;
   readonly stuck: number;
   readonly results: readonly UploadFileResult[];
+  /** รายงานที่ว่าง (ok, 0 แถว, ไม่มีไฟล์) และ **ยังไม่ได้ประกาศ** `empty` สำเร็จ — ที่ประกาศไปแล้วรอบก่อน (`state.announcedEmpty`)
+   * ไม่นับ เพื่อให้ `emptyReports.length - ประกาศสำเร็จรอบนี้` ใน Discord คือจำนวนที่ยังค้างจริง */
   readonly emptyReports: readonly { readonly report: string }[];
   /** ผลของการพยายามส่งประกาศ `empty` จริง (ticket 11) — แยกจาก `results`/`emptyReports` ตามที่ contract เอง
    * แยก `empty_results` จาก `results` (ไม่นับเข้า `succeeded`/`failed` ของไฟล์) */
