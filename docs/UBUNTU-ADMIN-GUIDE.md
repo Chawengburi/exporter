@@ -205,6 +205,7 @@ nano ~/chawengburi-exporter/exporter/.env
 - ทดสอบ: `cd ~/chawengburi-exporter/exporter && node src/index.ts login --site foodstory --check --json` → เห็น `"ok": true` = แก้ captcha เองได้
 - ไม่มีคีย์ = รอบตามเวลาของ FoodStory **ล้มทันที** แล้ว Discord แจ้งว่า "FoodStory login failed — ไม่มีคีย์ 2captcha …" (ไม่ค้างรอ) ·
   ไอคอน FoodStory บน Desktop ยังใช้ได้ (คนแก้ captcha เอง)
+- ยอดเงิน 2captcha ต่ำกว่า $1: Discord ขา export เตือน "2captcha balance low" วันละครั้ง (เช็คหลังรอบ FoodStory ที่รันเอง) — เติมเงินที่ 2captcha.com
 - login ล้มด้วยเหตุผลอื่น (เช่น ยอดเงิน 2captcha หมด) = Discord แจ้งบรรทัดเดียวพร้อมเหตุผล · รอบเก็บตกถัดไปลองใหม่เอง · ล้มทั้งวัน = เช็คยอดเงินที่
   2captcha.com และดู log ของรอบใน Windmill
 - อัปโหลดล้ม **ไม่ทำให้ job ใน Windmill ขึ้นแดง** — ไฟล์ที่ uploader ปฏิเสธแจ้งทีละไฟล์ใน Discord ขา upload · ไฟล์ค้างดูได้ที่ `exporter status`

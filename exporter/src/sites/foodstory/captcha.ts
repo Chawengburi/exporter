@@ -22,6 +22,8 @@ export class CaptchaError extends Error {
  */
 export type CaptchaSolver = {
   solve(input: { readonly sitekey: string; readonly pageurl: string }): Promise<string>;
+  /** ยอดเงินคงเหลือ (USD) — ไม่บังคับ: fake ในเทสต์ไม่ต้องมี · ใช้เตือนยอดต่ำ (ไม่เสียเครดิต อ่านอย่างเดียว) */
+  balance?(): Promise<number>;
 };
 
 export type LoginMode = 'auto-solve' | 'human-wait' | 'cannot-solve';

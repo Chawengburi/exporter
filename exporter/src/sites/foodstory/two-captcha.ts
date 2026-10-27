@@ -16,14 +16,20 @@ import type { CaptchaSolver } from './captcha.ts';
  */
 export function createTwoCaptchaSolver(apiKey: string): CaptchaSolver {
   let solver: Solver | undefined;
+  const getSolver = async (): Promise<Solver> => {
+    if (!solver) {
+      const { Solver } = await import('@2captcha/captcha-solver');
+      solver = new Solver(apiKey);
+    }
+    return solver;
+  };
   return {
     async solve({ sitekey, pageurl }) {
-      if (!solver) {
-        const { Solver } = await import('@2captcha/captcha-solver');
-        solver = new Solver(apiKey);
-      }
-      const res = await solver.recaptcha({ googlekey: sitekey, pageurl });
+      const res = await (await getSolver()).recaptcha({ googlekey: sitekey, pageurl });
       return res.data;
+    },
+    async balance() {
+      return (await getSolver()).balance();
     },
   };
 }

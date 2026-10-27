@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
 import { notifyLogPath } from '../src/core/discord.ts';
-import { notifyDiscord, notifyUpload } from '../src/notify.ts';
+import { LOW_BALANCE_USD, lowBalanceMessage, notifyCaptchaBalance, notifyDiscord, notifyUpload } from '../src/notify.ts';
 import type { UploadRunResult } from '../src/core/uploader.ts';
 import { plannedReports } from '../src/sites/foodstory/reports/index.ts';
 
@@ -281,4 +281,61 @@ test('dry run: คืนข้อความโดยไม่ส่งแล�
   } finally {
     await discord.close();
   }
+});
+
+// ── ยอดเงิน 2captcha ต่ำ (ADR-0010): เช็คหลังรอบ FoodStory ที่รันเอง · เตือนเมื่อต่ำกว่า $1 · วันละครั้ง ──
+
+test('lowBalanceMessage: ต่ำกว่าเกณฑ์ → ข้อความเตือนมียอด · เท่ากับหรือสูงกว่า → ไม่มีข้อความ', () => {
+  assert.equal(LOW_BALANCE_USD, 1);
+  const m = lowBalanceMessage(0.8312, '2026-10-27');
+  assert.ok(m !== null);
+  assert.deepEqual(m.keys, ['captcha-balance@2026-10-27']);
+  assert.match(m.content, /2captcha/);
+  assert.match(m.content, /\$0\.83/);
+  assert.equal(lowBalanceMessage(1, '2026-10-27'), null);
+  assert.equal(lowBalanceMessage(9.98625, '2026-10-27'), null);
+});
+
+test('🔴 notifyCaptchaBalance: ยอดต่ำ → ส่งเข้า channel export หนึ่งครั้ง · เรียกซ้ำวันเดียวกันไม่ส่งซ้ำ · คีย์ API ไม่อยู่ในข้อความ', async () => {
+  const s = await fakeStore();
+  const d = await fakeDiscord();
+  try {
+    const envFile = await s.envFile(d.url);
+    const getBalance = async () => 0.42;
+    const first = await notifyCaptchaBalance({ getBalance, now: thai('2026-10-27T12:20'), dataDir: s.dataDir, envFile });
+    assert.deepEqual(first, { status: 'sent', messages: 1 });
+    assert.equal(d.bodies.length, 1);
+    assert.match(d.bodies[0]!.content, /\$0\.42/);
+    const again = await notifyCaptchaBalance({ getBalance, now: thai('2026-10-27T15:20'), dataDir: s.dataDir, envFile });
+    assert.deepEqual(again, { status: 'sent', messages: 0 });
+    assert.equal(d.bodies.length, 1);
+    const nextDay = await notifyCaptchaBalance({ getBalance, now: thai('2026-10-28T12:20'), dataDir: s.dataDir, envFile });
+    assert.deepEqual(nextDay, { status: 'sent', messages: 1 });
+    assert.equal(d.bodies.length, 2);
+  } finally {
+    await d.close();
+  }
+});
+
+test('notifyCaptchaBalance: ยอดพอ → ไม่ส่งอะไร · ดึงยอดไม่ได้ (error) → ข้ามเงียบ ๆ ไม่โยน · ไม่มี solver (ไม่มีคีย์) → ข้าม', async () => {
+  const s = await fakeStore();
+  const d = await fakeDiscord();
+  try {
+    const envFile = await s.envFile(d.url);
+    const base = { now: thai('2026-10-27T12:20'), dataDir: s.dataDir, envFile };
+    assert.deepEqual(await notifyCaptchaBalance({ ...base, getBalance: async () => 9.98 }), { status: 'sent', messages: 0 });
+    const failed = await notifyCaptchaBalance({ ...base, getBalance: async () => { throw new Error('ERROR_WRONG_USER_KEY'); } });
+    assert.equal(failed.status, 'skipped');
+    assert.equal((await notifyCaptchaBalance({ ...base, getBalance: undefined })).status, 'skipped');
+    assert.equal(d.bodies.length, 0);
+  } finally {
+    await d.close();
+  }
+});
+
+test('notifyCaptchaBalance: ยอดต่ำแต่ไม่ได้ตั้ง URL webhook → ข้าม ไม่โยน error ไม่เขียนบันทึก', async () => {
+  const s = await fakeStore();
+  const r = await notifyCaptchaBalance({ getBalance: async () => 0.1, now: thai('2026-10-27T12:20'), dataDir: s.dataDir, envFile: await s.envFile(null) });
+  assert.equal(r.status, 'skipped');
+  assert.equal(existsSync(notifyLogPath(s.dataDir)), false);
 });

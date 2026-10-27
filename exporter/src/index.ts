@@ -168,10 +168,22 @@ program
  * แจ้งผลผ่าน Discord หลังรอบรายวัน (ใบ 08) · ระยะเวลาในข้อความ = เวลาตั้งแต่โปรเซสเริ่ม (หนึ่งโปรเซสต่อหนึ่งรอบ) — ไม่เปลี่ยน exit code ของรอบไม่ว่าส่งได้หรือไม่ · โหมด --json พิมพ์ลง stderr (stdout เป็น JSON ของรอบ)
  */
 async function notifyAfterDaily(trigger: 'hoteltime-daily' | 'foodstory-daily', json: boolean): Promise<void> {
-  const { describeNotify, notifyDiscord } = await import('./notify.ts');
+  const { describeNotify, notifyCaptchaBalance, notifyDiscord } = await import('./notify.ts');
   const line = describeNotify(await notifyDiscord({ trigger, durationMs: Math.round(performance.now()) }));
   if (json) console.error(line);
   else console.log(line);
+  if (trigger === 'foodstory-daily') {
+    // ยอดเงิน 2captcha ต่ำ → เตือนวันละครั้ง (ADR-0010) · ไม่มีคีย์ = ไม่เช็ค · ไม่เปลี่ยน exit code
+    const { loadConfig } = await import('./sites/foodstory/config.ts');
+    const { captchaSolverFromConfig } = await import('./sites/foodstory/two-captcha.ts');
+    const solver = captchaSolverFromConfig(loadConfig());
+    const balance = await notifyCaptchaBalance({ getBalance: solver?.balance?.bind(solver) });
+    // พิมพ์เฉพาะตอนมีเรื่อง (เตือนแล้ว/ส่งไม่ได้) — ยอดพอหรือไม่มีคีย์ไม่ต้องรก log ซ้ำกับบรรทัดสรุปข้างบน
+    if (balance.status === 'failed' || (balance.status === 'sent' && balance.messages > 0)) {
+      if (json) console.error(describeNotify(balance));
+      else console.log(describeNotify(balance));
+    }
+  }
 }
 
 program

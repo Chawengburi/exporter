@@ -1,4 +1,5 @@
 import {
+  DISCORD_COLOR,
   DiscordError,
   discordMessages,
   postDiscord,
@@ -162,6 +163,55 @@ export async function notifyUpload(opts: {
     if (opts.dryRun) return { status: 'dry-run', messages };
     if (url === null || messages.length === 0) return { status: 'sent', messages: 0 };
     return await sendAndLog(dataDir, url, messages, now);
+  } catch (err) {
+    return { status: 'failed', sent: 0, error: redact(`แจ้ง Discord ไม่สำเร็จ — ${err instanceof Error ? err.message : String(err)}`) };
+  }
+}
+
+/** เตือนเมื่อยอดเงิน 2captcha ต่ำกว่านี้ (USD) — ที่ราว $0.003 ต่อวัน ($1 ≈ 300 วัน) เตือนไว้ก่อนนานเกินพอ */
+export const LOW_BALANCE_USD = 1;
+
+/** ข้อความเตือนยอดต่ำ — null เมื่อยอดพอ · คีย์ต่อวัน (เวลาไทย) จึงเตือนวันละครั้งตราบที่ยังต่ำ */
+export function lowBalanceMessage(balance: number, today: string, threshold: number = LOW_BALANCE_USD): DiscordMessage | null {
+  if (!(balance < threshold)) return null;
+  return {
+    keys: [`captcha-balance@${today}`],
+    content: `### 2captcha balance low\n**$${balance.toFixed(2)}** left — FoodStory auto-login stops when it runs out. Top up at 2captcha.com.`,
+    accentColor: DISCORD_COLOR.action,
+  };
+}
+
+/**
+ * เช็คยอดเงิน 2captcha หลังรอบ FoodStory ที่รันเอง แล้วเตือนเข้า channel export ถ้าต่ำกว่าเกณฑ์ (ADR-0010) · `getBalance` ไม่มี
+ * (= ไม่มีคีย์) หรือดึงไม่ได้ = ข้ามเงียบ ๆ ไม่โยน ไม่เปลี่ยน exit code ของรอบ export · คีย์ API ไม่ถูกอ่านที่นี่ ไม่อยู่ในข้อความ/บันทึก
+ */
+export async function notifyCaptchaBalance(opts: {
+  readonly getBalance: (() => Promise<number>) | undefined;
+  readonly now?: Date;
+  readonly dataDir?: string;
+  readonly envFile?: string;
+  readonly threshold?: number;
+}): Promise<NotifyResult> {
+  const now = opts.now ?? new Date();
+  const dataDir = opts.dataDir ?? defaultDataDir();
+  const envFile = opts.envFile ?? defaultEnvFile();
+  if (opts.getBalance === undefined) return { status: 'skipped', reason: 'ไม่มีคีย์ 2captcha — ไม่เช็คยอดเงิน' };
+  let redact = (s: string) => s;
+  try {
+    const url = readWebhookUrl(envFile, 'export');
+    if (url !== null) redact = webhookRedactor(url);
+    if (url === null) return { status: 'skipped', reason: 'ยังไม่ได้ตั้ง DISCORD_WEBHOOK_URL_EXPORT ใน exporter/.env — ข้ามการเตือนยอดเงิน 2captcha' };
+    let balance: number;
+    try {
+      balance = await opts.getBalance();
+    } catch {
+      return { status: 'skipped', reason: 'ดึงยอดเงิน 2captcha ไม่ได้ — ข้ามรอบนี้' };
+    }
+    const message = lowBalanceMessage(balance, formatISO(thaiToday(now)), opts.threshold);
+    if (message === null) return { status: 'sent', messages: 0 };
+    const log = await readNotifyLog(dataDir);
+    if (message.keys.every((k) => k in log.sent)) return { status: 'sent', messages: 0 }; // เตือนวันนี้ไปแล้ว
+    return await sendAndLog(dataDir, url, [message], now);
   } catch (err) {
     return { status: 'failed', sent: 0, error: redact(`แจ้ง Discord ไม่สำเร็จ — ${err instanceof Error ? err.message : String(err)}`) };
   }
