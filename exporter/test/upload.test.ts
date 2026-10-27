@@ -115,6 +115,7 @@ type FakeUploader = {
   readonly ingestCalls: unknown[];
   readonly emptyCalls: readonly unknown[][];
   readonly authCalls: number;
+  readonly catalogCalls: number;
   close(): Promise<void>;
 };
 
@@ -127,7 +128,7 @@ async function fakeUploader(opts: {
 }): Promise<FakeUploader> {
   const ingestCalls: unknown[] = [];
   const emptyCalls: unknown[][] = [];
-  const state: { authCalls: number } = { authCalls: 0 };
+  const state: { authCalls: number; catalogCalls: number } = { authCalls: 0, catalogCalls: 0 };
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
@@ -143,6 +144,7 @@ async function fakeUploader(opts: {
         return;
       }
       if (req.url === '/api/document-types') {
+        state.catalogCalls++;
         res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ items: opts.catalog.map((slug) => ({ slug })) }));
         return;
       }
@@ -174,6 +176,7 @@ async function fakeUploader(opts: {
     ingestCalls,
     emptyCalls,
     get authCalls() { return state.authCalls; },
+    get catalogCalls() { return state.catalogCalls; },
     close: () => new Promise((r) => server.close(() => r(undefined))),
   };
 }
@@ -1002,6 +1005,25 @@ test('uploadSite: กวาดหลายโฟลเดอร์ของ site
     assert.equal(result.site, 'hoteltime');
     assert.equal(result.sent, 2);
     assert.deepEqual(new Set(result.results.map((r) => r.file)), new Set(['a.xlsx', 'b.xlsx']));
+  } finally {
+    await fake.close();
+  }
+});
+
+test('uploadSite: หลายโฟลเดอร์ใช้ login และ catalog ชุดเดียวกันทั้งรอบ (ไม่ login/โหลด catalog ซ้ำทุกโฟลเดอร์)', async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  await makeFolderUnderSite(dataDir, 'hoteltime', '2026-10-15', [{ ...ENTRY_BASE, file: 'a.xlsx', report: 'arrivals' }]);
+  await makeFolderUnderSite(dataDir, 'hoteltime', '2026-10-16', [{ ...ENTRY_BASE, file: 'b.xlsx', report: 'departures', range: { from: '2026-10-16', to: '2026-10-16' } }], { finishedAt: '2026-10-16T06:00:05.000Z' });
+  await makeFolderUnderSite(dataDir, 'hoteltime', '2026-10-17', [{ ...ENTRY_BASE, file: 'c.xlsx', report: 'arrivals', range: { from: '2026-10-17', to: '2026-10-17' } }], { finishedAt: '2026-10-17T06:00:05.000Z' });
+  const fake = await fakeUploader({
+    catalog: ['hoteltime_arrivals', 'hoteltime_departures'],
+    ingest: (e) => ({ status: 200, body: { results: [{ index: 0, ok: true, file_id: `f-${(e as { report: string }).report}` }] } }),
+  });
+  try {
+    const result = await uploadSite({ site: 'hoteltime', dataDir, config: configFor(fake.url), credentials: CREDENTIALS });
+    assert.equal(result.sent, 3);
+    assert.equal(fake.authCalls, 1);
+    assert.equal(fake.catalogCalls, 1);
   } finally {
     await fake.close();
   }

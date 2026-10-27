@@ -326,12 +326,17 @@ export async function readUploadBacklog(dataDir: string, site: SiteId): Promise<
  * บันทึกผลสำเร็จ/ซ้ำกลับเข้า `_manifest.json` ทันทีต่อไฟล์ (เหมือนขา export ที่บันทึกทันทีไม่รอจบรอบ) และปรับ state
  * ของ as_of/รายงานว่างทันทีด้วย
  */
+/** login + catalog ของรอบหนึ่ง — `uploadSite` สร้างครั้งเดียวแล้วส่งให้ทุกโฟลเดอร์ใช้ร่วมกัน (token ที่ relogin กลางทางก็ส่งต่อถึงโฟลเดอร์ถัดไปด้วย) */
+type UploadSession = { readonly tokenRef: { token: string }; readonly catalog: ReadonlySet<string> };
+
 export async function uploadFolder(opts: {
   readonly folder: string;
   readonly dataDir?: string;
   readonly config?: UploaderConfig;
   readonly credentials?: UploaderCredentials;
   readonly sleep?: Sleep;
+  /** ไม่ส่ง = login + โหลด catalog เอง (เรียกโฟลเดอร์เดียวจาก CLI) · `uploadSite` ส่งมาเพื่อไม่ login ซ้ำทุกโฟลเดอร์ */
+  readonly getSession?: () => Promise<UploadSession>;
 }): Promise<UploadRunResult> {
   const setup = opts.config !== undefined && opts.credentials !== undefined ? { config: opts.config, credentials: opts.credentials } : loadUploaderSetup();
   const sleep = opts.sleep ?? realSleep;
@@ -366,8 +371,13 @@ export async function uploadFolder(opts: {
     if (state.empty[key] !== true) await mergeUploadState(dataDir, site, { empty: { [key]: true } });
   }
 
-  const tokenRef = { token: await login(setup.config, setup.credentials) };
-  const catalog = await fetchDocumentTypeCatalog(setup.config, tokenRef.token);
+  const { tokenRef, catalog } =
+    opts.getSession !== undefined
+      ? await opts.getSession()
+      : await (async (): Promise<UploadSession> => {
+          const tokenRef = { token: await login(setup.config, setup.credentials) };
+          return { tokenRef, catalog: await fetchDocumentTypeCatalog(setup.config, tokenRef.token) };
+        })();
 
   // ticket 11/12: ส่งประกาศ `empty` จริงเมื่อเปิด flag ไว้เท่านั้น — ปิด (default) แล้วพฤติกรรมเหมือนเดิมทุกประการ
   // (แค่ track local แบบ ticket 04 ข้างบน)
@@ -510,6 +520,20 @@ export async function uploadSite(opts: {
   const setup = opts.config !== undefined && opts.credentials !== undefined ? { config: opts.config, credentials: opts.credentials } : loadUploaderSetup();
   const folders = await findManifestFolders(path.join(dataDir, opts.site));
 
+  // login + catalog ครั้งเดียวต่อรอบ สร้างตอนโฟลเดอร์แรกที่ต้องใช้ (ไม่มีโฟลเดอร์ = ไม่ login เหมือนเดิม) · เก็บเป็น promise
+  // ไว้ที่นี่ · ล้ม (login/catalog) = ล้างทิ้ง โฟลเดอร์ถัดไปลองใหม่เอง เหมือนเดิมที่แต่ละโฟลเดอร์ login เอง
+  let session: Promise<UploadSession> | undefined;
+  const getSession = (): Promise<UploadSession> => {
+    session ??= (async () => {
+      const tokenRef = { token: await login(setup.config, setup.credentials) };
+      return { tokenRef, catalog: await fetchDocumentTypeCatalog(setup.config, tokenRef.token) };
+    })().catch((err: unknown) => {
+      session = undefined;
+      throw err;
+    });
+    return session;
+  };
+
   const results: UploadFileResult[] = [];
   const emptyReports: { readonly report: string }[] = [];
   const emptyResults: EmptyResultEntry[] = [];
@@ -517,7 +541,7 @@ export async function uploadSite(opts: {
   for (const folder of folders) {
     let r: UploadRunResult;
     try {
-      r = await uploadFolder({ folder, dataDir, config: setup.config, credentials: setup.credentials, sleep: opts.sleep });
+      r = await uploadFolder({ folder, dataDir, config: setup.config, credentials: setup.credentials, sleep: opts.sleep, getSession });
     } catch {
       skippedFolders.push(folder);
       continue;
