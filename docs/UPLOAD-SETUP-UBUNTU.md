@@ -36,7 +36,7 @@
 | `UPLOADER_EMAIL` | ✅ ต้องมี | อีเมลบัญชี uploader ของเครื่องนี้ |
 | `UPLOADER_PASSWORD` | ✅ ต้องมี | รหัสผ่านบัญชีเดียวกัน |
 | `DISCORD_WEBHOOK_URL_UPLOAD` | ไม่บังคับ | ไม่ตั้ง = ข้ามการแจ้งเตือนขานี้ ไม่ทำให้รอบล้ม |
-| `UPLOADER_SEND_EMPTY` | ไม่บังคับ | **ปล่อยเป็น false (ค่าเริ่มต้น) ไปก่อน** — ทีม uploader ยังไม่ deploy endpoint สำหรับรายงานว่าง (ยิงไปตอนนี้ได้ 400) |
+| `UPLOADER_SEND_EMPTY` | ไม่บังคับ | **ปล่อยเป็น false (ค่าเริ่มต้น) ไปก่อน** — production รับ field `empty` แล้ว (probe 2026-10-21) แต่ยังไม่เปิดจนกว่าจะคุยกับทีม uploader ตามวาระ `docs/runbooks/UPLOADER-TEAM-AGENDA-2026-10-27-empty-flag.md` |
 
 🔴 ทั้ง 3 ตัวบน (`UPLOADER_URL/EMAIL/PASSWORD`) เป็นความลับเหมือน
 `HOTELTIME_PASSWORD`/`FOODSTORY_PASSWORD` — ห้าม commit/วางในแชท

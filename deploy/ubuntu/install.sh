@@ -217,6 +217,47 @@ ask_optional_secret TWOCAPTCHA_API_KEY '^[A-Za-z0-9]{32}$' \
   "บันทึกคีย์ 2captcha แล้ว (ไม่แสดงบนจอ) — FoodStory รันเองทุกวันบน Windmill" \
   "คีย์ 2captcha ต้องเป็นตัวอักษร/ตัวเลข 32 ตัว (ดูที่หน้า Dashboard ของ 2captcha.com) — ไม่บันทึก" \
   "ใส่คีย์ 2captcha ให้ FoodStory รันเองตามเวลา: nano exporter/.env แล้วเพิ่มบรรทัด TWOCAPTCHA_API_KEY=<คีย์จาก 2captcha.com>"
+# ── 4d. บัญชี uploader (ขาอัปโหลด `exporter upload`) — ต้องมีครบสามตัว ไม่มี default ในโค้ด · ถามเฉพาะเมื่อยังไม่มีเลย ไม่ทับค่าเดิม ·
+# มีบางตัวแล้วบางตัวยังไม่มี = ไม่เดา ไม่แตะ แจ้งในสิ่งที่ยังต้องทำ · ว่างที่อีเมล = ข้ามทั้งหมด · รหัสผ่านไม่แสดงบนจอ ใส่ quote ให้ dotenv อ่านตรงตัว
+ask_uploader() {
+  local todo="ตั้งค่าขาอัปโหลด: nano exporter/.env แล้วเติม UPLOADER_URL=https://uploader.chawengbot.cloud · UPLOADER_EMAIL=<อีเมล> · UPLOADER_PASSWORD=<รหัสผ่าน> (ดู docs/UPLOAD-SETUP-UBUNTU.md)"
+  local have=0 k
+  for k in UPLOADER_URL UPLOADER_EMAIL UPLOADER_PASSWORD; do env_has "$k" && have=$((have + 1)); done
+  if [ "$have" -eq 3 ]; then ok "มีบัญชี uploader ครบแล้ว ไม่แตะ"; return; fi
+  if [ "$have" -gt 0 ]; then
+    warn "ตั้งค่า uploader ไว้ไม่ครบ ($have จาก 3 ตัว) — ไม่แตะ ไม่เดา"
+    PENDING+=("$todo")
+    return
+  fi
+  local url="" email="" pass=""
+  IFS= read -r -p "   URL ของ uploader [Enter = https://uploader.chawengbot.cloud]: " url || true
+  [ -n "$url" ] || url="https://uploader.chawengbot.cloud"
+  IFS= read -r -p "   อีเมลบัญชี uploader ของเครื่องนี้ (กด Enter เฉย ๆ = ข้ามไปก่อน): " email || true
+  email="$(printf '%s' "$email" | tr -d '[:space:]')"
+  if [ -z "$email" ]; then
+    warn "ข้ามไปก่อน — ยังอัปโหลดเข้า uploader ไม่ได้จนกว่าจะตั้งบัญชี"
+    PENDING+=("$todo")
+    return
+  fi
+  IFS= read -r -s -p "   รหัสผ่านบัญชี uploader (ไม่แสดงบนจอ): " pass || true
+  echo
+  local quoted_pass
+  if ! printf '%s' "$url" | grep -qE '^https?://[^[:space:]]+$'; then
+    warn "URL ของ uploader ไม่ใช่รูปแบบ https://... — ไม่บันทึก"; PENDING+=("$todo")
+  elif ! printf '%s' "$email" | grep -qE '^[^@]+@[^@]+$'; then
+    warn "อีเมลของ uploader ไม่ใช่รูปแบบอีเมล — ไม่บันทึก"; PENDING+=("$todo")
+  elif [ -z "$pass" ]; then
+    warn "ไม่ได้ใส่รหัสผ่าน uploader — ไม่บันทึก"; PENDING+=("$todo")
+  elif ! quoted_pass="$(quote_env "$pass")"; then
+    warn "รหัสผ่าน uploader มีอักขระที่ใส่อัตโนมัติไม่ได้ (มีทั้ง ' และ \" หรือ \\) — ไม่บันทึก"; PENDING+=("$todo")
+  else
+    append_env "UPLOADER_URL=$url"
+    append_env "UPLOADER_EMAIL=$email"
+    append_env "UPLOADER_PASSWORD=$quoted_pass"
+    ok "บันทึกบัญชี uploader แล้ว (รหัสผ่านไม่แสดงบนจอ)"
+  fi
+}
+ask_uploader
 keep_private "$EXPORTER/.env"
 
 # ── 5. windmill/.env ──

@@ -42,7 +42,8 @@ HOOK='https://discord.com/api/webhooks/123456789/fake-webhook-token-for-install-
 HOOK2='https://discord.com/api/webhooks/987654321/fake-upload-hook-test'
 TODAY="$(TZ=Asia/Bangkok date +%F)"
 CAPKEY='0123456789abcdef0123456789abcdef' # คีย์ 2captcha ปลอม (32 ตัว) — ใบ 04 ของ exporter-foodstory-scheduled-daily
-ANSWERS=$'hotel-user\n p#ss w0rd!$x \nfood@example.com\nit\'s f00d $$ #1\n\n'"$HOOK"$'\n'"$HOOK2"$'\n'"$CAPKEY"$'\n'
+UPPASS='upl0ad p#ss $x'
+ANSWERS=$'hotel-user\n p#ss w0rd!$x \nfood@example.com\nit\'s f00d $$ #1\n\n'"$HOOK"$'\n'"$HOOK2"$'\n'"$CAPKEY"$'\n\nuploader@example.com\n'"$UPPASS"$'\n'
 as_user_answering "$ANSWERS" "$INSTALL" >/tmp/first.out 2>&1 || { cat /tmp/first.out; fail "ติดตั้งรอบแรก exit"; }
 cat /tmp/first.out
 [ -d $R/exporter/node_modules/playwright ] && pass "node_modules" || fail "ไม่มี node_modules"
@@ -68,6 +69,14 @@ as_user "cd exporter && node -e '
 '" && pass "คีย์ 2captcha อ่านกลับได้ตรง" || fail "คีย์ 2captcha ไม่ถูกบันทึก"
 if grep -q "$CAPKEY" /tmp/first.out; then fail "คีย์ 2captcha โผล่บนจอ"; fi
 pass "คีย์ 2captcha ไม่แสดงบนจอ"
+as_user "cd exporter && node -e '
+  const v = require(\"dotenv\").config({ quiet: true }).parsed;
+  if (v.UPLOADER_URL !== \"https://uploader.chawengbot.cloud\") { console.error(\"url\", v.UPLOADER_URL); process.exit(1); }
+  if (v.UPLOADER_EMAIL !== \"uploader@example.com\") { console.error(\"email\", v.UPLOADER_EMAIL); process.exit(1); }
+  if (v.UPLOADER_PASSWORD !== \"$UPPASS\") { console.error(\"password ไม่ตรง\"); process.exit(1); }
+'" && pass "บัญชี uploader อ่านกลับได้ตรง (URL เริ่มต้น = production, รหัสมี # และ \$)" || fail "บัญชี uploader ไม่ถูกบันทึก"
+if grep -q "$UPPASS" /tmp/first.out; then fail "รหัสผ่าน uploader โผล่บนจอ"; fi
+pass "รหัสผ่าน uploader ไม่แสดงบนจอ"
 [ "$(stat -c %a $R/windmill/.env)" = 600 ] && pass "windmill/.env 600" || fail "windmill/.env สิทธิ์ไม่ใช่ 600"
 PG="$(grep '^POSTGRES_PASSWORD=' $R/windmill/.env | cut -d= -f2-)"
 [ -n "$PG" ] && [ "$PG" != changeme ] && grep -q "^DATABASE_URL=postgres://postgres:$PG@" $R/windmill/.env \
@@ -90,12 +99,14 @@ if grep -qi "apt-get\|Installing dependencies" /tmp/rerun.out; then cat /tmp/rer
 pass "ไม่เรียก apt ซ้ำ (library ของ Chromium ครบแล้ว)"
 
 echo "== เครื่องที่ติดตั้งก่อนใบ 10 / ก่อนมีคีย์ 2captcha: รันซ้ำเติมวันเริ่มใช้งาน ไม่แตะค่าอื่น · ข้าม URL และคีย์ได้ (บอกในสิ่งที่ยังต้องทำ)"
-sed -i -e '/^EXPORTER_GO_LIVE=/d' -e '/^DISCORD_WEBHOOK_URL_EXPORT=/d' -e '/^DISCORD_WEBHOOK_URL_UPLOAD=/d' -e '/^TWOCAPTCHA_API_KEY=/d' $R/exporter/.env
+sed -i -e '/^EXPORTER_GO_LIVE=/d' -e '/^DISCORD_WEBHOOK_URL_EXPORT=/d' -e '/^DISCORD_WEBHOOK_URL_UPLOAD=/d' -e '/^TWOCAPTCHA_API_KEY=/d' -e '/^UPLOADER_URL=/d' -e '/^UPLOADER_EMAIL=/d' -e '/^UPLOADER_PASSWORD=/d' $R/exporter/.env
 OLD_PASS="$(grep '^HOTELTIME_PASSWORD=' $R/exporter/.env)"
 as_user_answering $'\n\n\n' "$INSTALL" >/tmp/upgrade.out 2>&1 || { cat /tmp/upgrade.out; fail "รันซ้ำบนเครื่องเก่า exit"; }
 if grep -q '^TWOCAPTCHA_API_KEY=' $R/exporter/.env; then fail "ข้ามคีย์ 2captcha แล้วยังเขียน TWOCAPTCHA_API_KEY"; fi
 grep -q "TWOCAPTCHA_API_KEY" /tmp/upgrade.out && pass "ข้ามคีย์ 2captcha: สรุปตอนจบบอกวิธีใส่ทีหลัง" || fail "ข้ามคีย์ 2captcha แล้วไม่บอกในสิ่งที่ยังต้องทำ"
 grep -qx "EXPORTER_GO_LIVE=$TODAY" $R/exporter/.env && pass "เติมวันเริ่มใช้งาน = วันนี้" || fail "ไม่เติมวันเริ่มใช้งาน"
+if grep -q '^UPLOADER_EMAIL=\|^UPLOADER_PASSWORD=' $R/exporter/.env; then fail "ข้ามบัญชี uploader แล้วยังเขียน UPLOADER_*"; fi
+grep -q "UPLOADER_EMAIL" /tmp/upgrade.out && pass "ข้ามบัญชี uploader: สรุปตอนจบบอกวิธีใส่ทีหลัง" || fail "ข้ามบัญชี uploader แล้วไม่บอกในสิ่งที่ยังต้องทำ"
 if grep -q '^DISCORD_WEBHOOK_URL_EXPORT=\|^DISCORD_WEBHOOK_URL_UPLOAD=' $R/exporter/.env; then fail "ข้าม URL แล้วยังเขียน DISCORD_WEBHOOK_URL_*"; fi
 [ "$OLD_PASS" = "$(grep '^HOTELTIME_PASSWORD=' $R/exporter/.env)" ] && pass "ค่าอื่นใน .env ไม่ถูกแตะ" || fail "รหัสผ่านเดิมเปลี่ยน"
 grep -q "ยังต้องทำ" /tmp/upgrade.out && grep -q "DISCORD_WEBHOOK_URL_EXPORT" /tmp/upgrade.out && grep -q "DISCORD_WEBHOOK_URL_UPLOAD" /tmp/upgrade.out \
