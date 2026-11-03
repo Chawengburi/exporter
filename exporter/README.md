@@ -22,11 +22,11 @@
 | `exporter login` — ล็อกอินอัตโนมัติ | ✅ ทดสอบกับ credential จริงแล้ว สำเร็จ 2026-09-08 |
 | Phase A — แผนที่เมนู | ✅ ได้ครบแล้ว ดู [`recon/MENU.md`](./recon/MENU.md) |
 | Phase A — สำรวจ filter/export ครบ 3 รายงานแรก | ✅ เสร็จ ดู [`recon/NOTES.md`](./recon/NOTES.md) |
-| `exporter export` — ดึงไฟล์ดิบ + ตรวจ + `_manifest.json` | ✅ HotelTime 48 รายงาน · FoodStory 49 รายงาน |
+| `exporter export` — ดึงไฟล์ดิบ + ตรวจ + `_manifest.json` | ✅ HotelTime 49 รายงาน · FoodStory 49 รายงาน |
 | รอบรายวันแบบไฟล์ละวันของข้อมูล + เติมวันที่ขาดเอง + snapshot ปิดงวด + baseline | ✅ 2026-10-14 (ใบ 01–09 ของ `exporter-daily-per-day-raw`) |
 | `exporter status` + แจ้งเตือน Discord | ✅ 2026-10-14 (ใบ 07–08) |
 | ชั้นตรวจไฟล์ (`sites/hoteltime/verify.ts` + `core/verify.ts`) | ✅ เสร็จ — จับบั๊กจริงไปแล้ว 1 ตัว |
-| รองรับหลาย site (`src/sites/<site>/`) | ✅ HotelTime 48 รายงาน + FoodStory 49 รายงาน (FoodStory แก้ reCAPTCHA เองด้วย 2captcha เมื่อมี `TWOCAPTCHA_API_KEY` จึงรันบน Windmill ได้ — ADR-0010 · ไม่มีคีย์ = คนกด captcha เหมือนเดิม) · rename เป็น `exporter` แล้ว 2026-09-28 (ADR-0004) |
+| รองรับหลาย site (`src/sites/<site>/`) | ✅ HotelTime 49 รายงาน + FoodStory 49 รายงาน (FoodStory แก้ reCAPTCHA เองด้วย 2captcha เมื่อมี `TWOCAPTCHA_API_KEY` จึงรันบน Windmill ได้ — ADR-0010 · ไม่มีคีย์ = คนกด captcha เหมือนเดิม) · rename เป็น `exporter` แล้ว 2026-09-28 (ADR-0004) |
 | ขาอัปโหลดเข้า uploader (`exporter upload`) | ✅ HotelTime + FoodStory (2026-10-24 รันเองตามเวลาบน Ubuntu) · ประกาศรายงานว่าง (`empty`) ยังปิดอยู่ (`UPLOADER_SEND_EMPTY`) — ดู ticket 14 |
 
 ## ติดตั้ง
@@ -200,7 +200,7 @@ src/
     sweep-classify.ts         ตัวจำแนกผล sweep (บริสุทธิ์ล้วน แต่ผูกกับ pattern control ของ ASP.NET)
     verify.ts                 ส่วนที่ผูกกับรูปร่าง Report ของ HotelTime (verifyChunk/RowCapError)
     export.ts / login.ts / sweep.ts   คำสั่งจริง — สั่งจาก index.ts
-    reports/                  หนึ่งไฟล์ต่อหนึ่งรายงาน — 48 ใบ แต่ละใบบอกตระกูล (ตามวัน/snapshot) และงวด
+    reports/                  หนึ่งไฟล์ต่อหนึ่งรายงาน — 49 ใบ แต่ละใบบอกตระกูล (ตามวัน/snapshot) และงวด
   sites/foodstory/            FoodStory — config.ts (prefix FOODSTORY_*) · login แก้ reCAPTCHA ด้วย 2captcha (หรือคนกดถ้าไม่มีคีย์) · daily.ts รอบรายวันใน login เดียว
                               reports/ 47 ใบ + salebychannel.ts + reservation-report.ts = 49 ใบใน --report all
   notify.ts                   แจ้ง Discord หลังรอบรายวัน / exporter notify (ประกอบ status + discord + บันทึกที่ส่งแล้ว)

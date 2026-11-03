@@ -7,6 +7,7 @@ import {
   invoicesReport,
 } from './accounting-documents.ts';
 import { accountingReportDetail, accountingReportSummary } from './accounting-report.ts';
+import { accountsOpen } from './accounts-open.ts';
 import { arrivalPeriod } from './arrival-period.ts';
 import { depositToUse, unpaidInvoicesByDate } from './balances.ts';
 import { depositJournal } from './deposit-journal.ts';
@@ -111,6 +112,8 @@ export const REPORTS: readonly Report[] = [
   occupancyByNationalityAndStayReason,
   // ticket 22 — ผ่านตอนตรวจซ้ำ
   depositJournal,
+  // ticket 02 ของ exporter-hoteltime-gold-feed — snapshot บัญชีที่ยังเปิดอยู่ (ย้อนดึงไม่ได้)
+  accountsOpen,
 ];
 
 export function findReport(id: string): Report | undefined {

@@ -14,11 +14,11 @@ const PER_DAY = [
   'manager-day-detail', 'manager-items', 'accounting-report', 'accounting-report-detail', 'deposit-journal',
 ];
 
-test('ทุกรายงานของ HotelTime มีตระกูล และรายงานตามวันตรงกับตารางเทียบรายงาน (22 ตัว ที่เหลือเป็น snapshot 26 ตัว)', () => {
-  assert.equal(REPORTS.length, 48);
+test('ทุกรายงานของ HotelTime มีตระกูล และรายงานตามวันตรงกับตารางเทียบรายงาน (22 ตัว ที่เหลือเป็น snapshot 27 ตัว)', () => {
+  assert.equal(REPORTS.length, 49);
   for (const r of REPORTS) assert.ok(r.family === 'per-day' || r.family === 'picture', `${r.id} ไม่มีตระกูล`);
   assert.deepEqual(REPORTS.filter((r) => r.family === 'per-day').map((r) => r.id).sort(), [...PER_DAY].sort());
-  assert.equal(REPORTS.filter((r) => r.family === 'picture').length, 26);
+  assert.equal(REPORTS.filter((r) => r.family === 'picture').length, 27);
 });
 
 test('งวดของรายงาน snapshot (ใบ 05): ทุกรายงาน snapshot บอกงวด — เดือน / ปี / ไม่มี ตามรายชื่อใน spec · รายงานตามวันไม่มีงวด', () => {
@@ -31,4 +31,16 @@ test('งวดของรายงาน snapshot (ใบ 05): ทุกรา
   ]);
   assert.deepEqual(of('year'), ['occupancy-annual', 'reservation-stats-month', 'reservation-stats-segment']);
   for (const r of REPORTS.filter((x) => x.family === 'per-day')) assert.equal(r.period, undefined, `${r.id} เป็นรายงานตามวัน`);
+});
+
+test('accounts-open (ticket 02 ของ exporter-hoteltime-gold-feed): snapshot รายวันอย่างเดียว ไม่มีงวด ไม่มี back-fill · หัวตาราง 16 คอลัมน์ รวม "Open balance" ซ้ำสองคอลัมน์', () => {
+  const r = REPORTS.find((x) => x.id === 'accounts-open');
+  assert.ok(r, 'ยังไม่ลงทะเบียน accounts-open');
+  assert.equal(r.family, 'picture');
+  assert.equal(r.dailyOnly, true);
+  assert.equal(r.period, 'none');
+  assert.deepEqual(r.expectedColumns, [
+    'Account number', 'Reservation no.', 'Group', 'Room', 'Opened from', 'Departure to', 'Customer', 'Account type',
+    'Currency', 'Account total', 'Future revenue', 'Open balance', 'Deposits', 'Closed', 'Audited revenue', 'Open balance',
+  ]);
 });

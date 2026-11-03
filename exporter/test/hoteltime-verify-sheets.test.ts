@@ -101,3 +101,24 @@ test('คอลัมน์นำถูกแต่ไม่มีคอลั�
   }]);
   assert.throws(() => verifyChunk(segment, YEAR_2025, p, null), /หัวตารางไม่ตรง/);
 });
+
+// accounts-open (ticket 02 ของ exporter-hoteltime-gold-feed): ไฟล์จริงมีหัว "Open balance" ซ้ำสองคอลัมน์ — เทียบตามตำแหน่งต้องผ่าน และหัวผิดต้องล้าง
+const accountsOpen = findReport('accounts-open')!;
+const AO_HEADER = [...accountsOpen.expectedColumns];
+const aoRow = AO_HEADER.map((_, i) => String(i + 1));
+
+test('accounts-open: หัวตารางที่มี "Open balance" ซ้ำผ่านด่านตรวจ', () => {
+  const p = makeWorkbook('accounts-open.xlsx', [{ name: 'Sheet1', file: 'sheet1.xml', xml: sheetXml([AO_HEADER, aoRow]) }]);
+  assert.equal(verifyChunk(accountsOpen, OCT, p, null).rowCount, 1);
+});
+
+test('accounts-open: ตำแหน่งคอลัมน์ซ้ำสลับกัน/หายไปคอลัมน์ → ล้างดัง ๆ', () => {
+  const swapped = [...AO_HEADER];
+  swapped[11] = 'Audited revenue'; // "Open balance" ตัวแรก (ตำแหน่ง 11) กับตัวที่สอง (ตำแหน่ง 15) ต้องอยู่ที่เดิม
+  swapped[14] = 'Open balance';
+  const p = makeWorkbook('accounts-open-bad.xlsx', [{ name: 'Sheet1', file: 'sheet1.xml', xml: sheetXml([swapped, aoRow]) }]);
+  assert.throws(() => verifyChunk(accountsOpen, OCT, p, null), /หัวตารางไม่ตรง/);
+  const missing = AO_HEADER.slice(0, -1);
+  const p2 = makeWorkbook('accounts-open-short.xlsx', [{ name: 'Sheet1', file: 'sheet1.xml', xml: sheetXml([missing, aoRow.slice(0, -1)]) }]);
+  assert.throws(() => verifyChunk(accountsOpen, OCT, p2, null), /หัวตารางไม่ตรง/);
+});

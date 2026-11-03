@@ -323,3 +323,7 @@ test('classifyEmptyBatchResponse: 400/429/5xx กระทบทุกราย�
     { kind: 'retryable', message: 'down' },
   ]);
 });
+
+test('documentTypeFor: accounts-open → hoteltime_accounts_open ตามสูตร ไม่ต้องมีข้อยกเว้น (ticket 02 ของ exporter-hoteltime-gold-feed)', () => {
+  assert.equal(documentTypeFor('hoteltime', 'accounts-open'), 'hoteltime_accounts_open');
+});
