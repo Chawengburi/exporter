@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { endDayPanel, monthDiff } from '../src/sites/foodstory/reservation-report.ts';
+import { endDayPanel, monthDiff, startDayPanel } from '../src/sites/foodstory/reservation-report.ts';
 
 test('เดือน/ปีเดียวกัน = 0', () => {
   assert.equal(monthDiff({ year: 2026, month: 9 }, { year: 2026, month: 9 }), 0);
@@ -32,4 +32,14 @@ test('endDayPanel: คนละเดือน (รวมข้ามปี) →
 
 test('endDayPanel: วันสิ้นสุดก่อนวันเริ่ม → โยน', () => {
   assert.throws(() => endDayPanel({ year: 2026, month: 9 }, { year: 2026, month: 8 }));
+});
+
+// 🔴 พังจริง 2026-11-02: วันเริ่มอยู่เดือนปัจจุบัน = เดือนของ panel ขวา, panel ซ้ายเลื่อนไปข้างหน้าไม่ได้
+test('startDayPanel: วันเริ่มตรงกับ panel ขวา (เดือนปัจจุบัน) → คลิก panel ขวา', () => {
+  assert.equal(startDayPanel({ year: 2026, month: 10 }, { year: 2026, month: 11 }, { year: 2026, month: 11 }), 'right');
+});
+
+test('startDayPanel: เดือนอื่น (ย้อนหลัง) → panel ซ้ายแล้วเลื่อนเอง', () => {
+  assert.equal(startDayPanel({ year: 2026, month: 10 }, { year: 2026, month: 11 }, { year: 2026, month: 8 }), 'left');
+  assert.equal(startDayPanel({ year: 2026, month: 10 }, { year: 2026, month: 11 }, { year: 2026, month: 10 }), 'left');
 });

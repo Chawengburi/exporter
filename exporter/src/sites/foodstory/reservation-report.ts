@@ -129,6 +129,16 @@ export function endDayPanel(from: MonthPos, to: MonthPos): PanelSide {
   return diff === 0 ? 'left' : 'right';
 }
 
+/**
+ * panel ที่ต้องคลิกวันเริ่ม — 🔴 พังจริง 2026-11-02: popup เปิดมา panel ซ้าย = เดือนก่อน, panel ขวา = เดือนปัจจุบัน
+ * ถ้าวันเริ่มอยู่ในเดือนปัจจุบัน (ทุกรอบรายวันตั้งแต่วันที่ 2 ของเดือน) ปุ่มเลื่อนไปข้างหน้าของ panel ซ้ายถูก disabled
+ * (ชิด panel ขวา) เลื่อนไปไม่ได้ — ให้คลิกใน panel ขวาที่แสดงเดือนนั้นอยู่แล้วแทน
+ */
+export function startDayPanel(left: MonthPos, right: MonthPos, from: MonthPos): PanelSide {
+  if (monthDiff(left, from) !== 0 && monthDiff(right, from) === 0) return 'right';
+  return 'left';
+}
+
 async function readPanelMonth(page: Page, side: PanelSide): Promise<MonthPos> {
   const header = page.locator(`.el-date-range-picker__content.is-${side} .el-date-range-picker__header`);
   const text = ((await header.textContent()) ?? '').trim();
@@ -220,11 +230,12 @@ export async function setReservationDateRange(page: Page, range: DateRange): Pro
   const fromPos: MonthPos = { year: range.from.getUTCFullYear(), month: range.from.getUTCMonth() + 1 };
   const toPos: MonthPos = { year: range.to.getUTCFullYear(), month: range.to.getUTCMonth() + 1 };
 
-  await navigatePanelToMonth(page, 'left', fromPos);
-  await clickCalendarDay(page, 'left', range.from.getUTCDate());
+  const startPanel = startDayPanel(await readPanelMonth(page, 'left'), await readPanelMonth(page, 'right'), fromPos);
+  if (startPanel === 'left') await navigatePanelToMonth(page, 'left', fromPos);
+  await clickCalendarDay(page, startPanel, range.from.getUTCDate());
   await page.waitForTimeout(300);
 
-  const endPanel = endDayPanel(fromPos, toPos);
+  const endPanel: PanelSide = endDayPanel(fromPos, toPos) === 'left' ? startPanel : 'right';
   if (endPanel === 'right') await navigatePanelToMonth(page, 'right', toPos);
   await clickCalendarDay(page, endPanel, range.to.getUTCDate());
   await page.waitForTimeout(500);
