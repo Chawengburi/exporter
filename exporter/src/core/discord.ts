@@ -432,7 +432,7 @@ function uploadAccentColor(r: UploadRunResult): number {
 }
 
 /** บรรทัดเดียวของ site แบบ log: `sent/total · duplicate · failed` + ตัวเลขเสริมเฉพาะที่ไม่เป็นศูนย์ (ชื่อไฟล์ที่ล้มอยู่ใน section "Failed") */
-function uploadSiteBlock(r: UploadRunResult): string {
+function uploadSiteBlock(r: UploadRunResult, sendEmpty: boolean): string {
   const label = SITE_LABEL[r.site];
   const failed = genuineRejectedCount(r) + r.stuck;
   const parts = [`${r.sent}/${r.results.length} sent`];
@@ -444,7 +444,8 @@ function uploadSiteBlock(r: UploadRunResult): string {
   const announcedEmpty = r.emptyResults.filter((e) => e.kind === 'announced').length;
   const pendingEmpty = r.emptyReports.length - announcedEmpty;
   if (announcedEmpty > 0) parts.push(`${announcedEmpty} empty announced`);
-  if (pendingEmpty > 0) parts.push(`${pendingEmpty} empty not announced`);
+  // flag ปิด (UPLOADER_SEND_EMPTY ไม่ใช่ true) = ไม่ประกาศรายงานว่างโดยตั้งใจ ตัวเลขนี้ไม่ใช่ backlog ที่ต้องทำอะไร — ไม่ขึ้นทุกรอบ
+  if (pendingEmpty > 0 && sendEmpty) parts.push(`${pendingEmpty} empty not announced`);
   // รอ document_type (รายงานที่ยังไม่อยู่ในตาราง) — นับให้เห็น backlog แต่ไม่ใช่ "failed" เพราะไม่ใช่เรื่องผิดปกติที่ต้องรีบดู
   const pendingDocType = pendingDocumentTypeCount(r);
   if (pendingDocType > 0) parts.push(`${pendingDocType} waiting for document_type`);
@@ -469,10 +470,10 @@ function uploadFailures(r: UploadRunResult): { readonly label: string; readonly 
   return [...fromFiles, ...fromEmpty];
 }
 
-function uploadSummaryOf(r: UploadRunResult, at: string, run: RunInfo | undefined): string {
+function uploadSummaryOf(r: UploadRunResult, at: string, run: RunInfo | undefined, sendEmpty: boolean): string {
   const title = genuineRejectedCount(r) > 0 || r.stuck > 0 ? 'Upload finished with problems' : r.blocked > 0 ? 'Upload done · action needed' : 'Upload done';
   const header = [`### ${title} · ${clockParts(at).time}`, subtext(at, run)].join('\n');
-  const siteBlock = uploadSiteBlock(r);
+  const siteBlock = uploadSiteBlock(r, sendEmpty);
   const failures = uploadFailures(r);
   const attention = uploadAttention(r);
   return [header, siteBlock, ...sections([failures.length > 0 ? failuresBlock(failures) : undefined, attention])].join(SECTION_BREAK);
@@ -488,15 +489,18 @@ function uploadAlertsOf(r: UploadRunResult): Alert[] {
 
 /**
  * ข้อความของขาอัปโหลด — เรียกครั้งเดียวต่อการรัน `exporter upload` หนึ่งครั้ง (`at` ควรเป็นเวลาจริงของรอบนั้น ไม่ใช่
- * วันเฉย ๆ เพราะอัปโหลดรันได้หลายครั้งต่อวัน) · ไม่มีไฟล์ไหนถูกประมวลผลเลยและไม่มีรายงานว่าง = ไม่ส่งอะไร · การแจ้งเตือนไฟล์
+ * วันเฉย ๆ เพราะอัปโหลดรันได้หลายครั้งต่อวัน) · ไม่มีไฟล์ไหนถูกประมวลผลเลยและไม่ได้พยายามประกาศรายงานว่าง = ไม่ส่งอะไร · การแจ้งเตือนไฟล์
  * ถูกปฏิเสธถาวรกันซ้ำในวันเดียวกันแบบเดียวกับแจ้งเตือนฝั่ง export
  */
-export function uploadDiscordMessages(result: UploadRunResult, opts: { readonly at: string; readonly alreadySent: ReadonlySet<string>; readonly run?: RunInfo }): DiscordMessage[] {
-  if (result.results.length === 0 && result.emptyReports.length === 0) return [];
+export function uploadDiscordMessages(result: UploadRunResult, opts: { readonly at: string; readonly alreadySent: ReadonlySet<string>; readonly run?: RunInfo; readonly sendEmpty?: boolean }): DiscordMessage[] {
+  // รอบที่ไม่ได้ประมวลผลไฟล์ใดและไม่ได้พยายามประกาศ `empty` เลย (เหลือแค่รายงานว่างที่ค้างสถานะเดิม เช่น รอบเก็บตก 15:00/18:00
+  // ที่ไม่มีของใหม่) = ไม่มีอะไรเกิดขึ้น ไม่โพสต์ซ้ำ · backlog ยังเห็นได้ใน `exporter status`
+  if (result.results.length === 0 && result.emptyResults.length === 0) return [];
+  const sendEmpty = opts.sendEmpty ?? true;
   const today = opts.at.slice(0, 10);
   const summaryKey = `upload-summary@${result.site}@${opts.at}`;
   const summaryMsg: DiscordMessage | undefined = !opts.alreadySent.has(summaryKey)
-    ? { keys: [summaryKey], content: uploadSummaryOf(result, opts.at, opts.run), accentColor: uploadAccentColor(result) }
+    ? { keys: [summaryKey], content: uploadSummaryOf(result, opts.at, opts.run, sendEmpty), accentColor: uploadAccentColor(result) }
     : undefined;
 
   const seen = new Set<string>();

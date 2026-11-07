@@ -145,6 +145,8 @@ export async function notifyUpload(opts: {
   readonly dryRun?: boolean;
   /** ระยะเวลาของรอบ upload (ms) สำหรับ subtext ของสรุป */
   readonly durationMs?: number;
+  /** เครื่องนี้ประกาศรายงานว่างจริงไหม (UPLOADER_SEND_EMPTY) — false = ไม่แสดง "empty not announced" ในสรุป · ไม่ใส่ = แสดงเหมือนเดิม */
+  readonly sendEmpty?: boolean;
 }): Promise<NotifyResult> {
   const now = opts.now ?? new Date();
   const dataDir = opts.dataDir ?? defaultDataDir();
@@ -159,6 +161,7 @@ export async function notifyUpload(opts: {
       at: now.toISOString(),
       alreadySent: new Set(Object.keys(log.sent)),
       run: { ...(opts.durationMs !== undefined ? { durationMs: opts.durationMs } : {}) },
+      ...(opts.sendEmpty !== undefined ? { sendEmpty: opts.sendEmpty } : {}),
     });
     if (opts.dryRun) return { status: 'dry-run', messages };
     if (url === null || messages.length === 0) return { status: 'sent', messages: 0 };

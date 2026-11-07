@@ -47,12 +47,16 @@ test('uploadDiscordMessages: ไม่มีไฟล์ไหนถูกปร
   assert.deepEqual(uploadDiscordMessages(empty, { at: AT, alreadySent: noneSent }), []);
 });
 
-test('uploadDiscordMessages: รายงานว่างที่ยังไม่ได้ประกาศ (flag ปิด/document_type ยัง resolve ไม่ได้/ยังไม่ผ่าน) นับรวมในสรุปด้วย ไม่ถือเป็น no-op', () => {
-  const onlyEmpty: UploadRunResult = { ...base, sent: 0, duplicate: 0, results: [], emptyReports: [{ report: 'x' }] };
-  const messages = uploadDiscordMessages(onlyEmpty, { at: AT, alreadySent: noneSent });
-  assert.equal(messages.length, 1);
-  assert.match(messages[0]!.content, /1 empty not announced/);
-  assert.doesNotMatch(messages[0]!.content, /empty announced/);
+test('uploadDiscordMessages: เหลือแค่รายงานว่างที่ยังไม่ได้ประกาศ ไม่มีไฟล์/ไม่ได้พยายามประกาศ → ไม่โพสต์ (รอบเก็บตกที่ไม่มีของใหม่)', () => {
+  const onlyEmpty: UploadRunResult = { ...base, sent: 0, duplicate: 0, results: [], emptyReports: [{ report: 'x' }], emptyResults: [] };
+  assert.deepEqual(uploadDiscordMessages(onlyEmpty, { at: AT, alreadySent: noneSent }), []);
+});
+
+test('uploadDiscordMessages: flag ประกาศว่างปิด (sendEmpty=false) → สรุปไม่มี "empty not announced" · เปิด/ไม่ระบุ → ยังแสดง', () => {
+  const withBacklog: UploadRunResult = { ...base, emptyReports: [{ report: 'x' }] };
+  assert.doesNotMatch(uploadDiscordMessages(withBacklog, { at: AT, alreadySent: noneSent, sendEmpty: false })[0]!.content, /empty not announced/);
+  assert.match(uploadDiscordMessages(withBacklog, { at: AT, alreadySent: noneSent, sendEmpty: true })[0]!.content, /1 empty not announced/);
+  assert.match(uploadDiscordMessages(withBacklog, { at: AT, alreadySent: noneSent })[0]!.content, /1 empty not announced/);
 });
 
 // ticket 13: "ว่าง" เฉย ๆ เคยแปลว่า "ไม่ต้องทำอะไร รอทีม uploader" — ตอนนี้ต้องแยกประกาศสำเร็จจากยังไม่ประกาศ

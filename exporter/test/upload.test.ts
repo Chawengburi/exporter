@@ -642,7 +642,7 @@ test('uploadFolder: รันซ้ำโฟลเดอร์เดิมหล
   }
 });
 
-test('uploadFolder: รันซ้ำเมื่อมี empty ที่ประกาศแล้วหนึ่งตัวกับที่ยังประกาศไม่ได้อีกหนึ่งตัว → Discord ขึ้นเฉพาะ "1 empty not announced"', async () => {
+test('uploadFolder: รันซ้ำเมื่อมี empty ที่ประกาศแล้วหนึ่งตัวกับที่ยังประกาศไม่ได้อีกหนึ่งตัว → รอบแรกขึ้นทั้งสองตัวเลข รอบซ้ำที่ไม่มีอะไรใหม่ไม่โพสต์', async () => {
   const folder = await makeFolder([], { finishedReports: [], emptyReports: ['departures', 'housekeeping'] });
   const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
   const fake = await fakeUploader({
@@ -651,13 +651,15 @@ test('uploadFolder: รันซ้ำเมื่อมี empty ที่ป�
   });
   try {
     const config = configFor(fake.url, { sendEmpty: true });
-    await uploadFolder({ folder, dataDir, config, credentials: CREDENTIALS });
+    const first = await uploadFolder({ folder, dataDir, config, credentials: CREDENTIALS });
+    const [firstMessage] = uploadDiscordMessages(first, { at: '2026-10-15T12:00:05.000Z', alreadySent: new Set<string>() });
+    assert.match(firstMessage!.content, /1 empty announced/);
+    assert.match(firstMessage!.content, /1 empty not announced/);
     const second = await uploadFolder({ folder, dataDir, config, credentials: CREDENTIALS });
     assert.deepEqual(second.emptyReports, [{ report: 'housekeeping' }]); // departures ประกาศแล้ว ไม่ใช่ backlog
     assert.deepEqual(second.emptyResults, []);
-    const [message] = uploadDiscordMessages(second, { at: '2026-10-15T12:00:05.000Z', alreadySent: new Set<string>() });
-    assert.match(message!.content, /1 empty not announced/);
-    assert.doesNotMatch(message!.content, /empty announced/);
+    // รอบซ้ำที่ไม่มีของใหม่ (เช่น รอบเก็บตก 15:00/18:00) ไม่โพสต์ — backlog ยังเห็นใน `exporter status`
+    assert.deepEqual(uploadDiscordMessages(second, { at: '2026-10-15T15:00:05.000Z', alreadySent: new Set<string>() }), []);
   } finally {
     await fake.close();
   }

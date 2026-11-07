@@ -305,7 +305,8 @@ program
         ? await uploadFolder({ folder: opts.folder, ...(opts.data ? { dataDir: opts.data } : {}) })
         : await uploadSite({ site: opts.site as 'hoteltime' | 'foodstory', ...(opts.data ? { dataDir: opts.data } : {}) });
       process.stdout.write(opts.json ? `${JSON.stringify(result, null, 2)}\n` : describeUploadResult(result));
-      const notified = await notifyUpload({ result, durationMs: Math.round(performance.now()), ...(opts.data ? { dataDir: opts.data } : {}) });
+      const { loadUploaderSetup } = await import('./uploader-config.ts');
+      const notified = await notifyUpload({ result, durationMs: Math.round(performance.now()), sendEmpty: loadUploaderSetup().config.sendEmpty, ...(opts.data ? { dataDir: opts.data } : {}) });
       if (!opts.json) console.log(describeNotify(notified)); // Discord ไม่ทำให้รอบอัปโหลดล้ม — แค่รายงานไว้
       process.exitCode = result.stuck > 0 || result.rejected > 0 ? 1 : 0;
     } catch (err) {
