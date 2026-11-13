@@ -1,6 +1,5 @@
 import type { Page } from 'playwright';
 import { formatDMY, type DateRange } from '../../../core/order.ts';
-import { EVENING_REFRESH_HOUR } from '../../../core/run-planner.ts';
 import { gridRowCount, setSingleDate } from '../webforms.ts';
 import type { Report } from './_types.ts';
 
@@ -34,8 +33,6 @@ type SnapshotSpec = {
   readonly overlap?: { readonly from: string; readonly to: string };
   /** จำนวนแถวเพิ่มตามธุรกรรม (อาจชนเพดาน 2000) หรือคงที่ตามจำนวนห้อง */
   readonly hasRowCap: boolean;
-  /** ถ่ายซ้ำรอบเย็นด้วย (`Report.refreshAtHour`, ADR-0011) */
-  readonly refreshAtHour?: number;
 };
 
 function dailySnapshot(spec: SnapshotSpec): Report {
@@ -47,7 +44,6 @@ function dailySnapshot(spec: SnapshotSpec): Report {
     dailyOnly: true,
     family: 'picture',
     period: 'none',
-    ...(spec.refreshAtHour !== undefined ? { refreshAtHour: spec.refreshAtHour } : {}),
     skipDateCoverageCheck: spec.coverageColumn === null && spec.overlap === undefined,
     ...(spec.overlap ? { overlapColumns: spec.overlap } : {}),
     chunk: { kind: 'whole', reason: 'dailyOnly — ช่วงเป็นวันเดียวเสมอ ไม่มีอะไรให้แบ่งก้อน' },
@@ -123,8 +119,6 @@ export const housekeepingAllInOne = dailySnapshot({
 export const roomsStatusOverview = dailySnapshot({
   id: 'rooms-status-overview',
   label: 'Rooms status overview',
-  // stay เปลี่ยนจาก Confirm เป็น check-in หลัง 14:00 — ถ่ายซ้ำรอบเย็น (ADR-0011)
-  refreshAtHour: EVENING_REFRESH_HOUR,
   path: 'reports/RoomUsage.aspx',
   grid: 'dtgItems',
   // snapshot ของทุกห้อง (130 แถว) — ห้องว่างไม่มีการจอง ช่องวันที่จึงว่าง

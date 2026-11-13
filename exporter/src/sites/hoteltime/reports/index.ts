@@ -48,7 +48,7 @@ import { inHouseGuests } from './in-house-guests.ts';
 import { reservationsCancelled } from './reservations-cancelled.ts';
 import { reservationsRateCode } from './reservations-ratecode.ts';
 import { reservationsSearch } from './reservations-search.ts';
-import type { PlannedReport } from '../../../core/run-planner.ts';
+import { EVENING_REFRESH_HOUR, type PlannedReport } from '../../../core/run-planner.ts';
 import type { Report } from './_types.ts';
 
 /** ทะเบียนรายงานทั้งหมด — เพิ่มรายงานใหม่โดยเพิ่มไฟล์แล้วมาต่อท้ายที่นี่ */
@@ -125,7 +125,13 @@ export function reportIds(): string[] {
 }
 
 /** แคตตาล็อกสำหรับตัววางแผนและ `exporter status` (ตระกูล + งวด) */
-export const toPlanned = (r: Report): PlannedReport => ({ id: r.id, family: r.family, period: r.period, refreshAtHour: r.refreshAtHour });
+/** ทุก snapshot ของ HotelTime ถ่ายซ้ำรอบเย็น (ADR-0011) — ข้อมูลหลายใบเปลี่ยนหลังเที่ยง (check-in 14:00, ยอดค้าง, ยอดสะสมของวัน) ต้นทุนเพิ่มราว 3 นาที */
+export const toPlanned = (r: Report): PlannedReport => ({
+  id: r.id,
+  family: r.family,
+  period: r.period,
+  ...(r.family === 'picture' ? { refreshAtHour: EVENING_REFRESH_HOUR } : {}),
+});
 export function plannedReports(): PlannedReport[] {
   return REPORTS.map(toPlanned);
 }
