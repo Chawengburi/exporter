@@ -18,7 +18,7 @@ test('🔴 เติมสองวัน + snapshot + จองโต๊ะ: �
       { report: 'salebybill', day: '2026-10-13' }, { report: 'reservation-report', day: '2026-10-13' }, { report: 'salebychannel', day: '2026-10-13' },
     ],
     pictures: [{ report: 'current_stock', day: '2026-10-14' }],
-    periodCloses: [],
+    refreshes: [], periodCloses: [],
   });
   assert.deepEqual(show(steps), [
     'range 2026-10-12', 'salebybill 2026-10-12', 'salebychannel 2026-10-12',
@@ -29,7 +29,7 @@ test('🔴 เติมสองวัน + snapshot + จองโต๊ะ: �
 });
 
 test('มีแต่ snapshot — ตั้งช่วงเป็นวันนี้ (วันที่ถ่าย) ก่อน: snapshot ไม่กรองตามวัน แต่ salebymonthsum เลือกปีจากช่วงของ session — snapshot ยอดสะสม = ต้นงวดถึงวันนี้', () => {
-  const steps = foodstoryDailySteps({ perDay: [], pictures: [{ report: 'salebymonthsum', day: '2026-10-14' }], periodCloses: [] });
+  const steps = foodstoryDailySteps({ perDay: [], pictures: [{ report: 'salebymonthsum', day: '2026-10-14' }], refreshes: [], periodCloses: [] });
   assert.deepEqual(show(steps), ['range 2026-10-14', 'salebymonthsum 2026-10-14']);
 });
 
@@ -37,7 +37,7 @@ test('snapshot ปิดงวด salebymonthsum ช่วงต้นปี —
   const steps = foodstoryDailySteps({
     perDay: [{ report: 'salebybill', day: '2027-01-02' }],
     pictures: [{ report: 'salebymonthsum', day: '2027-01-03' }],
-    periodCloses: [{ report: 'salebymonthsum', day: '2026-12-31' }],
+    refreshes: [], periodCloses: [{ report: 'salebymonthsum', day: '2026-12-31' }],
   });
   assert.deepEqual(show(steps), [
     'range 2027-01-02', 'salebybill 2027-01-02', 'range 2027-01-03', 'salebymonthsum 2027-01-03',
@@ -46,14 +46,14 @@ test('snapshot ปิดงวด salebymonthsum ช่วงต้นปี —
 });
 
 test('ไม่มีงาน = ไม่มีขั้นตอน (ไม่ต้อง login ไม่ต้องกด captcha)', () => {
-  assert.deepEqual(foodstoryDailySteps({ perDay: [], pictures: [], periodCloses: [] }), []);
+  assert.deepEqual(foodstoryDailySteps({ perDay: [], pictures: [], refreshes: [], periodCloses: [] }), []);
 });
 
 test('🔴 1 ม.ค.: snapshot salebymonthsum ของวันนี้ได้ปีใหม่ (ตั้งช่วงวันนี้) ส่วนปีที่แล้วทั้งปีเป็น snapshot ปิดงวด — ไม่ซ้ำกัน (code review ใบ 06)', () => {
   const steps = foodstoryDailySteps({
     perDay: [{ report: 'salebybill', day: '2026-12-31' }],
     pictures: [{ report: 'salebymonthsum', day: '2027-01-01' }],
-    periodCloses: [{ report: 'salebymonthsum', day: '2026-12-31' }],
+    refreshes: [], periodCloses: [{ report: 'salebymonthsum', day: '2026-12-31' }],
   });
   assert.deepEqual(show(steps), [
     'range 2026-12-31', 'salebybill 2026-12-31',
@@ -68,7 +68,7 @@ test('🔴 login ล้ม: ทุกรายงานในแผน (ทุ�
   const steps = foodstoryDailySteps({
     perDay: [{ report: 'salebybill', day: '2026-12-30' }, { report: 'reservation-report', day: '2026-12-30' }, { report: 'pay', day: '2026-12-31' }],
     pictures: [{ report: 'current_stock', day: '2027-01-01' }],
-    periodCloses: [{ report: 'salebymonthsum', day: '2026-12-31' }],
+    refreshes: [], periodCloses: [{ report: 'salebymonthsum', day: '2026-12-31' }],
   });
   const reason = 'แก้ reCAPTCHA อัตโนมัติไม่สำเร็จ: ERROR_ZERO_BALANCE';
   const failed = loginFailedSteps(steps, reason);

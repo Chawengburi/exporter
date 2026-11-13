@@ -6,7 +6,7 @@ import { parse as parseDotenv } from 'dotenv';
 import { addDaysISO, formatISO, utcDate } from './order.ts';
 import { SITE_LABEL } from './placement.ts';
 import {
-  CATCH_UP_CAP_DAYS, GO_LIVE_ENV, PERIOD_CLOSE_SUFFIX, PERIOD_CLOSE_WINDOW_DAYS, isDone, lastDueDay, parseGoLive, periodCloseRetryUntil, planDailyRun,
+  CATCH_UP_CAP_DAYS, GO_LIVE_ENV, PERIOD_CLOSE_SUFFIX, PERIOD_CLOSE_WINDOW_DAYS, isDone, lastDueDay, parseGoLive, periodCloseRetryUntil, planDailyRun, refreshId,
   stateKey, storeStateFrom, type DayStatus, type PlannedItem, type PlannedReport,
 } from './run-planner.ts';
 import { isLoginFailureReason, loginFailureDetail, type RunRecord } from './run-record.ts';
@@ -271,6 +271,8 @@ function siteView(
   const state = storeStateFrom(readable, catalog);
   const perDayIds = catalog.filter((r) => r.family === 'per-day').map((r) => r.id);
   const pictureIds = catalog.filter((r) => r.family === 'picture').map((r) => r.id);
+  // snapshot ถ่ายซ้ำรอบเย็น (ADR-0011): ไม่นับใน "N/N" (นับต่อรายงาน) — แต่ถ้าล้มต้องเห็น เพราะรอบ 18:00 เป็นรอบสุดท้ายของวัน ไม่มีรอบไหนลองซ้ำให้
+  const refreshIds = catalog.filter((r) => r.family === 'picture' && r.refreshAtHour !== undefined).map((r) => refreshId(r.id));
   const firstWith = (ids: readonly string[]) => readable.map((f) => f.day).filter((d) => ids.some((id) => state.has(stateKey(id, d)))).sort()[0] ?? null;
   const perDayStart = goLive ?? firstWith(perDayIds);
   const pictureStart = goLive ?? firstWith(pictureIds);
@@ -305,7 +307,7 @@ function siteView(
       let pictures: PictureView | null = null;
       if (pictureStart !== null && day >= pictureStart) {
         const s = split(pictureIds, day);
-        pictures = { total: pictureIds.length, taken: s.data + s.empty.length, empty: s.empty, failed: s.failed, missing: s.notDone };
+        pictures = { total: pictureIds.length, taken: s.data + s.empty.length, empty: s.empty, failed: [...s.failed, ...split(refreshIds, day).failed], missing: s.notDone };
       }
       const record = recordOf.get(day);
       const legacy = perDay === null && day <= now.due && record !== undefined && Object.keys(record.reports).some((id) => perDayIds.includes(id));

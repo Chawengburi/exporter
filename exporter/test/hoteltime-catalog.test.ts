@@ -44,3 +44,12 @@ test('accounts-open (ticket 02 ของ exporter-hoteltime-gold-feed): snapshot
     'Currency', 'Account total', 'Future revenue', 'Open balance', 'Deposits', 'Closed', 'Audited revenue', 'Open balance',
   ]);
 });
+
+test('ADR-0011: snapshot ที่เปลี่ยนหลังเที่ยงถ่ายซ้ำรอบ 18:00 — in-house-guests, rooms-status-overview, arrivals, departures เท่านั้น', () => {
+  const refreshed = REPORTS.filter((r) => r.refreshAtHour !== undefined);
+  assert.deepEqual(refreshed.map((r) => r.id).sort(), ['arrivals', 'departures', 'in-house-guests', 'rooms-status-overview']);
+  for (const r of refreshed) {
+    assert.equal(r.family, 'picture', `${r.id} ถ่ายซ้ำได้เฉพาะ snapshot`);
+    assert.equal(r.refreshAtHour, 18, `${r.id} ต้องตรงกับ cron รอบเย็น`);
+  }
+});

@@ -48,6 +48,10 @@ export type Report = {
    */
   readonly period?: ReportPeriod;
   /**
+   * snapshot ที่เปลี่ยนหลังเที่ยง (เช่น check-in 14:00): ถ่ายซ้ำอีกครั้งตั้งแต่ชั่วโมงนี้ (เวลาไทย) แม้ snapshot ของวันสำเร็จแล้ว — ADR-0011 · เฉพาะ `picture`
+   */
+  readonly refreshAtHour?: number;
+  /**
    * คอลัมน์ในไฟล์ที่ใช้ยืนยันว่า filter ทำงานจริง (ด่านช่วงวัน) และบันทึกเป็น `filterColumn` ใน `_manifest.json` — รายงานที่ข้ามด่านวันที่
    * ยังต้องใส่ค่าที่มีจริงในไฟล์เพื่อให้ type ผ่าน แต่ไม่ถูกใช้ตรวจ
    */

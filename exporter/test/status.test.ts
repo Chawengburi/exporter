@@ -530,3 +530,27 @@ test('uploadBacklog: ไฟล์ถูกบล็อกเพราะ as_of �
   assert.equal(r.verdict, 'action');
   assert.match(r.actions.join('\n'), /HotelTime[^\n]*บล็อก\(as_of\) 2[^\n]*คุยกับทีม uploader/);
 });
+
+// ── ADR-0011: snapshot ที่ถ่ายซ้ำรอบเย็น ──
+const WITH_REFRESH_SETUP: StatusSetup = {
+  ...SETUP,
+  catalog: { ...SETUP.catalog, hoteltime: HT.map((r) => (r.id === 'arrivals' ? { ...r, refreshAtHour: 18 } : r)) },
+};
+
+test('snapshot ถ่ายซ้ำรอบเย็นล้ม (รอบเที่ยงได้แล้ว) = ปัญหา บอกชื่อ "<รายงาน>@refresh" · จำนวน snapshot ยังนับต่อรายงาน ไม่เบิ้ล', () => {
+  const s = healthy();
+  const bad = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-14', { pictures: { ...PICS_HT, 'arrivals@refresh': ['failed', 'Timeout'] } })),
+  }, EVENING_14, WITH_REFRESH_SETUP);
+  assert.equal(bad.verdict, 'problem', text(bad));
+  assert.match(bad.problems.join('\n'), /2026-10-14[^\n]*snapshot[^\n]*arrivals@refresh/);
+  assert.match(text(bad), /2026-10-14[^\n]*snapshot ได้ 2\/2/);
+
+  const good = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-14', { pictures: { ...PICS_HT, 'arrivals@refresh': 'data' } })),
+  }, EVENING_14, WITH_REFRESH_SETUP);
+  assert.equal(good.verdict, 'ok', text(good));
+  assert.match(text(good), /2026-10-14[^\n]*snapshot ครบ 2\/2/);
+});

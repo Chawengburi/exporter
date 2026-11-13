@@ -125,7 +125,7 @@ export function reportIds(): string[] {
 }
 
 /** แคตตาล็อกสำหรับตัววางแผนและ `exporter status` (ตระกูล + งวด) */
-export const toPlanned = (r: Report): PlannedReport => ({ id: r.id, family: r.family, period: r.period });
+export const toPlanned = (r: Report): PlannedReport => ({ id: r.id, family: r.family, period: r.period, refreshAtHour: r.refreshAtHour });
 export function plannedReports(): PlannedReport[] {
   return REPORTS.map(toPlanned);
 }

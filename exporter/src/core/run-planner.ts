@@ -19,6 +19,11 @@ export type PlannedReport = {
   readonly family: ReportFamily;
   /** ไม่ใส่ = ไม่มี snapshot ปิดงวด (รายงานตามวัน) */
   readonly period?: ReportPeriod;
+  /**
+   * snapshot ที่เปลี่ยนหลังเที่ยง (เช่น check-in 14:00) — ถ่าย**ซ้ำอีกครั้ง**ตั้งแต่ชั่วโมงนี้ (เวลาไทย) ของวัน แม้ snapshot ของวันนี้สำเร็จไปแล้ว (ADR-0011)
+   * · ใช้ได้กับรายงาน snapshot เท่านั้น · ไม่ใส่ = ถ่ายวันละครั้งตามเดิม
+   */
+  readonly refreshAtHour?: number;
 };
 
 /**
@@ -29,6 +34,16 @@ export const PERIOD_CLOSE_SUFFIX = '@period-close';
 
 export function periodCloseId(report: string): string {
   return `${report}${PERIOD_CLOSE_SUFFIX}`;
+}
+
+/**
+ * id ที่ใช้บันทึกผลของ **snapshot ถ่ายซ้ำ** ใน `_run.json` — แยกจาก snapshot ปกติของรายงานเดียวกัน (เหตุผลเดียวกับ `PERIOD_CLOSE_SUFFIX`: `_run.json` เก็บได้หนึ่ง
+ * สถานะและหนึ่งชุดไฟล์ต่อ id ต่อโฟลเดอร์ ถ้าใช้ id เดียวกัน ไฟล์รอบเที่ยงจะหลุดจาก `_run.json` และขาอัปโหลดหา `as_of` ของมันไม่เจอ)
+ */
+export const REFRESH_SUFFIX = '@refresh';
+
+export function refreshId(report: string): string {
+  return `${report}${REFRESH_SUFFIX}`;
 }
 
 /** สถานะล่าสุดของรายงานหนึ่งในวันหนึ่ง (CONTEXT.md: มีข้อมูล / ว่าง / ล้ม) · ไม่มีในภาพรวม = ยังไม่ได้ดึง */
@@ -52,6 +67,8 @@ export type WorkPlan = {
   readonly perDay: readonly PlannedItem[];
   /** รายงาน snapshot ที่ต้องถ่าย (day = วันนี้) */
   readonly pictures: readonly PlannedItem[];
+  /** snapshot ที่ถ่ายซ้ำรอบเย็น (day = วันนี้ · `report` = id ของรายงาน ไม่ใช่ `refreshId`) — ถ่ายเฉพาะเมื่อ snapshot ปกติของวันนี้สำเร็จแล้ว */
+  readonly refreshes: readonly PlannedItem[];
   /** snapshot ปิดงวดที่ต้องถ่าย (day = วันสุดท้ายของงวด — ถ่ายด้วยการค้นวันนั้น ซึ่งได้ทั้งงวดของรายงานยอดสะสม) */
   readonly periodCloses: readonly PlannedItem[];
 };
@@ -137,9 +154,19 @@ export function planDailyRun(input: {
     periodCloses.push({ report: r.id, day: end });
     if (status === 'failed') failingCloses.push(`${r.id}@${end}`);
   }
+  // ถ่ายซ้ำ: ถึงชั่วโมงที่ขอ + snapshot ปกติของวันนี้สำเร็จแล้ว (ยังไม่สำเร็จ = รอบนี้ถ่ายใหม่อยู่แล้ว ไม่ถ่ายสองใบ) + ผลถ่ายซ้ำของวันนี้ยังไม่สำเร็จ
+  const hour = thaiClock(input.now).hour;
+  const refreshes = input.reports
+    .filter(
+      (r) =>
+        r.family === 'picture' && r.refreshAtHour !== undefined && hour >= r.refreshAtHour &&
+        isDone(input.state.get(stateKey(r.id, today))) && !isDone(input.state.get(stateKey(refreshId(r.id), today))),
+    )
+    .map((r) => ({ report: r.id, day: today }));
   return {
     perDay: [...taken].sort().flatMap((day) => due('per-day', day)),
     pictures: due('picture', today),
+    refreshes,
     periodCloses,
     backlogDays: missing.length - taken.length,
     goLiveMissing: goLive === null,
@@ -203,7 +230,7 @@ export function planDateRun(input: { readonly now: Date; readonly reports: reado
   if (perDay.length === 0) {
     throw new PlanError('--date ใช้กับรายงานตามวันเท่านั้น — รายงาน snapshot เป็น snapshot ณ เวลาที่ถ่าย ดึงย้อนเป็น snapshot ของวันที่ผ่านไปแล้วไม่ได้');
   }
-  return { perDay, pictures: [], periodCloses: [] };
+  return { perDay, pictures: [], refreshes: [], periodCloses: [] };
 }
 
 /**
@@ -243,8 +270,10 @@ export function storeStateFrom(
   for (const { day, record } of folders) {
     for (const [id, o] of Object.entries(record.reports)) {
       // snapshot ปิดงวดนับเป็น snapshot (ไม่มีกติกาช่วงวันเดียวของรายงานตามวัน) — แต่รายงานต้นทางต้องอยู่ในแคตตาล็อก
+      // snapshot ถ่ายซ้ำก็เป็นแบบเดียวกัน (ADR-0011)
       const isClose = id.endsWith(PERIOD_CLOSE_SUFFIX);
-      const f = isClose ? (family.has(id.slice(0, -PERIOD_CLOSE_SUFFIX.length)) ? 'picture' : undefined) : family.get(id);
+      const suffix = isClose ? PERIOD_CLOSE_SUFFIX : id.endsWith(REFRESH_SUFFIX) ? REFRESH_SUFFIX : null;
+      const f = suffix !== null ? (family.has(id.slice(0, -suffix.length)) ? 'picture' : undefined) : family.get(id);
       if (f === undefined) continue;
       if (f === 'per-day' && !isClose && fetchedOnOrBefore(record, id, day)) continue;
       if (o.status === 'failed') {

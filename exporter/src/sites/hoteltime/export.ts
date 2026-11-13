@@ -21,7 +21,7 @@ import { withBrowserRetry } from '../../core/retry.ts';
 import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
 import {
-  PlanError, daysToRead, periodCloseId, planBaselineRun, planDailyRun, planDateRun, planWarnings, storeStateFrom, type WorkPlan,
+  PlanError, daysToRead, periodCloseId, planBaselineRun, planDailyRun, refreshId, planDateRun, planWarnings, storeStateFrom, type WorkPlan,
 } from '../../core/run-planner.ts';
 import { createRedactor, redactError, type Redactor } from '../../core/redact.ts';
 import { verifyMerged, type ChunkVerdict } from '../../core/verify.ts';
@@ -533,7 +533,8 @@ function outcomesOf(result: ReportResult): ReportOutcome[] {
 /**
  * รอบรายวัน (ADR-0008/0009) — ตัววางแผนตัดสินว่าต้องทำอะไรจาก `_run.json` ของโฟลเดอร์ที่มันขอให้อ่าน (`daysToRead`): **รายงานตามวัน**
  * ทุกวันของข้อมูลที่ถึงกำหนดแต่ยังไม่สำเร็จ ตั้งแต่วันเริ่มใช้งาน (ไม่เกิน `CATCH_UP_CAP_DAYS` วันต่อรอบ) ลงโฟลเดอร์ของวันนั้น ·
- * **รายงาน snapshot** ถ่ายครั้งเดียวต่อวันลงโฟลเดอร์ของวันนี้ (โฟลเดอร์ของวัน D = วันของข้อมูล D ตาม ADR-0005) · `--date` = ดึงวันเดียวใหม่
+ * **รายงาน snapshot** ถ่ายครั้งเดียวต่อวันลงโฟลเดอร์ของวันนี้ (โฟลเดอร์ของวัน D = วันของข้อมูล D ตาม ADR-0005) ยกเว้นรายงานที่ตั้ง `refreshAtHour`
+ * ซึ่งถ่ายซ้ำอีกครั้งในรอบ 18:00 (ADR-0011 — บันทึกผลด้วย id `<รายงาน>@refresh`) · `--date` = ดึงวันเดียวใหม่
  * ไม่สนสถานะ · รอบ 15:00/18:00 รันคำสั่งเดียวกัน · ไม่มีงาน = จบโดยไม่เปิดเบราว์เซอร์และไม่โหลด credential
  */
 async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Report[], many: boolean): Promise<number> {
@@ -561,7 +562,12 @@ async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Re
     plan = daily;
   }
   if (!opts.json) for (const w of warnings) console.error(chalk.yellow(`⚠ ${w}`));
-  const items = [...plan.perDay, ...plan.pictures, ...plan.periodCloses.map((i) => ({ ...i, periodClose: true }))];
+  const items = [
+    ...plan.perDay,
+    ...plan.pictures,
+    ...plan.refreshes.map((i) => ({ ...i, refresh: true })),
+    ...plan.periodCloses.map((i) => ({ ...i, periodClose: true })),
+  ];
 
   if (items.length === 0) {
     const text = 'ไม่มีงานค้าง — รายงานตามวันที่ถึงกำหนดและรายงาน snapshot ของวันนี้สำเร็จแล้ว';
@@ -596,7 +602,9 @@ async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Re
       ctx, outDir,
       items.filter((i) => i.day === day).map((i) => {
         const periodClose = 'periodClose' in i;
-        return { report: REPORT_BY_ID.get(i.report)!, job: oneDayJob(date, 'daily', { periodClose }), periodClose };
+        // snapshot ถ่ายซ้ำ (ADR-0011): ไฟล์ชื่อตามเวลาที่ถ่ายเหมือน snapshot ปกติ แต่บันทึกผลด้วย id แยก ไม่ทับผลรอบเที่ยง
+        const recordId = 'refresh' in i ? refreshId(i.report) : undefined;
+        return { report: REPORT_BY_ID.get(i.report)!, job: oneDayJob(date, 'daily', { periodClose }), periodClose, ...(recordId !== undefined ? { recordId } : {}) };
       }),
       many,
       { first: total.done.length + total.failed.length, total: items.length },

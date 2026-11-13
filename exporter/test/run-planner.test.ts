@@ -271,7 +271,7 @@ test('ภาพรวมจาก _run.json: ผล snapshot ปิดงวด�
 });
 
 test('คำเตือนวันขาดเกินเพดานแนะนำ --date เฉพาะ Site ที่สั่ง --date ได้ (FoodStory ไม่มี --date — code review ใบ 06)', () => {
-  const plan = { perDay: [], pictures: [], periodCloses: [], backlogDays: 4, goLiveMissing: false, goLiveInFuture: false, failingCloses: [] };
+  const plan = { perDay: [], pictures: [], refreshes: [], periodCloses: [], backlogDays: 4, goLiveMissing: false, goLiveInFuture: false, failingCloses: [] };
   const [hoteltime] = planWarnings(plan, '2026-10-01', { dateOption: true });
   const [foodstory] = planWarnings(plan, '2026-10-01', { dateOption: false });
   assert.match(hoteltime!, /ยังขาดอีก 4 วัน.*--date/);
@@ -325,4 +325,63 @@ test('🔴 ผลของ baseline (id `<รายงาน>@<วัน>`) ไ�
     },
   };
   assert.equal(storeStateFrom([{ day: '2026-10-14', record: baselineRecord }], REPORTS).size, 0);
+});
+
+// ── snapshot ที่ถ่ายซ้ำรอบเย็น (ADR-0011) — in-house/rooms-status ฯลฯ เปลี่ยนหลังเที่ยง (check-in 14:00) ──
+
+const WITH_REFRESH: readonly PlannedReport[] = [
+  { id: 'reservations-search', family: 'per-day' },
+  { id: 'in-house-guests', family: 'picture', refreshAtHour: 18 },
+  { id: 'trial-balance', family: 'picture' },
+];
+const NOON_STATE: StoreState = new Map([
+  ['reservations-search@2026-10-13', 'data'], ['in-house-guests@2026-10-14', 'data'], ['trial-balance@2026-10-14', 'data'],
+]);
+const AT_18 = new Date('2026-10-14T11:00:00Z'); // 18:00 เวลาไทย
+
+test('snapshot สำเร็จตอนเที่ยงแล้ว และ now = 18:00 — รายงานที่ขอถ่ายซ้ำต้องอยู่ใน refreshes (ไม่อยู่ใน pictures · ตัวอื่นไม่ถูกถ่ายซ้ำ)', () => {
+  const plan = planDailyRun({ now: AT_18, reports: WITH_REFRESH, state: NOON_STATE });
+  assert.deepEqual(plan.refreshes, [{ report: 'in-house-guests', day: '2026-10-14' }]);
+  assert.deepEqual(plan.pictures, []);
+});
+
+test('ก่อน 18:00 (รอบเที่ยง/15:00) ไม่ถ่ายซ้ำ', () => {
+  const plan = planDailyRun({ now: new Date('2026-10-14T08:00:00Z'), reports: WITH_REFRESH, state: NOON_STATE });
+  assert.deepEqual(plan.refreshes, []);
+});
+
+test('ถ่ายซ้ำรอบเย็นสำเร็จแล้ว (data หรือ ว่าง) — ไม่ถ่ายอีก · ล้ม — ลองใหม่', () => {
+  for (const s of ['data', 'empty'] as const) {
+    const state: StoreState = new Map([...NOON_STATE, ['in-house-guests@refresh@2026-10-14', s]]);
+    assert.deepEqual(planDailyRun({ now: AT_18, reports: WITH_REFRESH, state }).refreshes, []);
+  }
+  const failed: StoreState = new Map([...NOON_STATE, ['in-house-guests@refresh@2026-10-14', 'failed']]);
+  assert.equal(planDailyRun({ now: AT_18, reports: WITH_REFRESH, state: failed }).refreshes.length, 1);
+});
+
+test('snapshot ปกติของวันนี้ยังไม่สำเร็จ — รอบนี้ถ่ายใหม่อยู่แล้ว ไม่ถ่ายซ้ำสองใบ', () => {
+  const plan = planDailyRun({ now: AT_18, reports: WITH_REFRESH, state: EMPTY_STORE });
+  assert.deepEqual(plan.pictures.map((p) => p.report), ['in-house-guests', 'trial-balance']);
+  assert.deepEqual(plan.refreshes, []);
+});
+
+test('แคตตาล็อกที่ไม่ตั้ง refreshAtHour (FoodStory) ไม่มี refreshes เลย', () => {
+  assert.deepEqual(planDailyRun({ now: AT_18, reports: REPORTS, state: EMPTY_STORE }).refreshes, []);
+});
+
+test('ภาพรวมจาก _run.json: ผลถ่ายซ้ำบันทึกด้วย id "<รายงาน>@refresh" · รายงานนอกแคตตาล็อกไม่นับ', () => {
+  const state = storeStateFrom(
+    [{
+      day: '2026-10-14',
+      record: record({
+        'in-house-guests': ok('2026-10-14', '2026-10-14', 12),
+        'in-house-guests@refresh': ok('2026-10-14', '2026-10-14', 15),
+        'no-such-report@refresh': ok('2026-10-14', '2026-10-14', 1),
+      }),
+    }],
+    WITH_REFRESH,
+  );
+  assert.equal(state.get('in-house-guests@refresh@2026-10-14'), 'data');
+  assert.equal(state.get('in-house-guests@2026-10-14'), 'data');
+  assert.equal(state.get('no-such-report@refresh@2026-10-14'), undefined);
 });

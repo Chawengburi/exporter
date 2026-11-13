@@ -24,6 +24,8 @@ export const inHouseGuests: Report = {
   dailyOnly: true,
   family: 'picture',
   period: 'none',
+  // เปลี่ยนหลังเที่ยง (check-in 14:00 / check-out) — ถ่ายซ้ำรอบเย็น (ADR-0011)
+  refreshAtHour: 18,
   skipDateCoverageCheck: false,
   overlapColumns: { from: 'Arrival', to: 'Departure' },
 

@@ -209,6 +209,16 @@ test('findOutcomeForFile: entry ที่ล้ม (status: failed) ไม่ม
   assert.equal(findOutcomeForFile(record!, '2026-10-05_2026-10-07__departures.csv'), undefined);
 });
 
+// ADR-0011: snapshot ถ่ายซ้ำรอบเย็นใช้ id `<รายงาน>@refresh` — ถ้าใช้ id เดียวกัน รอบเย็นจะแทน files[] ของรอบเที่ยง ไฟล์เที่ยงที่ยังค้างอัปโหลดหา as_of ไม่เจอ
+test('findOutcomeForFile: snapshot รอบเที่ยงกับรอบเย็น (id `<รายงาน>@refresh`) ของรายงานเดียวกัน — ไฟล์ทั้งสองยังหา as_of ของตัวเองเจอ', async () => {
+  const { folder } = await dayFolder();
+  await recordRun(folder, { ...BASE, finishedAt: new Date('2026-10-05T05:10:00Z'), outcomes: [ok('arrivals')] });
+  await recordRun(folder, { ...BASE, finishedAt: new Date('2026-10-05T11:10:00Z'), outcomes: [ok('arrivals@refresh')] });
+  const record = await readRunRecord(folder);
+  assert.equal(findOutcomeForFile(record!, '2026-10-05_2026-10-07__arrivals.csv')?.finishedAt, '2026-10-05T05:10:00.000Z');
+  assert.equal(findOutcomeForFile(record!, '2026-10-05_2026-10-07__arrivals@refresh.csv')?.finishedAt, '2026-10-05T11:10:00.000Z');
+});
+
 test('รันซ้ำในโฟลเดอร์เดิม: ใบที่รันใหม่แทนผลเดิมของใบนั้น ใบอื่นคงเดิม', async () => {
   const { folder } = await dayFolder();
   await recordRun(folder, { ...BASE, outcomes: [ok('arrivals'), failed('housekeeping')] });

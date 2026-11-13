@@ -18,6 +18,9 @@ const DATE = 'ctl00$pc$calDate';
 const FIND = 'ctl00$pc$btnFind';
 const ALLOWED_CONTROLS = [DATE, FIND];
 
+/** รอบเย็นของ Windmill (`windmill/setup.mjs` CATCHUP_CRON) — หลังเวลา check-in 14:00 และก่อน pipeline ฝั่ง consumer 19:00 */
+const REFRESH_AT_HOUR = 18;
+
 type SnapshotSpec = {
   readonly id: string;
   readonly label: string;
@@ -33,6 +36,8 @@ type SnapshotSpec = {
   readonly overlap?: { readonly from: string; readonly to: string };
   /** จำนวนแถวเพิ่มตามธุรกรรม (อาจชนเพดาน 2000) หรือคงที่ตามจำนวนห้อง */
   readonly hasRowCap: boolean;
+  /** ถ่ายซ้ำรอบเย็นด้วย (`Report.refreshAtHour`, ADR-0011) */
+  readonly refreshAtHour?: number;
 };
 
 function dailySnapshot(spec: SnapshotSpec): Report {
@@ -44,6 +49,7 @@ function dailySnapshot(spec: SnapshotSpec): Report {
     dailyOnly: true,
     family: 'picture',
     period: 'none',
+    ...(spec.refreshAtHour !== undefined ? { refreshAtHour: spec.refreshAtHour } : {}),
     skipDateCoverageCheck: spec.coverageColumn === null && spec.overlap === undefined,
     ...(spec.overlap ? { overlapColumns: spec.overlap } : {}),
     chunk: { kind: 'whole', reason: 'dailyOnly — ช่วงเป็นวันเดียวเสมอ ไม่มีอะไรให้แบ่งก้อน' },
@@ -119,6 +125,8 @@ export const housekeepingAllInOne = dailySnapshot({
 export const roomsStatusOverview = dailySnapshot({
   id: 'rooms-status-overview',
   label: 'Rooms status overview',
+  // stay เปลี่ยนจาก Confirm เป็น check-in หลัง 14:00 — ถ่ายซ้ำรอบเย็น (ADR-0011)
+  refreshAtHour: REFRESH_AT_HOUR,
   path: 'reports/RoomUsage.aspx',
   grid: 'dtgItems',
   // snapshot ของทุกห้อง (130 แถว) — ห้องว่างไม่มีการจอง ช่องวันที่จึงว่าง
