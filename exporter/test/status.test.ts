@@ -534,7 +534,7 @@ test('uploadBacklog: ไฟล์ถูกบล็อกเพราะ as_of �
 // ── ADR-0011: snapshot ที่ถ่ายซ้ำรอบเย็น ──
 const WITH_REFRESH_SETUP: StatusSetup = {
   ...SETUP,
-  catalog: { ...SETUP.catalog, hoteltime: HT.map((r) => (r.id === 'arrivals' ? { ...r, refreshAtHour: 18 } : r)) },
+  catalog: { ...SETUP.catalog, hoteltime: HT.map((r) => (r.family === 'picture' ? { ...r, refreshAtHour: 18 } : r)) },
 };
 
 test('snapshot ถ่ายซ้ำรอบเย็นล้ม (รอบเที่ยงได้แล้ว) = ไม่ใช่ปัญหา แต่ยังบอกในสรุป · จำนวน snapshot ยังนับต่อรายงาน ไม่เบิ้ล', () => {
@@ -553,4 +553,17 @@ test('snapshot ถ่ายซ้ำรอบเย็นล้ม (รอบเ
   }, EVENING_14, WITH_REFRESH_SETUP);
   assert.equal(good.verdict, 'ok', text(good));
   assert.match(text(good), /2026-10-14[^\n]*snapshot ครบ 2\/2/);
+});
+
+// review ความปลอดภัย: รอบเย็นที่ล้มทั้งรอบ (login/รหัสผ่านเปลี่ยน/เบราว์เซอร์พัง) ต้องไม่ถูกลดระดับเป็นแค่ info — ล้มบางใบ = info · ล้มทุกใบ = ปัญหา
+test('🔴 รอบเย็นถ่ายซ้ำล้มทุกใบ (ทั้งรอบล้ม) = ปัญหา · ล้มบางใบ = แค่บอกในสรุป', () => {
+  const s = healthy();
+  const withRefresh = (refresh: Record<string, Result>) => buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-14', { pictures: { ...PICS_HT, ...refresh } })),
+  }, EVENING_14, WITH_REFRESH_SETUP);
+  const all = withRefresh({ 'arrivals@refresh': ['failed', 'Timeout'], 'trial-balance@refresh': ['failed', 'Timeout'] });
+  assert.equal(all.verdict, 'problem', text(all));
+  const some = withRefresh({ 'arrivals@refresh': ['failed', 'Timeout'], 'trial-balance@refresh': 'data' });
+  assert.equal(some.verdict, 'ok', text(some));
 });

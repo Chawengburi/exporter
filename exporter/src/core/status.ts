@@ -311,7 +311,10 @@ function siteView(
       let pictures: PictureView | null = null;
       if (pictureStart !== null && day >= pictureStart) {
         const s = split(pictureIds, day);
-        pictures = { total: pictureIds.length, taken: s.data + s.empty.length, empty: s.empty, failed: s.failed, missing: s.notDone, refreshFailed: split(refreshIds, day).failed };
+        // ล้มทั้งรอบ (ทุกใบที่ถ่ายซ้ำล้มหมด — login/รหัสผ่านเปลี่ยน/เบราว์เซอร์พัง) ไม่ลดระดับ: ต้องเห็นทันที ไม่รอรอบเที่ยงวันถัดไป · ล้มบางใบ = บอกในสรุป ไม่ใช่ปัญหา
+        const refreshFailures = split(refreshIds, day).failed;
+        const wholeRoundFailed = refreshIds.length > 0 && refreshFailures.length === refreshIds.length;
+        pictures = { total: pictureIds.length, taken: s.data + s.empty.length, empty: s.empty, failed: wholeRoundFailed ? [...s.failed, ...refreshFailures] : s.failed, missing: s.notDone, refreshFailed: wholeRoundFailed ? [] : refreshFailures };
       }
       const record = recordOf.get(day);
       const legacy = perDay === null && day <= now.due && record !== undefined && Object.keys(record.reports).some((id) => perDayIds.includes(id));
@@ -465,6 +468,7 @@ function picturePart(v: PictureView, lost: boolean): string {
 }
 
 /** id รายงานเดิมจาก id ของผลถ่ายซ้ำ (`<รายงาน>@refresh`) — ข้อความที่คนอ่านไม่เปิดเผย id ภายใน */
+export const isRefreshId = (id: string): boolean => id.endsWith(REFRESH_SUFFIX);
 export const baseOfRefresh = (id: string): string => (id.endsWith(REFRESH_SUFFIX) ? id.slice(0, -REFRESH_SUFFIX.length) : id);
 
 function dayLabel(day: string, now: Clock): string {

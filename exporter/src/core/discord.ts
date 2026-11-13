@@ -3,7 +3,7 @@ import path from 'node:path';
 import { SITE_LABEL } from './placement.ts';
 import { createRedactor } from './redact.ts';
 import { isLoginFailureReason } from './run-record.ts';
-import { baseOfRefresh, type DayView, type FailedReport, type SiteView, type StatusReport } from './status.ts';
+import { baseOfRefresh, isRefreshId, type DayView, type FailedReport, type SiteView, type StatusReport } from './status.ts';
 import { thaiClock } from './thai-time.ts';
 import { isUnresolvedDocumentTypeReason } from './uploader.ts';
 import type { EmptyResultEntry, UploadFileResult, UploadRunResult } from './uploader.ts';
@@ -122,7 +122,7 @@ function summarySiteBlock(site: SiteView, today: string): string {
   else parts.push('no data fetched yet');
   const pictures = site.days.find((d) => d.day === today)?.pictures;
   if (pictures) {
-    const bad = pictures.failed.length + pictures.missing.length;
+    const bad = pictures.failed.filter((f) => !isRefreshId(f.report)).length + pictures.missing.length; // รอบเย็นล้มทั้งรอบไม่ใช่ snapshot ที่ขาด (รอบเที่ยงได้แล้ว)
     parts.push(bad === 0 ? `snapshots ${pictures.taken}/${pictures.total}` : `snapshots ${pictures.taken}/${pictures.total} (${bad} missing)`);
     // ถ่ายซ้ำรอบเย็นล้ม (ADR-0011): รอบเที่ยงได้แล้ว ไม่ใช่ snapshot ที่ขาด — บอกในสรุปอย่างเดียว ไม่เป็นแจ้งเตือน
     if (pictures.refreshFailed.length > 0) {
@@ -240,7 +240,7 @@ function exportFailures(report: StatusReport, today: string): { readonly label: 
       out.push({ label, reason: `login failed — ${firstLine(site.loginFailure.detail)}` });
     }
     for (const f of notLogin(perDay)) out.push({ label: `${label}: ${f.report}`, reason: firstLine(f.error) });
-    for (const f of notLogin(pictures)) out.push({ label: `${label}: ${f.report} (snapshot)`, reason: firstLine(f.error) });
+    for (const f of notLogin(pictures)) out.push({ label: `${label}: ${isRefreshId(f.report) ? `${baseOfRefresh(f.report)} (evening re-take)` : `${f.report} (snapshot)`}`, reason: firstLine(f.error) });
   }
   return out;
 }

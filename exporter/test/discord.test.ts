@@ -398,12 +398,12 @@ test('🔴 token ของ webhook ถูก redact แม้ URL มี query (
 
 // ADR-0011: snapshot ถ่ายซ้ำรอบเย็นล้ม — รอบเที่ยงได้ครบแล้ว ไม่ใช่ปัญหา: สรุปยังบอก (ภาษาคน ไม่เปิดเผย id ภายใน `@refresh`) แต่ไม่มีแจ้งเตือน
 test('snapshot ถ่ายซ้ำรอบเย็นล้ม: สรุปเป็น snapshots 2/2 + บอกว่า evening re-take ล้ม · ไม่มีแจ้งเตือน', () => {
-  const setup: StatusSetup = { ...SETUP, catalog: { ...SETUP.catalog, hoteltime: HT.map((r) => (r.id === 'arrivals' ? { ...r, refreshAtHour: 18 } : r)) } };
+  const setup: StatusSetup = { ...SETUP, catalog: { ...SETUP.catalog, hoteltime: HT.map((r) => (r.family === 'picture' ? { ...r, refreshAtHour: 18 } : r)) } };
   const s = healthy();
   const bad: StoreSnapshot = {
     ...s,
     hoteltime: [...s.hoteltime.filter((f) => f.day !== '2026-10-14'),
-      folder('2026-10-14', undefined, { arrivals: 'data', 'trial-balance': 'data', 'arrivals@refresh': ['failed', 'Timeout'] })],
+      folder('2026-10-14', undefined, { arrivals: 'data', 'trial-balance': 'data', 'arrivals@refresh': ['failed', 'Timeout'], 'trial-balance@refresh': 'data' })],
   };
   const ms = discordMessages(buildStatus(bad, thai('2026-10-14T18:30'), setup), { summary: true, alreadySent: NONE });
   const all = ms.map((m) => m.content).join('\n');
