@@ -24,8 +24,12 @@ export function createTwoCaptchaSolver(apiKey: string): CaptchaSolver {
     return solver;
   };
   return {
-    async solve({ sitekey, pageurl }) {
-      const res = await (await getSolver()).recaptcha({ googlekey: sitekey, pageurl });
+    async solve({ sitekey, pageurl, kind }) {
+      const s = await getSolver();
+      const res =
+        kind === 'turnstile'
+          ? await s.cloudflareTurnstile({ pageurl, sitekey })
+          : await s.recaptcha({ googlekey: sitekey, pageurl });
       return res.data;
     },
     async balance() {

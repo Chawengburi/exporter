@@ -21,10 +21,13 @@ export class CaptchaError extends Error {
  * implementation จริงห่อ `@2captcha/captcha-solver` (ticket 02) · เทสต์ใช้ fake
  */
 export type CaptchaSolver = {
-  solve(input: { readonly sitekey: string; readonly pageurl: string }): Promise<string>;
+  solve(input: { readonly sitekey: string; readonly pageurl: string; readonly kind: CaptchaKind }): Promise<string>;
   /** ยอดเงินคงเหลือ (USD) — ไม่บังคับ: fake ในเทสต์ไม่ต้องมี · ใช้เตือนยอดต่ำ (ไม่เสียเครดิต อ่านอย่างเดียว) */
   balance?(): Promise<number>;
 };
+
+/** ชนิด captcha บนหน้า login — FoodStory เปลี่ยนจาก reCAPTCHA เป็น Cloudflare Turnstile (พบ 2026-11-13) */
+export type CaptchaKind = 'recaptcha' | 'turnstile';
 
 export type LoginMode = 'auto-solve' | 'human-wait' | 'cannot-solve';
 
@@ -71,6 +74,21 @@ export function extractSitekey(input: {
 }
 
 /**
+ * ตัดสินว่าหน้า login ใช้ captcha ชนิดไหน + sitekey อะไร — Turnstile (`.cf-turnstile[data-sitekey]`) ชนะก่อน
+ * เพราะ key ของมัน (`0x4…`) ส่งให้ 2captcha แบบ reCAPTCHA ไม่ได้ (เคยพังด้วย "googlekey ... invalid format")
+ * ไม่เจอ Turnstile → ตกไปทาง reCAPTCHA เดิม (`extractSitekey`)
+ */
+export function detectCaptcha(input: {
+  readonly turnstileSitekey: string | null;
+  readonly dataSitekeyAttr: string | null;
+  readonly anchorSrc: string | null;
+}): { readonly kind: CaptchaKind; readonly sitekey: string } {
+  const ts = input.turnstileSitekey?.trim();
+  if (ts) return { kind: 'turnstile', sitekey: ts };
+  return { kind: 'recaptcha', sitekey: extractSitekey(input) };
+}
+
+/**
  * เรียก `solve` ซ้ำได้สูงสุด `attempts` ครั้ง — token ที่ว่าง/มีแต่ช่องว่างนับว่าใช้ไม่ได้และลองต่อ
  * เหมือนกับการ throw · ครบแล้วยังไม่ได้ token ที่ใช้ได้ → โยน `CaptchaError` พร้อมสาเหตุล่าสุด
  *
@@ -90,5 +108,5 @@ export async function solveWithRetry(
       lastReason = err instanceof Error ? err.message : String(err);
     }
   }
-  throw new CaptchaError(`แก้ reCAPTCHA ไม่สำเร็จหลังลอง ${opts.attempts} ครั้ง — สาเหตุล่าสุด: ${lastReason}`);
+  throw new CaptchaError(`แก้ captcha ไม่สำเร็จหลังลอง ${opts.attempts} ครั้ง — สาเหตุล่าสุด: ${lastReason}`);
 }

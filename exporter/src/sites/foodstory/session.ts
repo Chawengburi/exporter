@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import type { Config, Credentials } from './config.ts';
-import { type CaptchaSolver, DEFAULT_SOLVE_ATTEMPTS, extractSitekey, selectLoginMode, solveWithRetry } from './captcha.ts';
+import { type CaptchaSolver, DEFAULT_SOLVE_ATTEMPTS, detectCaptcha, selectLoginMode, solveWithRetry } from './captcha.ts';
 import { captchaSolverFromConfig } from './two-captcha.ts';
 import { installInFlightTracker, settlePageRequests } from './inflight.ts';
 import { browserEnv } from '../../core/browser-env.ts';
@@ -139,33 +139,53 @@ async function fillCredentials(page: Page, creds: Credentials): Promise<void> {
  * ความล้มเหลวของการแก้ captcha ถูกแปลงเป็น `LoginError` ที่ขอบนี้ (orchestrator บริสุทธิ์โยน `CaptchaError`)
  */
 async function solveCaptchaAndSubmit(page: Page, solver: CaptchaSolver, timeoutMs: number): Promise<void> {
-  const sitekey = extractSitekey({
-    // FoodStory ไม่มี data-sitekey → timeout สั้นแล้วตกไปอ่าน src ของ anchor iframe (ดู captcha.ts)
-    dataSitekeyAttr: await page
-      .locator('[data-sitekey]')
-      .first()
-      .getAttribute('data-sitekey', { timeout: SITEKEY_ATTR_TIMEOUT_MS })
-      .catch(() => null),
-    anchorSrc: await page
-      .locator('iframe[src*="api2/anchor"]')
-      .first()
-      .getAttribute('src', { timeout: ANCHOR_IFRAME_TIMEOUT_MS })
-      .catch(() => null),
-  });
+  // Turnstile ก่อน (หน้า login ปัจจุบัน) — div อยู่ใน HTML ตั้งแต่โหลด จึงรอสั้น ๆ พอ
+  const turnstileSitekey = await page
+    .locator('.cf-turnstile[data-sitekey]')
+    .first()
+    .getAttribute('data-sitekey', { timeout: SITEKEY_ATTR_TIMEOUT_MS })
+    .catch(() => null);
+  // ถ้าเจอ Turnstile แล้ว ไม่ต้องรอ anchor iframe ของ reCAPTCHA (ไม่มีอยู่แล้ว — เสียเวลา 15 วิเปล่า)
+  const legacy = turnstileSitekey
+    ? { dataSitekeyAttr: null, anchorSrc: null }
+    : {
+        dataSitekeyAttr: await page
+          .locator('[data-sitekey]:not(.cf-turnstile)')
+          .first()
+          .getAttribute('data-sitekey', { timeout: SITEKEY_ATTR_TIMEOUT_MS })
+          .catch(() => null),
+        anchorSrc: await page
+          .locator('iframe[src*="api2/anchor"]')
+          .first()
+          .getAttribute('src', { timeout: ANCHOR_IFRAME_TIMEOUT_MS })
+          .catch(() => null),
+      };
+  const { kind, sitekey } = detectCaptcha({ turnstileSitekey, ...legacy });
 
   let token: string;
   try {
     token = await solveWithRetry(
-      () => solver.solve({ sitekey, pageurl: page.url() }),
+      () => solver.solve({ sitekey, pageurl: page.url(), kind }),
       { attempts: DEFAULT_SOLVE_ATTEMPTS },
     );
   } catch (err) {
-    throw new LoginError(`แก้ reCAPTCHA อัตโนมัติไม่สำเร็จ: ${err instanceof Error ? err.message : String(err)}`);
+    throw new LoginError(`แก้ captcha อัตโนมัติไม่สำเร็จ: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  await injectRecaptchaToken(page, token);
+  await (kind === 'turnstile' ? injectTurnstileToken(page, token) : injectRecaptchaToken(page, token));
   await submitLoginForm(page);
   await waitForPasswordGone(page, timeoutMs);
+}
+
+/** ยัด token ของ Turnstile ลง `cf-turnstile-response` — ฟอร์ม login เป็น POST /api/doLogin ธรรมดา อ่านค่าจาก input นี้ตอน submit */
+async function injectTurnstileToken(page: Page, token: string): Promise<void> {
+  await page.evaluate((tok) => {
+    document.querySelectorAll<HTMLInputElement>('input[name="cf-turnstile-response"]').forEach((el) => {
+      el.value = tok;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }, token);
 }
 
 /** ยัด token ที่ solve ได้ลง `#g-recaptcha-response` + เรียก callback ที่ reCAPTCHA ลงทะเบียนไว้ */

@@ -48,3 +48,13 @@ session ของ session-watch (ยัง OK รอบ 02:30 / 08:30 ถัด�
 เป็น export reuse state file ของ watch
 
 **ต้นทุนจริง 2026-10-27:** ประวัติบัญชี 2captcha ตั้งแต่ 2026-10-23 ถึง 27 แก้ reCAPTCHA v2 วันละ 1 ครั้ง ครั้งละ $0.00299 (มีรายการ "คืนเงินสำหรับซอฟต์แวร์" $0.0003 ต่อวันตั้งแต่ 24 ต.ค.) ราว $0.09 ต่อเดือน · ยอดคงเหลือ $9.98625 ใช้ได้หลายปี แต่เพิ่มการเตือนไว้เป็นกันเหนียว (2026-10-27): หลังรอบ FoodStory ที่รันเอง exporter เรียก `balance()` หนึ่งครั้ง และแจ้ง channel export ถ้าต่ำกว่า $1 (วันละครั้ง) — ยืนยันแล้วว่าคีย์ของเราดึงยอดได้ · ถ้ายอดหมายจริง login ล้มและ Discord แจ้งอยู่แล้วเช่นเดิม · รอบเก็บตก 15:00 / 18:00 ไม่ได้แก้ captcha ซ้ำ (วันละ 1 รายการ แม้มี 3 รอบ)
+
+## Update 2026-11-13 — หน้า login เปลี่ยนเป็น Cloudflare Turnstile
+
+FoodStory เลิกใช้ reCAPTCHA v2 ที่หน้า login แล้วใช้ Cloudflare Turnstile (`div.cf-turnstile[data-sitekey="0x4…"]`,
+ไม่มี `api2/anchor` / `#g-recaptcha-response`) — โค้ดเดิมส่ง key `0x4…` ให้ 2captcha แบบ reCAPTCHA จึงล้มด้วย
+`'googlekey' parameter is missing or of an invalid format` ทุกรอบ
+
+แก้: `detectCaptcha` (captcha.ts) เลือกชนิดจากหน้า — เจอ `.cf-turnstile` → ใช้ `cloudflareTurnstile()` ของ 2captcha แล้วยัด token ลง
+`input[name="cf-turnstile-response"]` (ฟอร์มเป็น POST `/api/doLogin` ธรรมดา) · ไม่เจอ → เส้นทาง reCAPTCHA เดิมยังอยู่เป็น fallback
+ยืนยันกับของจริง: `exporter login --site foodstory` ผ่าน (headless, ~75 วิ) และ export `salebysumdate` 1 วันได้ 1 แถว

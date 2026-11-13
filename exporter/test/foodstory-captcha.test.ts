@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   CaptchaError,
+  detectCaptcha,
   DEFAULT_SOLVE_ATTEMPTS,
   extractSitekey,
   selectLoginMode,
@@ -95,4 +96,28 @@ test('solveWithRetry: ล้มครบทุกครั้ง → โยน C
 
 test('DEFAULT_SOLVE_ATTEMPTS อยู่ในช่วง 2–3 ตามที่ตกลงไว้', () => {
   assert.ok(DEFAULT_SOLVE_ATTEMPTS >= 2 && DEFAULT_SOLVE_ATTEMPTS <= 3);
+});
+
+// --- detectCaptcha: Turnstile ชนะ (key 0x4… ส่งเป็น googlekey ไม่ได้ — บั๊ก 2026-11-13) ---
+
+test('🔴 detectCaptcha: มี .cf-turnstile → turnstile + sitekey ของมัน (ไม่ใช่ reCAPTCHA)', () => {
+  assert.deepEqual(
+    detectCaptcha({ turnstileSitekey: '0x4AAAAAAF0YWe9CFMjehTac', dataSitekeyAttr: null, anchorSrc: null }),
+    { kind: 'turnstile', sitekey: '0x4AAAAAAF0YWe9CFMjehTac' },
+  );
+});
+
+test('detectCaptcha: ไม่มี Turnstile → ตกไป reCAPTCHA เดิม (anchor k)', () => {
+  assert.deepEqual(
+    detectCaptcha({
+      turnstileSitekey: null,
+      dataSitekeyAttr: null,
+      anchorSrc: 'https://www.google.com/recaptcha/api2/anchor?ar=1&k=6LdABC',
+    }),
+    { kind: 'recaptcha', sitekey: '6LdABC' },
+  );
+});
+
+test('detectCaptcha: ไม่มีทั้งสองชนิด → CaptchaError', () => {
+  assert.throws(() => detectCaptcha({ turnstileSitekey: null, dataSitekeyAttr: null, anchorSrc: null }), CaptchaError);
 });
