@@ -45,6 +45,8 @@ export type RawFileEntry = {
   readonly filterNote: string;
   /** ระยะที่ baseline รอบนี้ตั้งใจครอบคลุม (เฉพาะ baseline) */
   readonly baselineIntervalDays?: number;
+  /** `scrape` = ไฟล์ที่ exporter เขียนเองจากตารางบนหน้าเว็บ (หน้าไม่มีปุ่ม export — ADR-0012) ไม่ใช่ไบต์ที่ Site ให้มา · ไม่มี = ไฟล์ที่ Site ให้ */
+  readonly provenance?: 'scrape';
   /** **snapshot ปิดงวด** — snapshot ของงวด (เดือน/ปี) ที่จบแล้วทั้งงวด (ใบ 05) · ไม่มี = ไม่ใช่ */
   readonly periodClose?: true;
   /**

@@ -12,6 +12,7 @@ import { arrivalPeriod } from './arrival-period.ts';
 import { depositToUse, unpaidInvoicesByDate } from './balances.ts';
 import { depositJournal } from './deposit-journal.ts';
 import { arrivals } from './arrivals.ts';
+import { auditTrail } from './audit-trail.ts';
 import { cityTax } from './city-tax.ts';
 import {
   housekeepingAllInOne,
@@ -112,6 +113,7 @@ export const REPORTS: readonly Report[] = [
   occupancyByNationalityAndStayReason,
   // ticket 22 — ผ่านตอนตรวจซ้ำ
   depositJournal,
+  auditTrail,
   // ticket 02 ของ exporter-hoteltime-gold-feed — snapshot บัญชีที่ยังเปิดอยู่ (ย้อนดึงไม่ได้)
   accountsOpen,
 ];

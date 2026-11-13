@@ -9,7 +9,7 @@
  */
 import { writeFile } from 'node:fs/promises';
 import type { Page } from 'playwright';
-import { createRedactor } from '../src/core/redact.ts';
+import { createRedactor, redactError } from '../src/core/redact.ts';
 import { thaiClock } from '../src/core/thai-time.ts';
 import { loadConfig, loadCredentials } from '../src/sites/hoteltime/config.ts';
 import { login, openSession } from '../src/sites/hoteltime/session.ts';
@@ -26,7 +26,7 @@ const daysAgo = (n: number) => new Date(TODAY.getTime() - n * 86_400_000);
 
 async function fill(page: Page, name: string, value: string): Promise<void> {
   const el = page.locator(`input[name="${name}"]`);
-  if ((await el.count()) !== 1) throw new Error(`ไม่พบช่อง ${name} ชิ้นเดียวที่ ${page.url()}`);
+  if ((await el.count()) !== 1) throw new Error(`ไม่พบช่อง ${name} ชิ้นเดียวที่ ${new URL(page.url()).pathname}`); // เฉพาะ path ไม่มี query
   await el.fill(value);
   await el.dispatchEvent('change');
 }
@@ -180,7 +180,8 @@ try {
   }
 
   // ── ข้อ 3: รูปแบบเซลล์ของ Room status change (แทนตัวเลขเป็น # ตัวอักษรเป็น A — ไม่เก็บค่าจริง) ──
-  const mask = (v: string) => v.replace(/\d/g, '#').replace(/[A-Za-zก-๙]/g, 'A').slice(0, 60);
+  // allowlist: เก็บเฉพาะอักขระโครงสร้าง (เว้นวรรค : / - |) ที่เหลือทุกตัวอักษรของทุกภาษาเป็น # (ตัวเลข) หรือ A — ไม่ปล่อยอักษรนอก A-Z/ไทยหลุด
+const mask = (v: string) => v.replace(/[^\s:/|\-]/gu, (ch) => (/\p{Nd}/u.test(ch) ? '#' : 'A')).slice(0, 60);
   const iOp = full.header.indexOf('Operation');
   const rsc = full.body.filter((r) => (r[iOp] ?? '') === 'Room status change');
   const byColumn: Record<string, Record<string, number>> = {};
@@ -202,6 +203,9 @@ try {
   result.q3_roomStatusChangeRowsOnDay = rsc.length;
   result.q3_roomStatusChange_cellPatterns = byColumn;
   result.q3_otherRoomOps_cellPatterns = otherBy;
+} catch (err) {
+  console.error(redactError(err, redact)); // ข้อความ error ของ Playwright อาจแนบค่าที่กรอก/HTML ของหน้า
+  process.exitCode = 1;
 } finally {
   await session.close();
 }

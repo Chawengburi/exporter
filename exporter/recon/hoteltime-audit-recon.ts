@@ -12,7 +12,7 @@
  */
 import { writeFile } from 'node:fs/promises';
 import type { Page } from 'playwright';
-import { createRedactor } from '../src/core/redact.ts';
+import { createRedactor, redactError } from '../src/core/redact.ts';
 import { thaiClock } from '../src/core/thai-time.ts';
 import { loadConfig, loadCredentials } from '../src/sites/hoteltime/config.ts';
 import { login, openSession } from '../src/sites/hoteltime/session.ts';
@@ -29,7 +29,7 @@ const daysAgo = (n: number) => new Date(TODAY.getTime() - n * 86_400_000);
 
 async function fill(page: Page, name: string, value: string): Promise<void> {
   const el = page.locator(`input[name="${name}"]`);
-  if ((await el.count()) !== 1) throw new Error(`ไม่พบช่อง ${name} ชิ้นเดียวที่ ${page.url()}`);
+  if ((await el.count()) !== 1) throw new Error(`ไม่พบช่อง ${name} ชิ้นเดียวที่ ${new URL(page.url()).pathname}`); // เฉพาะ path ไม่มี query
   await el.fill(value);
   await el.dispatchEvent('change');
 }
@@ -112,6 +112,9 @@ try {
     const f = firstOf.get(e.ref)!;
     return { firstOp: f.op, minutes: Math.round((e.ms - f.ms) / 60_000), statusChangeHour: e.at.slice(11, 13) };
   }).sort((a, b) => a.minutes - b.minutes);
+} catch (err) {
+  console.error(redactError(err, redact)); // ข้อความ error ของ Playwright อาจแนบค่าที่กรอก/HTML ของหน้า
+  process.exitCode = 1;
 } finally {
   await session.close();
 }

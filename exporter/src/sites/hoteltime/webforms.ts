@@ -396,3 +396,15 @@ export async function gridRowCount(page: Page, selector: string): Promise<number
     return table === null ? null : table.querySelectorAll('tr').length;
   }, selector);
 }
+
+/**
+ * อ่านตารางผลลัพธ์ (ตาม id บางส่วน) เป็นข้อความต่อเซลล์ แถวแรก = หัวตาราง · null = ไม่พบตาราง · เว้นวรรคซ้ำยุบเป็นหนึ่งตัว (textContent ของ WebForms
+ * มีขึ้นบรรทัด/เว้นวรรคจากการจัดหน้า) · อ่านอย่างเดียว ไม่แตะ control ใด ๆ — ใช้กับหน้าที่ไม่มีปุ่ม export (`Report.scrape`, ADR-0012)
+ */
+export async function readGridText(page: Page, idPart: string): Promise<string[][] | null> {
+  return page.evaluate((p) => {
+    const t = document.querySelector<HTMLTableElement>(`table[id*="${p}"]`);
+    if (t === null) return null;
+    return [...t.rows].map((r) => [...r.cells].map((cell) => (cell.textContent ?? '').replace(/\s+/g, ' ').trim()));
+  }, idPart);
+}

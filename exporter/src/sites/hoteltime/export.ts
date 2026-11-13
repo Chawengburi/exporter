@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, rename, rm, rmdir } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
+import type { Page } from 'playwright';
 import {
   OrderError,
   assertContiguous,
@@ -38,7 +39,9 @@ import {
   assertFormAccepted,
   clickAndSettle,
   downloadExport,
+  readGridText,
 } from './webforms.ts';
+import { ScrapeError, scrapedTableToRawFile } from '../../core/scraped-table.ts';
 import { REPORTS, findReport, reportIds, toPlanned } from './reports/index.ts';
 import type { Report } from './reports/_types.ts';
 
@@ -100,8 +103,8 @@ type DataOutcome = Extract<ChunkOutcome, { kind: 'data' }>;
 
 const isData = (o: ChunkOutcome): o is DataOutcome => o.kind === 'data';
 
-function chunkFileName(range: DateRange): string {
-  return `${formatISO(range.from)}_${formatISO(range.to)}.xlsx`;
+function chunkFileName(range: DateRange, ext = 'xlsx'): string {
+  return `${formatISO(range.from)}_${formatISO(range.to)}.${ext}`;
 }
 
 /**
@@ -129,6 +132,9 @@ async function fetchChunk(
   await clickAndSettle(page, report.searchButton, cfg.timeoutMs, report.allowedControls, report.id);
   await assertFormAccepted(page);
 
+  // หน้าที่ไม่มีปุ่ม export: อ่านตารางแล้วเขียนไฟล์ดิบแบบ scrape เอง (ADR-0012) — ผลว่าง (0 แถว) ล้มเอง ไม่ใช่ "ว่าง"
+  if (report.scrape !== undefined) return fetchScraped(page, report, range, chunkDir);
+
   // ต้องเช็คก่อน export เสมอ — ผลว่างจะไม่มีไฟล์ส่งมาเลย ได้แค่ timeout
   if (!(await report.hasResults(page))) {
     return { kind: 'empty', range };
@@ -151,6 +157,34 @@ async function fetchChunk(
     sha256,
     bytes: bytes.byteLength,
     fetchedAt,
+  };
+}
+
+/**
+ * หน้าที่ไม่มีปุ่ม export (`Report.scrape`) — อ่านตารางผลลัพธ์ → ด่านความครบ (`scrapedTableToRawFile`) → เขียน CSV ลงที่พัก · ข้อมูลทั้งวันก้อนเดียว
+ * (ticket 02: ชนเพดานแถว = ล้ม · การแบ่งช่วงเวลาอยู่ ticket 04) · วันของข้อมูลคือวันเดียวของ `range`
+ */
+async function fetchScraped(page: Page, report: Report, range: DateRange, chunkDir: string): Promise<ChunkOutcome> {
+  const scrape = report.scrape!;
+  const table = await readGridText(page, scrape.gridIdPart);
+  if (table === null) throw new ScrapeError(`ไม่พบตารางผลลัพธ์ (id มี "${scrape.gridIdPart}") — หน้าเว็บน่าจะเปลี่ยนโครงสร้าง`);
+  const file = scrapedTableToRawFile(table, {
+    expectedHeader: report.expectedColumns, rowCap: scrape.rowCap, dateColumn: report.dateColumn, day: formatISO(range.from),
+  });
+  const dest = path.join(chunkDir, chunkFileName(range, 'csv'));
+  const bytes = Buffer.from(file.csv, 'utf8');
+  await writeFile(dest, bytes);
+  return {
+    kind: 'data',
+    verdict: {
+      range, filePath: dest, rowCount: file.rowCount,
+      sheets: [{ name: 'scrape', header: table[0] ?? [], rows: [] }],
+      actualSpan: { from: range.from, to: range.to },
+    },
+    sourceName: `scrape:${scrape.gridIdPart}`,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.byteLength,
+    fetchedAt: new Date(),
   };
 }
 
@@ -226,9 +260,10 @@ function dataRangeOf(report: Report, chunk: DateRange): DateRange {
  * (`2026-09-01--2026-09-30__<id>.xlsx`) — ไม่ชนกับ snapshot ปกติในโฟลเดอร์เดียวกันซึ่งใช้เวลาที่ถ่าย
  */
 function rawFileName(report: Report, o: DataOutcome, periodClose: boolean): string {
+  const ext = report.scrape !== undefined ? 'csv' : 'xlsx'; // ไฟล์ดิบแบบ scrape (ADR-0012) เป็น CSV
   return report.family === 'picture' && !periodClose
-    ? pictureFileName('hoteltime', o.fetchedAt, report.id, 'xlsx')
-    : dataFileName('hoteltime', dataRangeOf(report, o.verdict.range), report.id, 'xlsx');
+    ? pictureFileName('hoteltime', o.fetchedAt, report.id, ext)
+    : dataFileName('hoteltime', dataRangeOf(report, o.verdict.range), report.id, ext);
 }
 
 /**
@@ -270,6 +305,7 @@ function manifestEntryFor(report: Report, cfg: Config, o: DataOutcome, job: Repo
     filterNote: filterNoteFor(report),
     ...(baselineIntervalDays !== undefined ? { baselineIntervalDays } : {}),
     ...(periodClose ? { periodClose: true } : {}),
+    ...(report.scrape !== undefined ? { provenance: 'scrape' as const } : {}),
   };
 }
 

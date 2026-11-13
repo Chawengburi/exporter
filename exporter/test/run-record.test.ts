@@ -302,3 +302,21 @@ test('recordUploaded: โฟลเดอร์ที่ไม่มี _manifest
   const folder = await mkdtemp(path.join(tmpdir(), 'raw-manifest-empty-'));
   await assert.rejects(recordUploaded(folder, 'a.xlsx', { at: 'x', fileId: 'y' }), /ไม่มี.*_manifest\.json/);
 });
+
+// ADR-0012 / ADR-0005: ไฟล์ดิบแบบ scrape (CSV) ดึงวันเดิมซ้ำ — ไบต์เหมือนกัน = เก็บชุดเดียว · ไบต์ต่าง = ฉบับเก่าย้ายไป _superseded/ ไม่ทับไม่ลบ
+test('publishRawFiles กับ CSV แบบ scrape: ดึงซ้ำไบต์เดิม = ชุดเดียว · ไบต์ใหม่ = ฉบับเก่าไป _superseded/', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'scrape-publish-'));
+  const entry = (sha: string) => ({ file: 'hoteltime__2026-11-12__audit-trail.csv', sha256: sha }) as RawFileEntry;
+  const stage = async (name: string, content: string) => {
+    const p = path.join(dir, name);
+    await writeFile(p, content, 'utf8');
+    return p;
+  };
+  const sha = (c: string) => createHash('sha256').update(c).digest('hex');
+  await publishRawFiles(dir, [{ staged: await stage('s1', 'a\n'), entry: entry(sha('a\n')) }], new Date('2026-11-14T01:00:00Z'));
+  assert.deepEqual(await publishRawFiles(dir, [{ staged: await stage('s2', 'a\n'), entry: entry(sha('a\n')) }], new Date('2026-11-14T02:00:00Z')), []);
+  const moved = await publishRawFiles(dir, [{ staged: await stage('s3', 'a\nb\n'), entry: entry(sha('a\nb\n')) }], new Date('2026-11-14T03:00:00Z'));
+  assert.equal(moved.length, 1);
+  assert.equal(await readFile(path.join(dir, 'hoteltime__2026-11-12__audit-trail.csv'), 'utf8'), 'a\nb\n');
+  assert.equal(await readFile(path.join(dir, moved[0]!.to), 'utf8'), 'a\n');
+});
