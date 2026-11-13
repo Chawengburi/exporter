@@ -292,7 +292,7 @@ test('🔴 --json: ต่อ Site × วันของข้อมูล มี
   const ht = r.sites.find((x) => x.site === 'hoteltime')!;
   const d13 = ht.days.find((d) => d.day === '2026-10-13')!;
   assert.deepEqual(d13.perDay, { total: 3, data: 1, empty: [], failed: [{ report: 'postings', error: 'x' }], notFetched: ['cancelled'] });
-  assert.deepEqual(d13.pictures, { total: 2, taken: 1, empty: [], failed: [], missing: ['trial-balance'] });
+  assert.deepEqual(d13.pictures, { total: 2, taken: 1, empty: [], failed: [], refreshFailed: [], missing: ['trial-balance'] });
   assert.equal(ht.days.find((d) => d.day === '2026-10-14')!.perDay, null); // วันนี้ยังไม่ถึงกำหนด
   assert.deepEqual(r.setup, { goLive: '2026-10-08', webhookExport: true, webhookUpload: true, foodstoryScheduled: false });
 });
@@ -537,15 +537,15 @@ const WITH_REFRESH_SETUP: StatusSetup = {
   catalog: { ...SETUP.catalog, hoteltime: HT.map((r) => (r.id === 'arrivals' ? { ...r, refreshAtHour: 18 } : r)) },
 };
 
-test('snapshot ถ่ายซ้ำรอบเย็นล้ม (รอบเที่ยงได้แล้ว) = ปัญหา บอกชื่อ "<รายงาน>@refresh" · จำนวน snapshot ยังนับต่อรายงาน ไม่เบิ้ล', () => {
+test('snapshot ถ่ายซ้ำรอบเย็นล้ม (รอบเที่ยงได้แล้ว) = ไม่ใช่ปัญหา แต่ยังบอกในสรุป · จำนวน snapshot ยังนับต่อรายงาน ไม่เบิ้ล', () => {
   const s = healthy();
   const bad = buildStatus({
     ...s,
     hoteltime: replace(s.hoteltime, folder('2026-10-14', { pictures: { ...PICS_HT, 'arrivals@refresh': ['failed', 'Timeout'] } })),
   }, EVENING_14, WITH_REFRESH_SETUP);
-  assert.equal(bad.verdict, 'problem', text(bad));
-  assert.match(bad.problems.join('\n'), /2026-10-14[^\n]*snapshot[^\n]*arrivals@refresh/);
-  assert.match(text(bad), /2026-10-14[^\n]*snapshot ได้ 2\/2/);
+  assert.equal(bad.verdict, 'ok', text(bad));
+  assert.deepEqual(bad.problems, []);
+  assert.match(text(bad), /2026-10-14[^\n]*snapshot ครบ 2\/2[^\n]*ถ่ายซ้ำรอบเย็นล้ม 1 \(arrivals\)/);
 
   const good = buildStatus({
     ...s,

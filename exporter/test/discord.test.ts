@@ -396,8 +396,8 @@ test('🔴 token ของ webhook ถูก redact แม้ URL มี query (
   }
 });
 
-// ADR-0011: snapshot ถ่ายซ้ำรอบเย็นล้ม — รอบเที่ยงได้ครบแล้ว จึงไม่ใช่ "missing" และข้อความไม่เปิดเผย id ภายใน `@refresh`
-test('snapshot ถ่ายซ้ำรอบเย็นล้ม: สรุปยังเป็น snapshots 2/2 (ไม่มี "missing") และแจ้งเตือนเรียกว่า evening re-take', () => {
+// ADR-0011: snapshot ถ่ายซ้ำรอบเย็นล้ม — รอบเที่ยงได้ครบแล้ว ไม่ใช่ปัญหา: สรุปยังบอก (ภาษาคน ไม่เปิดเผย id ภายใน `@refresh`) แต่ไม่มีแจ้งเตือน
+test('snapshot ถ่ายซ้ำรอบเย็นล้ม: สรุปเป็น snapshots 2/2 + บอกว่า evening re-take ล้ม · ไม่มีแจ้งเตือน', () => {
   const setup: StatusSetup = { ...SETUP, catalog: { ...SETUP.catalog, hoteltime: HT.map((r) => (r.id === 'arrivals' ? { ...r, refreshAtHour: 18 } : r)) } };
   const s = healthy();
   const bad: StoreSnapshot = {
@@ -407,7 +407,7 @@ test('snapshot ถ่ายซ้ำรอบเย็นล้ม: สรุป
   };
   const ms = discordMessages(buildStatus(bad, thai('2026-10-14T18:30'), setup), { summary: true, alreadySent: NONE });
   const all = ms.map((m) => m.content).join('\n');
-  assert.match(all, /snapshots 2\/2/);
+  assert.equal(ms.length, 1, all); // สรุปอย่างเดียว ไม่มีข้อความแจ้งเตือน
+  assert.match(all, /snapshots 2\/2 · evening re-take failed: arrivals/);
   assert.doesNotMatch(all, /missing|arrivals@refresh/);
-  assert.match(all, /arrivals \(evening re-take\)/);
 });

@@ -3,8 +3,7 @@ import path from 'node:path';
 import { SITE_LABEL } from './placement.ts';
 import { createRedactor } from './redact.ts';
 import { isLoginFailureReason } from './run-record.ts';
-import { REFRESH_SUFFIX } from './run-planner.ts';
-import type { DayView, FailedReport, SiteView, StatusReport } from './status.ts';
+import { baseOfRefresh, type DayView, type FailedReport, type SiteView, type StatusReport } from './status.ts';
 import { thaiClock } from './thai-time.ts';
 import { isUnresolvedDocumentTypeReason } from './uploader.ts';
 import type { EmptyResultEntry, UploadFileResult, UploadRunResult } from './uploader.ts';
@@ -123,9 +122,13 @@ function summarySiteBlock(site: SiteView, today: string): string {
   else parts.push('no data fetched yet');
   const pictures = site.days.find((d) => d.day === today)?.pictures;
   if (pictures) {
-    // ถ่ายซ้ำรอบเย็นล้ม (ADR-0011) ไม่ใช่ snapshot ที่ขาด — รอบเที่ยงได้แล้ว นับ taken ครบ จึงไม่รวมใน "(N missing)" (ยังขึ้นเป็นแจ้งเตือนแยก)
-    const bad = pictures.failed.filter((f) => !f.report.endsWith(REFRESH_SUFFIX)).length + pictures.missing.length;
+    const bad = pictures.failed.length + pictures.missing.length;
     parts.push(bad === 0 ? `snapshots ${pictures.taken}/${pictures.total}` : `snapshots ${pictures.taken}/${pictures.total} (${bad} missing)`);
+    // ถ่ายซ้ำรอบเย็นล้ม (ADR-0011): รอบเที่ยงได้แล้ว ไม่ใช่ snapshot ที่ขาด — บอกในสรุปอย่างเดียว ไม่เป็นแจ้งเตือน
+    if (pictures.refreshFailed.length > 0) {
+      const shown = pictures.refreshFailed.slice(0, 3).map((f) => baseOfRefresh(f.report));
+      parts[parts.length - 1] += ` · evening re-take failed: ${shown.join(', ')}${pictures.refreshFailed.length > 3 ? ` +${pictures.refreshFailed.length - 3} more` : ''}`;
+    }
   }
   return `**${label}** · ${parts.join(' · ')}`;
 }
@@ -237,7 +240,7 @@ function exportFailures(report: StatusReport, today: string): { readonly label: 
       out.push({ label, reason: `login failed — ${firstLine(site.loginFailure.detail)}` });
     }
     for (const f of notLogin(perDay)) out.push({ label: `${label}: ${f.report}`, reason: firstLine(f.error) });
-    for (const f of notLogin(pictures)) out.push({ label: `${label}: ${f.report.endsWith(REFRESH_SUFFIX) ? `${f.report.slice(0, -REFRESH_SUFFIX.length)} (evening re-take)` : `${f.report} (snapshot)`}`, reason: firstLine(f.error) });
+    for (const f of notLogin(pictures)) out.push({ label: `${label}: ${f.report} (snapshot)`, reason: firstLine(f.error) });
   }
   return out;
 }
