@@ -79,6 +79,23 @@ _เลี่ยง_: full export, initial load, ดึงทั้งหมด
 เก็บและส่งต่อ (ตัดสินใจ 2026-10-13 — เลิกเขียน CSV)
 _เลี่ยง_: raw data, ข้อมูลดิบ (ปนกับเนื้อข้อมูล), CSV
 
+**ไฟล์ดิบแบบ scrape (scraped raw file)**:
+**ไฟล์ดิบ**ที่ exporter เขียนเองจากตารางบนหน้าเว็บ เพราะหน้านั้นไม่มีปุ่ม export (ตอนนี้มีหน้าเดียว: Audit) · เป็น**ข้อยกเว้นเดียว**ของ "ไม่แปลงเนื้อไฟล์" (ADR-0012) —
+เซลล์ทุกช่องเป็นข้อความตามหน้าเว็บทุกตัวอักษร (ไม่แปลงวันที่ ไม่ตัด ไม่กรองแถว) · manifest ระบุ `source: scrape` ให้ต่างจากไฟล์ที่ Site ให้
+_เลี่ยง_: export (ไม่ได้มาจากปุ่ม export), CSV ของเดิมที่ถูกเลิกใช้ (ADR-0007 — นั่นแปลงจาก xlsx ของ Site)
+
+**Audit trail**:
+หน้า `Front desk → Audit trail` ของ HotelTime (`/pms/audit/auditlist.aspx`) และ**รายงาน** `audit-trail` ที่ดึงมัน — ทุกเหตุการณ์ของระบบ (login, แก้/ยกเลิกการจอง,
+ย้ายห้อง, เปลี่ยนสถานะห้อง, sync จาก channel manager ฯลฯ) พร้อมเวลาระดับวินาที · เป็น**รายงานตามวัน** ดึงวัน D ตอนรอบเที่ยง D+1 ไฟล์ละวัน (ปฏิทินไทย) ·
+document_type `hoteltime_audit_trail`
+_เลี่ยง_: audit log (`hoteltime-schema` ห้ามใช้คำนี้ เพราะเรียก **Posting operation** ซึ่งเป็นของอีกชั้น)
+
+**เหตุการณ์ audit (audit event)**:
+หนึ่งแถวของตาราง **Audit trail** · **Stay event** = ชุดย่อยที่เป็นการ check-in/check-out จริง: `Operation = Room status change` และ
+`Data = Status: Check-in | Early Check-in | Check-out | Late Check-out` (HotelTime ไม่มี operation ชื่อ check-in — recon 2026-11-14) · exporter ไม่ตีความ — ส่งทุกแถว
+(การแยก Stay event เป็นงานของ `hoteltime-schema`)
+_เลี่ยง_: Stay (คนละความหมาย: ใน `hoteltime-schema` = 1 แถวของรายงานการจอง และ `Stay` ยังเป็นชื่อคอลัมน์สถานะของรายงาน snapshot)
+
 **รายงานตามวัน (per-day report)**:
 **รายงาน**ที่ดึงได้ทีละ **วันของข้อมูล** หลังวันนั้นจบแล้ว และดึงวันเก่าซ้ำได้เสมอ — ledger และยอดรวมของวันเดียว
 ได้หนึ่งไฟล์ต่อวันของข้อมูล ไม่มีไฟล์ไหนครอบวันคร่อมกัน
