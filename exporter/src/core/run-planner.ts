@@ -42,6 +42,9 @@ export function periodCloseId(report: string): string {
  */
 export const REFRESH_SUFFIX = '@refresh';
 
+/** ชั่วโมง (เวลาไทย) ของรอบเย็นที่ snapshot ซึ่งเปลี่ยนหลังเที่ยงถ่ายซ้ำ — ตรงกับ `CATCHUP_CRON` รอบ 18:00 ใน `windmill/setup.mjs` และอยู่ก่อน pipeline 19:00 ของ consumer (ADR-0011) */
+export const EVENING_REFRESH_HOUR = 18;
+
 export function refreshId(report: string): string {
   return `${report}${REFRESH_SUFFIX}`;
 }

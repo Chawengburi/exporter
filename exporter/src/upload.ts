@@ -3,6 +3,7 @@ import path from 'node:path';
 import { RAW_MANIFEST, recordUploaded, type RawFileEntry, type RawManifest } from './core/raw-manifest.ts';
 import type { SiteId } from './core/placement.ts';
 import { findOutcomeForFile, readRunRecord, type RecordedOutcome } from './core/run-record.ts';
+import { REFRESH_SUFFIX } from './core/run-planner.ts';
 import { defaultDataDir } from './core/status.ts';
 import {
   asOfStateKey,
@@ -359,6 +360,9 @@ export async function uploadFolder(opts: {
   const emptyReports: { readonly report: string }[] = [];
   for (const [report, outcome] of Object.entries(runRecord.reports)) {
     if (outcome.status !== 'ok' || !isEmptyReportOutcome(outcome)) continue;
+    // snapshot ถ่ายซ้ำรอบเย็น (ADR-0011, id `<รายงาน>@refresh`): ผลว่างไม่ประกาศ (ไม่มีชื่อรายงานจริงให้ส่ง — ดูด้านล่าง) จึงต้องไม่ตั้ง backlog "ว่างที่ยังไม่ประกาศ"
+    // ค้างทั้งวัน · ฉบับรอบเที่ยงของรายงานเดียวกันยังเป็นผลที่ส่งไปแล้ว
+    if (report.endsWith(REFRESH_SUFFIX)) continue;
     // ticket 13: ประกาศสำเร็จไปแล้ว (รอบก่อน หรือรอบนี้ยังไม่ถึงตรงนั้น) ไม่ต้องตั้ง backlog กลับมาใหม่ — ไม่งั้น
     // รันซ้ำโฟลเดอร์เดิมหลังประกาศสำเร็จแล้วจะไปตั้ง state.empty คืนทุกครั้ง ทั้งที่ไม่มีการพยายามส่งใหม่เลยใน
     // รอบนั้น (candidate loop ข้างล่างข้ามไปเพราะเจอ announcedEmpty แล้ว ไม่มีทางได้ final.kind==='announced'

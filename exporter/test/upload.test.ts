@@ -572,6 +572,25 @@ test('uploadFolder: รายงานว่าง (ok, 0 แถว, ไม่�
   }
 });
 
+// ADR-0011: snapshot ถ่ายซ้ำรอบเย็นที่ว่าง (id `<รายงาน>@refresh`) ไม่ตั้ง backlog "ว่างที่ยังไม่ประกาศ" — ไม่มีทางประกาศได้ จะค้างทั้งวัน
+test('uploadFolder: snapshot ถ่ายซ้ำรอบเย็นที่ว่าง ไม่ขึ้นใน emptyReports และไม่บันทึก state.empty', async () => {
+  const entry: RawFileEntry = { ...ENTRY_BASE, file: 'arrivals.xlsx', report: 'arrivals' };
+  const folder = await makeFolder([entry], { emptyReports: ['departures@refresh'] });
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  const fake = await fakeUploader({
+    catalog: ['hoteltime_arrivals'],
+    ingest: () => ({ status: 200, body: { results: [{ index: 0, ok: true, file_id: 'f1' }] } }),
+  });
+  try {
+    const result = await uploadFolder({ folder, dataDir, config: configFor(fake.url), credentials: CREDENTIALS });
+    assert.deepEqual(result.emptyReports, []);
+    const state = await readUploadStateFile(dataDir, 'hoteltime');
+    assert.equal(state.empty['departures@refresh@2026-10-15'], undefined);
+  } finally {
+    await fake.close();
+  }
+});
+
 // ── ticket 11: ส่งประกาศ `empty` จริงเมื่อเปิด flag (sendEmpty) ──
 
 test('uploadFolder: flag ปิด (default) → ไม่ยิง request empty เลย แม้มีรายงานว่างจริง', async () => {

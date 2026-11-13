@@ -1,6 +1,7 @@
 import type { Page } from 'playwright';
 import { formatDMY, type DateRange } from '../../../core/order.ts';
 import { gridRowCount, setSingleDate } from '../webforms.ts';
+import { EVENING_REFRESH_HOUR } from '../../../core/run-planner.ts';
 import type { Report } from './_types.ts';
 
 /**
@@ -25,7 +26,7 @@ export const inHouseGuests: Report = {
   family: 'picture',
   period: 'none',
   // เปลี่ยนหลังเที่ยง (check-in 14:00 / check-out) — ถ่ายซ้ำรอบเย็น (ADR-0011)
-  refreshAtHour: 18,
+  refreshAtHour: EVENING_REFRESH_HOUR,
   skipDateCoverageCheck: false,
   overlapColumns: { from: 'Arrival', to: 'Departure' },
 

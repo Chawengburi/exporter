@@ -1,5 +1,6 @@
 import type { Page } from 'playwright';
 import { formatDMY, type DateRange } from '../../../core/order.ts';
+import { EVENING_REFRESH_HOUR } from '../../../core/run-planner.ts';
 import { gridRowCount, setSingleDate } from '../webforms.ts';
 import type { Report } from './_types.ts';
 
@@ -17,9 +18,6 @@ import type { Report } from './_types.ts';
 const DATE = 'ctl00$pc$calDate';
 const FIND = 'ctl00$pc$btnFind';
 const ALLOWED_CONTROLS = [DATE, FIND];
-
-/** รอบเย็นของ Windmill (`windmill/setup.mjs` CATCHUP_CRON) — หลังเวลา check-in 14:00 และก่อน pipeline ฝั่ง consumer 19:00 */
-const REFRESH_AT_HOUR = 18;
 
 type SnapshotSpec = {
   readonly id: string;
@@ -126,7 +124,7 @@ export const roomsStatusOverview = dailySnapshot({
   id: 'rooms-status-overview',
   label: 'Rooms status overview',
   // stay เปลี่ยนจาก Confirm เป็น check-in หลัง 14:00 — ถ่ายซ้ำรอบเย็น (ADR-0011)
-  refreshAtHour: REFRESH_AT_HOUR,
+  refreshAtHour: EVENING_REFRESH_HOUR,
   path: 'reports/RoomUsage.aspx',
   grid: 'dtgItems',
   // snapshot ของทุกห้อง (130 แถว) — ห้องว่างไม่มีการจอง ช่องวันที่จึงว่าง
