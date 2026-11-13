@@ -93,7 +93,7 @@ exporter status                          # ท้ายหน้าบอกว�
 | ตระกูล | ตัวอย่าง | ดึงยังไง | ดึงย้อนหลังได้ไหม |
 |---|---|---|---|
 | **รายงานตามวัน** (22 ใบ) | `reservations-search`, `reservations-cancelled`, `postings`, `manual-postings`, `invoices-*`, `city-tax`, `guest-profiles`, `manager-day-detail` | ทีละ **วันของข้อมูล** ไฟล์ละวัน | ✅ (`--date`, `--baseline`) |
-| **รายงาน snapshot** (26 ใบ) | `arrivals`, `departures`, `in-house-guests`, `housekeeping`, `rooms-status-overview`, `manager-summary`, `trial-balance`, `reservation-stats-*` | snapshot ณ เวลาที่ดึง วันละครั้ง | ❌ snapshot ของวันที่ผ่านไปแล้วหายถาวร |
+| **รายงาน snapshot** (27 ใบ) | `arrivals`, `departures`, `in-house-guests`, `housekeeping`, `rooms-status-overview`, `manager-summary`, `trial-balance`, `reservation-stats-*` | snapshot ณ เวลาที่ดึง วันละครั้ง (HotelTime ถ่ายซ้ำรอบ 18:00 อีกฉบับ — ADR-0011) | ❌ snapshot ของวันที่ผ่านไปแล้วหายถาวร |
 
 รายงาน snapshot ที่เป็นยอดสะสมเดือน/ปี (`manager-summary`, `trial-balance`, `reservation-stats-month` ฯลฯ) ได้ **snapshot ปิดงวด** ของงวดที่จบให้เอง
 ในรอบแรกของเดือน/ปีใหม่ (ถ่ายได้ 7 วันแรกของงวดถัดไป) · ดูทั้งหมดด้วย `exporter reports`

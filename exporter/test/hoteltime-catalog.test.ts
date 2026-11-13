@@ -45,10 +45,11 @@ test('accounts-open (ticket 02 ของ exporter-hoteltime-gold-feed): snapshot
   ]);
 });
 
-test('ADR-0011: snapshot ทุกใบของ HotelTime ถ่ายซ้ำรอบ 18:00 · รายงานตามวันไม่ถ่ายซ้ำ', () => {
-  const planned = plannedReports();
-  assert.equal(planned.length, REPORTS.length);
-  for (const r of planned) {
-    assert.equal(r.refreshAtHour, r.family === 'picture' ? 18 : undefined, `${r.id} (${r.family})`);
+test('ADR-0011: snapshot ถ่ายซ้ำรอบ 18:00 (ตรงกับ cron รอบเย็น) · รายงานตามวันไม่ถ่ายซ้ำ', () => {
+  const byId = new Map(plannedReports().map((r) => [r.id, r]));
+  for (const id of ['in-house-guests', 'rooms-status-overview', 'arrivals', 'departures', 'trial-balance', 'accounts-open']) {
+    assert.equal(byId.get(id)?.refreshAtHour, 18, id);
   }
+  for (const id of ['reservations-search', 'postings', 'manager-day-detail']) assert.equal(byId.get(id)?.refreshAtHour, undefined, id);
+  assert.ok(plannedReports().filter((r) => r.family === 'picture').every((r) => r.refreshAtHour === 18));
 });

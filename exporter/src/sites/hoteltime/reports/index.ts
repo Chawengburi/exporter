@@ -125,7 +125,7 @@ export function reportIds(): string[] {
 }
 
 /** แคตตาล็อกสำหรับตัววางแผนและ `exporter status` (ตระกูล + งวด) */
-/** ทุก snapshot ของ HotelTime ถ่ายซ้ำรอบเย็น (ADR-0011) — ข้อมูลหลายใบเปลี่ยนหลังเที่ยง (check-in 14:00, ยอดค้าง, ยอดสะสมของวัน) ต้นทุนเพิ่มราว 3 นาที */
+/** ทุก snapshot ของ HotelTime ถ่ายซ้ำรอบเย็น (ADR-0011) — ข้อมูลหลายใบเปลี่ยนหลังเที่ยง (check-in 14:00, ยอดค้าง, ยอดสะสมของวัน) · รายงานตามวันไม่ถ่ายซ้ำ */
 export const toPlanned = (r: Report): PlannedReport => ({
   id: r.id,
   family: r.family,

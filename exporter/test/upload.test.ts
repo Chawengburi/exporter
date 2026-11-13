@@ -936,6 +936,30 @@ test('readUploadBacklog: หลังรันจริงแล้วค้า�
   }
 });
 
+// ADR-0011: ไฟล์ snapshot รอบเที่ยง/รอบเย็นของรายงานเดียวกันมี entry.report เหมือนกัน แต่ `_run.json` แยก id (`<รายงาน>@refresh`) — as_of ต้องหาจากชื่อไฟล์
+test('readUploadBacklog: ไฟล์รอบเย็น (id @refresh) ใช้ as_of ของรอบเย็นเอง ไม่ใช่ของรอบเที่ยง — รอบเที่ยงที่เก่ากว่าที่เคยส่งแล้วนับเป็น blocked รอบเย็นเป็น pending', async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  const noon: RawFileEntry = { ...ENTRY_BASE, file: 'hoteltime__noon__arrivals.xlsx', report: 'arrivals' };
+  const evening: RawFileEntry = { ...ENTRY_BASE, file: 'hoteltime__evening__arrivals.xlsx', report: 'arrivals' };
+  const folder = await makeFolderUnderSite(dataDir, 'hoteltime', '2026-10-15', [noon, evening], { finishedReports: [] });
+  const okOf = (report: string, file: string): ReportOutcome => ({
+    report, status: 'ok', rows: 1, range: { from: '2026-10-15', to: '2026-10-15' }, actualRange: null,
+    files: [{ file, rows: 1, sha256: 'aa'.repeat(32) }], attempts: 1,
+  });
+  const run = (at: string, o: ReportOutcome) => recordRun(folder, {
+    site: 'hoteltime', kind: 'daily', dataThrough: '2026-10-15', startedAt: new Date(at), finishedAt: new Date(at), outcomes: [o],
+  });
+  await run('2026-10-15T05:00:00.000Z', okOf('arrivals', noon.file));
+  await run('2026-10-15T11:00:00.000Z', okOf('arrivals@refresh', evening.file));
+  // เคยส่งสำเร็จถึง as_of 08:00Z (ระหว่างสองรอบ) แล้ว
+  await mkdir(path.join(dataDir, '_upload'), { recursive: true });
+  await writeFile(
+    path.join(dataDir, '_upload', 'hoteltime.json'),
+    JSON.stringify({ asOf: { 'arrivals@2026-10-15@2026-10-15': '2026-10-15T08:00:00.000Z' }, empty: {}, stuck: {}, announcedEmpty: {} }),
+  );
+  assert.deepEqual(await readUploadBacklog(dataDir, 'hoteltime'), { site: 'hoteltime', pending: 1, blocked: 1, stuck: 0, empty: 0 });
+});
+
 test('readUploadBacklog: รายงานว่าง (ticket 04) → นับจาก state.empty', async () => {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
   const entry: RawFileEntry = { ...ENTRY_BASE, file: 'arrivals.xlsx', report: 'arrivals' };

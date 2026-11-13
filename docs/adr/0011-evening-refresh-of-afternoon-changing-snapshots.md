@@ -8,7 +8,7 @@ in-house นิ่งน้อยที่สุด
 (`due` ตัดทุกอย่างที่ `isDone` ของวันนั้น) และ docstring ของ `runDaily` · ADR-0003 (`dailyOnly` ไม่ back-fill) และ ADR-0009 (เติมวันที่ขาดของรายงานตามวัน) ไม่เกี่ยว
 ใช้ได้ตามเดิม
 
-**ทางที่เลือก:** snapshot **ทุกใบของ HotelTime** (27 ใบ) ตั้ง `refreshAtHour` = `EVENING_REFRESH_HOUR` (18) ผ่าน `toPlanned` จุดเดียว — ตั้งแต่ชั่วโมงนั้นของวัน ถ้า snapshot ปกติ
+**ทางที่เลือก:** snapshot **ทุกใบของ HotelTime** ตั้ง `refreshAtHour` = `EVENING_REFRESH_HOUR` (18) ผ่าน `toPlanned` จุดเดียว — ตั้งแต่ชั่วโมงนั้นของวัน ถ้า snapshot ปกติ
 ของวันนี้สำเร็จแล้ว ตัววางแผนใส่ใบนั้นใน `refreshes` ถ่ายซ้ำอีกหนึ่งครั้ง · รายงานตามวัน (ADR-0008) และ FoodStory ไม่ตั้ง = เดิมทุกประการ ·
 (เดิมตัดสินไว้ 4 ใบ: in-house-guests, rooms-status-overview, arrivals, departures — เปลี่ยนเป็นทุกใบเพราะต้นทุนต่ำกว่าที่ประเมิน และหลายใบเปลี่ยนหลังเที่ยง
 เช่น สถานะห้อง ยอดค้าง ยอดสะสมของวัน โดยไม่ต้องไล่ตัดสินทีละใบว่าฝั่ง gold ใช้ใบไหน)

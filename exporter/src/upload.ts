@@ -314,7 +314,8 @@ export async function readUploadBacklog(dataDir: string, site: SiteId): Promise<
     if (!Array.isArray(manifest.files)) continue;
     const runRecord = await readRunRecord(folder);
     for (const entry of selectPendingFiles(manifest.files)) {
-      const asOf = runRecord?.reports[entry.report]?.finishedAt;
+      // หาจากชื่อไฟล์ เหมือนขาส่งจริง — key ของ _run.json ไม่ใช่ entry.report เสมอไป (snapshot ถ่ายซ้ำรอบเย็นใช้ `<รายงาน>@refresh` ADR-0011)
+      const asOf = runRecord === null ? undefined : findOutcomeForFile(runRecord, entry.file)?.finishedAt;
       if (asOf !== undefined && isAsOfRegression(asOf, state.asOf[asOfStateKey(entry)])) blocked++;
       else pending++;
     }

@@ -395,3 +395,19 @@ test('🔴 token ของ webhook ถูก redact แม้ URL มี query (
     await fake.close();
   }
 });
+
+// ADR-0011: snapshot ถ่ายซ้ำรอบเย็นล้ม — รอบเที่ยงได้ครบแล้ว จึงไม่ใช่ "missing" และข้อความไม่เปิดเผย id ภายใน `@refresh`
+test('snapshot ถ่ายซ้ำรอบเย็นล้ม: สรุปยังเป็น snapshots 2/2 (ไม่มี "missing") และแจ้งเตือนเรียกว่า evening re-take', () => {
+  const setup: StatusSetup = { ...SETUP, catalog: { ...SETUP.catalog, hoteltime: HT.map((r) => (r.id === 'arrivals' ? { ...r, refreshAtHour: 18 } : r)) } };
+  const s = healthy();
+  const bad: StoreSnapshot = {
+    ...s,
+    hoteltime: [...s.hoteltime.filter((f) => f.day !== '2026-10-14'),
+      folder('2026-10-14', undefined, { arrivals: 'data', 'trial-balance': 'data', 'arrivals@refresh': ['failed', 'Timeout'] })],
+  };
+  const ms = discordMessages(buildStatus(bad, thai('2026-10-14T18:30'), setup), { summary: true, alreadySent: NONE });
+  const all = ms.map((m) => m.content).join('\n');
+  assert.match(all, /snapshots 2\/2/);
+  assert.doesNotMatch(all, /missing|arrivals@refresh/);
+  assert.match(all, /arrivals \(evening re-take\)/);
+});

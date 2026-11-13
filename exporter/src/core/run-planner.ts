@@ -20,8 +20,8 @@ export type PlannedReport = {
   /** ไม่ใส่ = ไม่มี snapshot ปิดงวด (รายงานตามวัน) */
   readonly period?: ReportPeriod;
   /**
-   * snapshot ที่เปลี่ยนหลังเที่ยง (เช่น check-in 14:00) — ถ่าย**ซ้ำอีกครั้ง**ตั้งแต่ชั่วโมงนี้ (เวลาไทย) ของวัน แม้ snapshot ของวันนี้สำเร็จไปแล้ว (ADR-0011)
-   * · ใช้ได้กับรายงาน snapshot เท่านั้น · ไม่ใส่ = ถ่ายวันละครั้งตามเดิม
+   * ถ่าย snapshot ซ้ำอีกครั้งตั้งแต่ชั่วโมงนี้ (เวลาไทย) ของวัน แม้ snapshot ของวันนี้สำเร็จไปแล้ว (ADR-0011) — Site เป็นฝ่ายตั้ง (HotelTime ตั้งให้ทุก snapshot ใน
+   * `toPlanned`) · ใช้ได้กับรายงาน snapshot เท่านั้น · ไม่ใส่ = ถ่ายวันละครั้งตามเดิม (รายงานตามวัน, FoodStory)
    */
   readonly refreshAtHour?: number;
 };
@@ -42,7 +42,7 @@ export function periodCloseId(report: string): string {
  */
 export const REFRESH_SUFFIX = '@refresh';
 
-/** ชั่วโมง (เวลาไทย) ของรอบเย็นที่ snapshot ซึ่งเปลี่ยนหลังเที่ยงถ่ายซ้ำ — ตรงกับ `CATCHUP_CRON` รอบ 18:00 ใน `windmill/setup.mjs` และอยู่ก่อน pipeline 19:00 ของ consumer (ADR-0011) */
+/** ชั่วโมง (เวลาไทย) ของรอบเย็นที่ snapshot ของ HotelTime ถ่ายซ้ำ — ตรงกับ `CATCHUP_CRON` รอบ 18:00 ใน `windmill/setup.mjs` และอยู่ก่อน pipeline 19:00 ของ consumer (ADR-0011) */
 export const EVENING_REFRESH_HOUR = 18;
 
 export function refreshId(report: string): string {
@@ -97,7 +97,7 @@ export const PERIOD_CLOSE_WINDOW_DAYS = 7;
 /**
  * จำนวนวันของข้อมูลสูงสุดที่รอบเก็บตกเติมในรอบเดียว (ADR-0009) — วัดจริง 2026-10-14: รายงานตามวันหนึ่งวัน ≈ 142 วินาที (22 รายงาน × 6.4 วินาที) ·
  * รายงาน snapshot ≈ 177 วินาที · timeout ค่าเริ่มต้นของ job บน Windmill คือ 15 นาที — snapshot + 3 วัน ≈ 10 นาที เหลือที่ให้การลองใหม่
- * (spec เดิมตั้ง 14 วัน ≈ 33 นาที โดน Windmill ตัดกลางรอบ) · วันละ 3 รอบจึงเติมได้ 9 วันของข้อมูลต่อวัน · ถ้าขยาย timeout ของ Windmill ค่อยเพิ่ม
+ * (spec เดิมตั้ง 14 วัน ≈ 33 นาที โดน Windmill ตัดกลางรอบ) · วันละ 3 รอบจึงเติมได้ 9 วันของข้อมูลต่อวัน · รอบ 18:00 ของ HotelTime มี snapshot ถ่ายซ้ำด้วย (ADR-0011) แต่แทนที่ snapshot ที่ถ่ายรอบแรกทีละใบ ไม่ใช่เพิ่มจากกรณีหนักสุดของรอบเที่ยง · ถ้าขยาย timeout ของ Windmill ค่อยเพิ่ม
  */
 export const CATCH_UP_CAP_DAYS = 3;
 
