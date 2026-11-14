@@ -211,7 +211,7 @@ exporter export --site foodstory --report all --daily --headful
 ```
 
 login ครั้งเดียว แล้วดึงรายงานตามวัน 42 ใบของเมื่อวาน (+ วันที่ยังไม่ได้กดตั้งแต่วันเริ่มใช้งาน ครั้งละ 3 วัน) และรายงาน snapshot 7 ใบของวันนี้
-(สต็อก ยอดสะสมทั้งปี ข้อมูลหลัก) · ได้ครบแล้ว = ขึ้น "ไม่มีงานค้าง" ไม่ต้องกด captcha · ไฟล์ลง `exporter/data/foodstory/daily/<YYYY-MM>/<วันของข้อมูล>/`
+(สต็อก ยอดสะสมทั้งปี ข้อมูลหลัก) · ได้ครบแล้ว = ขึ้น "Nothing outstanding" ไม่ต้องกด captcha · ไฟล์ลง `exporter/data/foodstory/daily/<YYYY-MM>/<วันของข้อมูล>/`
 ชื่อแบบเดียวกับ HotelTime (`2026-10-13__salebybill.xlsx`, `20261014T175436+0700__current_stock.xlsx`)
 
 ### 4.2 รายเดือน (ผู้ดูแล — แนะนำทุกวันที่ 1–3 ของเดือน)

@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 /**
- * ตั้งค่า Windmill ให้รัน HotelTime และ FoodStory ทุกวัน — แทนการคลิกหน้าเว็บตาม INSTALL.md ข้อ 4–6 (ข้อ 3 `docker compose up -d` ยังทำก่อน)
- * (ticket 03 ของ exporter-ubuntu-deploy · FoodStory: ใบ 04 ของ exporter-foodstory-scheduled-daily)
+ * Sets Windmill up to run HotelTime and FoodStory every day — replaces clicking through the web UI as in INSTALL.md steps 4–6 (step 3, `docker compose up -d`, still comes first)
+ * (ticket 03 of exporter-ubuntu-deploy · FoodStory: ticket 04 of exporter-foodstory-scheduled-daily)
  *
- *   node windmill/setup.mjs                 ← หลัง `docker compose up -d` · รันซ้ำได้ (ไม่มีอะไรเปลี่ยน = ไม่แตะอะไร)
+ *   node windmill/setup.mjs                 <- after `docker compose up -d` · safe to re-run (nothing changed = nothing touched)
  *   node windmill/setup.mjs --base http://127.0.0.1:18000
  *
- * ทำ 4 อย่างผ่าน REST API (ทดสอบกับ Windmill CE 1.815.0 ที่ปักหมุดใน .env.example):
- *  1. เปลี่ยนรหัส admin@windmill.dev จากค่าเริ่มต้น `changeme` เป็นรหัสสุ่ม เก็บใน windmill/.admin-password (600, ไม่อยู่ใน git) —
- *     เขียนไฟล์ก่อนแล้วค่อยเปลี่ยนรหัส (เปลี่ยนสำเร็จแต่เขียนไฟล์ไม่ได้ = ล็อกตัวเองออก) · ถ้าไฟล์มีแต่รหัสยังเป็น changeme ให้ใช้รหัสในไฟล์
- *  2. worker group "custom" ฟัง tag `chromium` (worker ที่มี Chromium + mount exporter/)
- *  3. สคริปต์ `u/<ผู้ตั้ง>/pms_export_daily`, `foodstory_export_daily` และ `..._catchup` ของแต่ละ Site — เนื้อหาจาก windmill/scripts/*.sh
- *     (แก้ไฟล์ใน repo แล้วรันซ้ำ = deploy เวอร์ชันใหม่)
- *  4. schedule เที่ยง และ 15:00/18:00 (Asia/Bangkok) — ทั้งสอง Site เวลาเดียวกัน (worker chromium มีตัวเดียว job เข้าคิวต่อกัน) — permissioned_as เป็นผู้ที่รันสคริปต์นี้เสมอ (กับดักใน INSTALL.md §6: ผู้ที่ตั้งเดิม
- *     ถูกลบแล้ว schedule ล้มเงียบ ๆ — รันซ้ำแก้ให้เอง)
+ * Does 4 things through the REST API (tested against Windmill CE 1.815.0, pinned in .env.example):
+ *  1. Changes the admin@windmill.dev password from the default `changeme` to a random one, kept in windmill/.admin-password (600, not in git) —
+ *     the file is written first and the password changed afterwards (changed but file not written = locked out) · if the file exists but the password is still changeme, use the password in the file
+ *  2. the worker group "custom" listens on the tag `chromium` (the worker that has Chromium + the exporter/ mount)
+ *  3. the scripts `u/<who set it up>/pms_export_daily`, `foodstory_export_daily` and the `..._catchup` ones for each Site — content from windmill/scripts/*.sh
+ *     (edit the file in the repo and re-run = a new version is deployed)
+ *  4. schedules at noon and 15:00/18:00 (Asia/Bangkok) — the same times for both Sites (there is a single chromium worker, so jobs queue one after another) — permissioned_as is always the user who runs this script (a trap noted in INSTALL.md §6: if the original user
+ *     was deleted the schedule fails silently — re-running fixes it)
  *
- * ข้อความเป็นภาษาไทยทั้งหมด (เครื่องปลายทางไม่มี AI ช่วยอ่าน) · ไม่พิมพ์ token/รหัสผ่านออกจอ
+ * Never prints tokens/passwords to the screen
  */
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -24,26 +24,26 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PASSWORD_FILE = path.join(HERE, '.admin-password');
-// เครื่องที่เปลี่ยนอีเมล admin ไปแล้วตั้ง WM_ADMIN_EMAIL=... ตอนรัน · เครื่องใหม่ใช้ค่าเริ่มต้นของ Windmill
+// a machine whose admin email has been changed sets WM_ADMIN_EMAIL=... when running this · a new machine uses Windmill's default
 const ADMIN_EMAIL = process.env.WM_ADMIN_EMAIL ?? 'admin@windmill.dev';
 const DEFAULT_PASSWORD = 'changeme';
 const WORKSPACE = 'admins';
 const WORKER_GROUP = 'worker__custom';
 const TAG = 'chromium';
 const TIMEZONE = 'Asia/Bangkok';
-// เพดานเวลาของ job FoodStory (วินาที) ตั้งที่สคริปต์เอง ไม่พึ่งค่าตั้งต้นของ Windmill: รอบปกติราว 5 นาที + วันที่ขาดวันละราว 3 นาที (สูงสุด 3 วัน) +
-// login/แก้ captcha (ลองซ้ำ 3 ครั้ง) — ราว 20 นาทีในกรณีหนัก เผื่อไว้ 1 ชั่วโมง · HotelTime ใช้ไม่ถึง 15 นาที ไม่ตั้ง (พฤติกรรมเดิม)
+// Time cap of the FoodStory job (seconds), set on the script itself rather than relying on Windmill's default: a normal run takes about 5 minutes + about 3 minutes per missing day (at most 3 days) +
+// login/captcha solving (3 retries) — about 20 minutes in the heavy case, 1 hour allowed · HotelTime takes under 15 minutes and sets none (the existing behaviour)
 const FOODSTORY_TIMEOUT_S = 3600;
 // Data pipeline (hoteltime-schema) timeout: 1 hour. Normally a few minutes; not yet measured against the real D1.
 const PIPELINE_TIMEOUT_S = 3600;
-// ทั้งสอง Site เวลาเดียวกัน — status/Discord ใช้กติกาเวลาชุดเดียว (core/status.ts: เส้นตาย 15:00 / รอบสุดท้ายประเมินที่ 18:30)
+// Both Sites use the same times — status/Discord use a single set of time rules (core/status.ts: deadline 15:00 / the last run is evaluated at 18:30)
 const DAILY_CRON = '0 0 12 * * *';
 const CATCHUP_CRON = '0 0 15,18 * * *';
 const JOBS = [
-  { name: 'pms_export_daily', summary: 'HotelTime รอบรายวัน (เที่ยง)', cron: DAILY_CRON },
-  { name: 'pms_export_daily_catchup', summary: 'HotelTime รอบเก็บตก (15:00 / 18:00)', cron: CATCHUP_CRON },
-  { name: 'foodstory_export_daily', summary: 'FoodStory รอบรายวัน (เที่ยง)', cron: DAILY_CRON, timeout: FOODSTORY_TIMEOUT_S },
-  { name: 'foodstory_export_daily_catchup', summary: 'FoodStory รอบเก็บตก (15:00 / 18:00)', cron: CATCHUP_CRON, timeout: FOODSTORY_TIMEOUT_S },
+  { name: 'pms_export_daily', summary: 'HotelTime daily run (noon)', cron: DAILY_CRON },
+  { name: 'pms_export_daily_catchup', summary: 'HotelTime catch-up run (15:00 / 18:00)', cron: CATCHUP_CRON },
+  { name: 'foodstory_export_daily', summary: 'FoodStory daily run (noon)', cron: DAILY_CRON, timeout: FOODSTORY_TIMEOUT_S },
+  { name: 'foodstory_export_daily_catchup', summary: 'FoodStory catch-up run (15:00 / 18:00)', cron: CATCHUP_CRON, timeout: FOODSTORY_TIMEOUT_S },
 ];
 // Data pipeline (hoteltime-schema): registered only when the pipeline bundle is installed (../pipeline/.env exists); otherwise the jobs would fail red every day.
 // After installing the bundle later, run setup.mjs again to register them. 19:00 = after the 15:00/18:00 catch-up runs and the 18:30 status. Full Silver check: Sunday 20:00.
@@ -59,7 +59,7 @@ class SetupError extends Error {}
 function baseUrl() {
   const i = process.argv.indexOf('--base');
   if (i !== -1 && process.argv[i + 1]) return process.argv[i + 1].replace(/\/$/, '');
-  // WM_PORT: environment ก่อน แล้ว windmill/.env (docker compose อ่านจากที่เดียวกัน) — ยอมรับ "9000" / '9000' / export WM_PORT=9000
+  // WM_PORT: the environment first, then windmill/.env (docker compose reads from the same place) — accepts "9000" / '9000' / export WM_PORT=9000
   const env = existsSync(path.join(HERE, '.env')) ? readFileSync(path.join(HERE, '.env'), 'utf8') : '';
   const port = process.env.WM_PORT ?? /^(?:export\s+)?WM_PORT=["']?(\d+)["']?\s*$/m.exec(env)?.[1] ?? '8000';
   return `http://127.0.0.1:${port}`;
@@ -74,20 +74,20 @@ async function call(method, route, { token, body, okStatuses = [200, 201] } = {}
   });
   const text = await res.text();
   if (!okStatuses.includes(res.status)) {
-    throw new SetupError(`Windmill ตอบ ${res.status} ที่ ${method} ${route}: ${text.slice(0, 200)}`);
+    throw new SetupError(`Windmill answered ${res.status} at ${method} ${route}: ${text.slice(0, 200)}`);
   }
   return text;
 }
 const json = async (method, route, opts) => JSON.parse(await call(method, route, opts));
 
 async function waitForServer() {
-  const deadline = Date.now() + 180_000; // เปิดครั้งแรก db + migration อาจนานเป็นนาที
+  const deadline = Date.now() + 180_000; // on the first start, the db + migration can take minutes
   for (;;) {
     try {
       const v = await call('GET', '/version');
       return v.trim();
     } catch {
-      if (Date.now() > deadline) throw new SetupError(`ต่อ Windmill ที่ ${BASE} ไม่ได้ภายใน 3 นาที — เปิดอยู่ไหม? (cd windmill && docker compose ps)`);
+      if (Date.now() > deadline) throw new SetupError(`Could not reach Windmill at ${BASE} within 3 minutes — is it running? (cd windmill && docker compose ps)`);
       await new Promise((r) => setTimeout(r, 3_000));
     }
   }
@@ -102,9 +102,9 @@ async function login(password) {
   return res.ok ? (await res.text()).trim() : null;
 }
 
-/** คืน token ของ admin พร้อมรหัสที่ไม่ใช่ค่าเริ่มต้น — สร้าง/ใช้ .admin-password */
+/** Returns the admin token together with a non-default password — creates/uses .admin-password */
 async function adminToken(report) {
-  // ไฟล์ว่าง = ไม่มีรหัส (|| ไม่ใช่ ??) · บังคับ 600 ทุกรอบ — ข้อความ error ด้านล่างบอกให้คนสร้างไฟล์เอง ซึ่งจะได้ 644
+  // an empty file = no password (|| not ??) · force 600 every time — the error messages below tell a person to create the file themselves, which would give 644
   const saved = existsSync(PASSWORD_FILE) ? readFileSync(PASSWORD_FILE, 'utf8').trim() || null : null;
   if (existsSync(PASSWORD_FILE)) chmodSync(PASSWORD_FILE, 0o600);
   if (saved) {
@@ -115,28 +115,28 @@ async function adminToken(report) {
   if (!fresh) {
     throw new SetupError(
       saved
-        ? `ล็อกอิน ${ADMIN_EMAIL} ด้วยรหัสใน windmill/.admin-password ไม่ได้ — มีคนเปลี่ยนรหัสในหน้าเว็บ? ใส่รหัสปัจจุบันลงไฟล์นั้น (บรรทัดเดียว) แล้วรันใหม่`
-        : `รหัส ${ADMIN_EMAIL} ไม่ใช่ค่าเริ่มต้นแล้ว แต่ไม่มีไฟล์ windmill/.admin-password — ใส่รหัสปัจจุบันลงไฟล์นั้น (บรรทัดเดียว) แล้วรันใหม่`,
+        ? `Could not log in as ${ADMIN_EMAIL} with the password in windmill/.admin-password — did someone change the password in the web UI? Put the current password in that file (a single line) and run again`
+        : `The password of ${ADMIN_EMAIL} is no longer the default, but there is no windmill/.admin-password file — put the current password in that file (a single line) and run again`,
     );
   }
-  // รหัสยังเป็น changeme: ใช้รหัสในไฟล์ถ้ามี (รอบก่อนเขียนไฟล์แล้วแต่ตั้งรหัสไม่สำเร็จ) ไม่งั้นสุ่มใหม่แล้วเขียนไฟล์ก่อน
+  // the password is still changeme: use the password in the file if there is one (a previous run wrote the file but failed to set the password), otherwise generate a new one and write the file first
   const password = saved ?? randomBytes(24).toString('base64url');
-  if (!saved) writeFileSync(PASSWORD_FILE, `${password}\n`, { mode: 0o600 }); // ไฟล์ว่างทับได้ — ไม่มีรหัสอยู่ในนั้น
+  if (!saved) writeFileSync(PASSWORD_FILE, `${password}\n`, { mode: 0o600 }); // an empty file can be overwritten — there is no password in it
   await call('POST', '/users/setpassword', { token: fresh, body: { password } });
   const token = await login(password);
-  if (!token) throw new SetupError('เปลี่ยนรหัส admin แล้วแต่ล็อกอินด้วยรหัสใหม่ไม่ได้ — ถ่ายรูปหน้าจอนี้ส่งผู้ดูแลระบบ');
-  report('เปลี่ยนรหัส admin จากค่าเริ่มต้นแล้ว — รหัสใหม่อยู่ใน windmill/.admin-password (อ่าน: cat windmill/.admin-password)');
+  if (!token) throw new SetupError('Changed the admin password but could not log in with the new one — take a screenshot of this screen and send it to the administrator');
+  report('Changed the admin password from the default — the new password is in windmill/.admin-password (read it with: cat windmill/.admin-password)');
   return token;
 }
 
 async function ensureWorkerTag(token, report) {
-  // เติม tag ที่ขาด ไม่ทับ tag/ค่าอื่นที่ผู้ดูแลตั้งเพิ่มเองในหน้าเว็บ
+  // add the missing tag, without overwriting other tags/values the administrator added in the web UI
   const current = await json('GET', `/configs/get/${WORKER_GROUP}`, { token });
   const tags = current?.worker_tags ?? [];
   if (tags.includes(TAG)) return;
   const keep = Object.fromEntries(Object.entries(current ?? {}).filter(([, v]) => v !== null));
   await call('POST', `/configs/update/${WORKER_GROUP}`, { token, body: { ...keep, worker_tags: [...tags, TAG] } });
-  report(`worker group "custom" ฟัง tag ${TAG}`);
+  report(`the worker group "custom" now listens on the tag ${TAG}`);
 }
 
 async function ensureScript(token, scriptPath, job, report) {
@@ -145,13 +145,13 @@ async function ensureScript(token, scriptPath, job, report) {
   const exists = await json('GET', `/w/${WORKSPACE}/scripts/exists/p/${scriptPath}`, { token });
   if (!exists) {
     await call('POST', `/w/${WORKSPACE}/scripts/create`, { token, body: wanted });
-    report(`สร้างสคริปต์ ${scriptPath}`);
+    report(`Created the script ${scriptPath}`);
     return;
   }
   const current = await json('GET', `/w/${WORKSPACE}/scripts/get/p/${scriptPath}`, { token });
   if (current.content === content && current.language === 'bash' && current.tag === TAG && (current.timeout ?? null) === (job.timeout ?? null)) return;
   await call('POST', `/w/${WORKSPACE}/scripts/create`, { token, body: { ...wanted, parent_hash: current.hash } });
-  report(`deploy สคริปต์ ${scriptPath} เวอร์ชันใหม่ (เนื้อหาใน repo เปลี่ยน)`);
+  report(`Deployed a new version of the script ${scriptPath} (the content in the repo changed)`);
 }
 
 async function ensureSchedule(token, scriptPath, job, who, report) {
@@ -161,17 +161,17 @@ async function ensureSchedule(token, scriptPath, job, who, report) {
       token,
       body: { path: scriptPath, schedule: job.cron, timezone: TIMEZONE, script_path: scriptPath, is_flow: false, args: {}, enabled: true },
     });
-    report(`ตั้งเวลา ${scriptPath}: ${job.cron} (${TIMEZONE})`);
+    report(`Set the schedule of ${scriptPath}: ${job.cron} (${TIMEZONE})`);
     return;
   }
   const current = await json('GET', `/w/${WORKSPACE}/schedules/get/${scriptPath}`, { token });
   if (current.schedule !== job.cron || current.timezone !== TIMEZONE || current.permissioned_as !== `u/${who}`) {
     await call('POST', `/w/${WORKSPACE}/schedules/update/${scriptPath}`, { token, body: { schedule: job.cron, timezone: TIMEZONE, args: {} } });
-    report(`แก้เวลา ${scriptPath}: ${job.cron} (${TIMEZONE}) · ผูกกับผู้ใช้ ${who}`);
+    report(`Updated the schedule of ${scriptPath}: ${job.cron} (${TIMEZONE}) · bound to user ${who}`);
   }
   if (!current.enabled) {
     await call('POST', `/w/${WORKSPACE}/schedules/setenabled/${scriptPath}`, { token, body: { enabled: true } });
-    report(`เปิดใช้ schedule ${scriptPath}`);
+    report(`Enabled the schedule of ${scriptPath}`);
   }
 }
 
@@ -181,7 +181,7 @@ async function main() {
     changes.push(line);
     console.log(`   ✔ ${line}`);
   };
-  console.log(`ตั้งค่า Windmill ที่ ${BASE}`);
+  console.log(`Setting up Windmill at ${BASE}`);
   console.log(`   Windmill ${await waitForServer()}`);
   const token = await adminToken(report);
   const who = (await json('GET', `/w/${WORKSPACE}/users/whoami`, { token })).username;
@@ -193,14 +193,14 @@ async function main() {
     await ensureScript(token, scriptPath, job, report);
     await ensureSchedule(token, scriptPath, job, who, report);
   }
-  console.log(changes.length === 0 ? '   ✔ ไม่มีอะไรเปลี่ยน — ตั้งค่าไว้ครบอยู่แล้ว' : `   เปลี่ยน ${changes.length} อย่าง`);
-  console.log(`   HotelTime และ FoodStory จะรันเองทุกวัน 12:00 (เก็บตก 15:00 / 18:00) · ดูประวัติการรันที่ ${BASE}/runs (ล็อกอิน ${ADMIN_EMAIL})`);
+  console.log(changes.length === 0 ? '   ✔ Nothing changed — everything is already set up' : `   Changed ${changes.length} thing(s)`);
+  console.log(`   HotelTime and FoodStory will run by themselves every day at 12:00 (catch-up 15:00 / 18:00) · see the run history at ${BASE}/runs (log in as ${ADMIN_EMAIL})`);
 }
 
 try {
   await main();
 } catch (err) {
-  console.error(`   ✘ ${err instanceof SetupError ? err.message : `ตั้งค่า Windmill ไม่สำเร็จ: ${err?.message ?? err}`}`);
-  console.error('     แก้แล้วรันคำสั่งเดิมซ้ำได้เลย — ส่วนที่ตั้งไปแล้วจะไม่ทำซ้ำ');
+  console.error(`   ✘ ${err instanceof SetupError ? err.message : `Setting up Windmill failed: ${err?.message ?? err}`}`);
+  console.error('     Fix it and re-run the same command — what has already been set up will not be repeated');
   process.exitCode = 1;
 }

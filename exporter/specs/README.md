@@ -1,32 +1,32 @@
 # specs — pms-export
 
-> ชื่อเดิมของ `exporter/` ก่อน rename 2026-09-28 (ADR-0004) — spec ชุดนี้เขียนก่อน rename จึงคง
-> ชื่อ `pms-export` และ prefix `PMS_*` ไว้ตามจริง ณ ตอนนั้น (ตอนนี้คือคำสั่ง `exporter` และ `HOTELTIME_*`)
+> The former name of `exporter/` before the 2026-09-28 rename (ADR-0004) — this spec set was written before the rename, so it keeps
+> the `pms-export` name and the `PMS_*` prefix as they actually were at the time (they are now the `exporter` command and `HOTELTIME_*`).
 
-เอกสารการ **ตัดสินใจ** ของโปรเจกต์นี้ · แยกจาก [`../recon/NOTES.md`](../recon/NOTES.md)
-ซึ่งเก็บ **สิ่งที่สังเกตเห็น** จากการสำรวจของจริง
+The project's **decision** documents · kept separate from [`../recon/NOTES.md`](../recon/NOTES.md),
+which holds **what was observed** while exploring the real sites.
 
-> กติกา: อะไรที่วัดมาจากเว็บจริงอยู่ใน `recon/NOTES.md` · อะไรที่เรา *เลือก* ว่าจะทำแบบไหน
-> และเพราะอะไร อยู่ในนี้ · spec ทุกใบต้องอ้างหลักฐานกลับไปที่ NOTES ไม่ใช่ยืนยันลอย ๆ
+> Rule: whatever was measured on the real site lives in `recon/NOTES.md` · what we *chose* to do,
+> and why, lives here · every spec must cite its evidence back to NOTES rather than assert it.
 
-| # | ไฟล์ | ครอบคลุม |
+| # | File | Covers |
 |---|---|---|
-| 01 | [01-spec-scope-and-architecture.md](./01-spec-scope-and-architecture.md) | ทำไมมีโปรเจกต์นี้ · รูปแบบ "AI เขียน สคริปต์รัน" · ขอบเขตที่ตกลงและสิ่งที่จงใจไม่ทำ |
-| 02 | [02-spec-hoteltime-constraints.md](./02-spec-hoteltime-constraints.md) | ข้อจำกัด 6 ข้อของ HotelTime ที่บังคับดีไซน์ · **อ่านก่อนแก้โค้ดใด ๆ** |
-| 03 | [03-spec-report-definition.md](./03-spec-report-definition.md) | ทำไม `reports/` เป็น TypeScript ไม่ใช่ JSON · สัญญาของ `Report` · วิธีเพิ่มรายงานใหม่ |
-| 04 | [04-spec-verification.md](./04-spec-verification.md) | ชั้นตรวจ 5 ด่าน · ด่านที่ถอดออกและเพราะอะไร · บั๊กที่ชั้นตรวจจับได้จริง |
-| 05 | [05-spec-output-and-provenance.md](./05-spec-output-and-provenance.md) | `--format raw\|csv\|both` · การรวมเป็นไฟล์รายปี · `manifest.json` |
-| 06 | [06-spec-credentials-and-session.md](./06-spec-credentials-and-session.md) | `.env` และลำดับความสำคัญ · การกันความลับหลุด · ทำไมล็อกอินใหม่ทุกรอบ |
-| 07 | [07-spec-audit-trail-export.md](./07-spec-audit-trail-export.md) | 🚧 **DRAFT** — ดึง Audit trail ซึ่ง**ไม่มีปุ่ม export** · เพดาน 500 แถว · สิ่งที่ต้องแก้ในโค้ดเดิม |
-| 08 | [08-spec-multi-site.md](./08-spec-multi-site.md) | 🚧 **DRAFT** — ทำให้ย้ายไปเว็บอื่น/instance อื่นได้ · `--profile` ที่ทำได้เลย · ชั้น `Site` ที่**จงใจยังไม่ทำ** |
-| 09 | [09-spec-recon-schema-and-codegen.md](./09-spec-recon-schema-and-codegen.md) | 🔄 **REVISED (2026-09-18)** — ลด **token ต่อรายงานใหม่** จาก ~100k เหลือ ~2k · recon schema + generator · จำนวนจริง 66 หน้ามี export (วัดจาก sweep ไม่ใช่ประมาณ) · go/no-go: GO ทำ §12 ก่อน ยังไม่ GO เขียน generator |
+| 01 | [01-spec-scope-and-architecture.md](./01-spec-scope-and-architecture.md) | Why this project exists · the "AI writes, scripts run" pattern · agreed scope and what is deliberately not done |
+| 02 | [02-spec-hoteltime-constraints.md](./02-spec-hoteltime-constraints.md) | The 6 HotelTime constraints that force the design · **read before changing any code** |
+| 03 | [03-spec-report-definition.md](./03-spec-report-definition.md) | Why `reports/` is TypeScript and not JSON · the `Report` contract · how to add a new report |
+| 04 | [04-spec-verification.md](./04-spec-verification.md) | The 5 verification gates · the gate that was removed and why · bugs the verification layer actually caught |
+| 05 | [05-spec-output-and-provenance.md](./05-spec-output-and-provenance.md) | `--format raw\|csv\|both` · merging into yearly files · `manifest.json` |
+| 06 | [06-spec-credentials-and-session.md](./06-spec-credentials-and-session.md) | `.env` and precedence · keeping secrets from leaking · why it logs in again every run |
+| 07 | [07-spec-audit-trail-export.md](./07-spec-audit-trail-export.md) | 🚧 **DRAFT** — pulling the Audit trail, which has **no export button** · the 500-row cap · what must change in the existing code |
+| 08 | [08-spec-multi-site.md](./08-spec-multi-site.md) | 🚧 **DRAFT** — making it portable to other sites/instances · the `--profile` that can be done now · the `Site` layer that is **deliberately not built yet** |
+| 09 | [09-spec-recon-schema-and-codegen.md](./09-spec-recon-schema-and-codegen.md) | 🔄 **REVISED (2026-09-18)** — cut the **tokens per new report** from ~100k to ~2k · recon schema + generator · real count: 66 pages have an export (measured by sweep, not estimated) · go/no-go: GO for §12 first, NO-GO for writing the generator yet |
 
-**ลำดับการอ่านสำหรับคนที่เพิ่งมารับงาน:** 01 → 02 → 03 · ที่เหลืออ่านเมื่อจะแตะส่วนนั้น
+**Reading order for someone new to the project:** 01 → 02 → 03 · read the rest when you touch that area.
 
-สถานะ: ใบ 01–06 **ACCEPTED (2026-09-08)** — เขียนหลังรันจริงครบทั้ง 3 รายงานแล้ว ทุกตัวเลขวัดมาจริง ·
-ใบ 07 **DRAFT** — สำรวจหน้าจริงแล้วแต่ยังไม่ได้เขียนโค้ด ·
-ใบ 08 **DRAFT** — วิเคราะห์จากโค้ดที่มีอยู่ ยังไม่มีเว็บที่สองให้สำรวจ ·
-ใบ 09 **REVISED (2026-09-18)** — เนื้อหา DRAFT เดิม (2026-09-10) ยังอยู่ครบ เพิ่ม §0 กับ §15
-อธิบายว่าอะไรแทนที่แล้วจริง (ดู ADR-0001) กับ go/no-go ที่แก้ใหม่จากตัวเลขจริง (66 หน้ามี export
-ไม่ใช่ตัวเลขประมาณ) · **เริ่มที่ §12 ก่อนเสมอ** (ทดลองย้อนหลังกับ 3 รายงานที่มีเฉลยอยู่แล้ว ฟรี
-— ยังไม่มีใครทำ)
+Status: specs 01–06 **ACCEPTED (2026-09-08)** — written after all 3 reports had really run, every number was measured ·
+spec 07 **DRAFT** — the real page was explored but no code has been written ·
+spec 08 **DRAFT** — analysed from the existing code; there is no second site to explore yet ·
+spec 09 **REVISED (2026-09-18)** — the original DRAFT content (2026-09-10) is intact; §0 and §15 were added
+to explain what has actually been replaced (see ADR-0001) and the go/no-go revised from the real numbers (66 pages have an export,
+not an estimate) · **always start at §12** (a retroactive experiment on the 3 reports whose answers are already known, free
+— nobody has done it yet).

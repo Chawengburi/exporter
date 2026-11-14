@@ -68,7 +68,7 @@ bash ~/chawengburi-exporter/deploy/ubuntu/install.sh
 webhook** (ไม่แสดงบนจอ · กด Enter เฉย ๆ = ข้าม) → สุ่มรหัสฐานข้อมูล Windmill → วางไอคอน FoodStory บน Desktop → เปิดและตั้งค่า Windmill
 (รหัส admin, ตารางเวลา 12:00 / 15:00 / 18:00) → ลองล็อกอิน HotelTime
 
-- จบครบทุกขั้น: ขึ้น **✅ ติดตั้งเสร็จ** หรือ **⚠️ ติดตั้งส่วนของโปรแกรมแล้ว — ยังต้องทำอีก N อย่าง** พร้อมรายการ
+- จบครบทุกขั้น: ขึ้น **✅ Installation complete** หรือ **⚠️ The program part is installed — N more thing(s) still to do** พร้อมรายการ
 - หยุดกลางทาง: ขึ้น **✘ …** พร้อมวิธีแก้ (และรายการที่ยังต้องทำ ถ้ามี)
 - ทั้งสองแบบ: ทำตามที่บอก แล้ว **รันคำสั่งติดตั้งเดิมซ้ำ** — รันซ้ำปลอดภัย ไม่ถามรหัสซ้ำ ไม่แตะค่าที่ตั้งไว้แล้ว (เติมแค่วันเริ่มใช้งาน/URL ของ
   Discord ถ้ายังไม่มี — เครื่องที่ติดตั้งก่อนมีสองค่านี้ รันซ้ำครั้งเดียวก็ได้ครบ)
@@ -141,22 +141,22 @@ cd ~/chawengburi-exporter/exporter && node src/index.ts export --site foodstory 
 
 | ขึ้นข้อความ | ทำอย่างนี้ |
 | --- | --- |
-| ตัวติดตั้ง: `อย่ารันด้วย sudo/root` | รันใหม่โดยไม่ใส่ `sudo` ในบัญชีผู้ใช้ปกติ |
-| ตัวติดตั้ง: `ไม่พบ Node.js` / `Node.js รุ่น ... เก่าเกินไป` | ติดตั้ง/อัปเดต Node.js ตามหัวข้อก่อนติดตั้ง แล้วเปิด Terminal ใหม่ |
-| ตัวติดตั้ง: `ติดตั้ง package ไม่สำเร็จ` / `ดาวน์โหลด Chromium ไม่สำเร็จ` | เช็คอินเทอร์เน็ต แล้วรันตัวติดตั้งซ้ำ |
-| ตัวติดตั้ง: `บัญชีนี้ใช้ sudo ไม่ได้ แต่ Chromium ยังขาด library ของระบบ` | ผู้ที่มี sudo รันคำสั่งที่ขึ้นบนจอครั้งเดียว แล้วรันตัวติดตั้งซ้ำ |
-| ตัวติดตั้ง: `ติดตั้งแล้วแต่ Chromium ยังเปิดไม่ได้` | ถ่ายรูปหน้าจอส่งผู้พัฒนา |
-| ตัวติดตั้ง: `ยังต้องทำ ... ติดตั้ง Docker` / `ให้สิทธิ์ Docker` / `เปิด Docker` | ทำตามคำสั่งในบรรทัดนั้น (ให้สิทธิ์แล้วต้อง logout/login) แล้วรันตัวติดตั้งซ้ำ |
-| ตัวติดตั้ง: `เปิด Windmill ไม่สำเร็จ` | พอร์ต 8000 อาจมีโปรแกรมอื่นใช้อยู่ (`sudo ss -ltnp \| grep 8000`) หรือ build ล้ม — ดู `cd ~/chawengburi-exporter/windmill && docker compose logs --tail 50` |
-| ตัวติดตั้ง: `ล็อกอิน HotelTime ไม่ได้` | เช็คชื่อผู้ใช้/รหัสผ่าน (หัวข้อ "เปลี่ยนรหัสผ่าน") แล้วรันซ้ำ |
-| ตัวติดตั้ง: `ตั้งค่า Windmill ไม่สำเร็จ` | อ่านข้อความด้านบนบรรทัดนั้น แก้แล้วรัน `node ~/chawengburi-exporter/windmill/setup.mjs` |
-| `setup.mjs`: `ต่อ Windmill ที่ ... ไม่ได้ภายใน 3 นาที` | `cd ~/chawengburi-exporter/windmill && docker compose ps` — ทุก service ต้อง Up · ไม่ขึ้น: `docker compose up -d` |
-| `setup.mjs`: `ล็อกอิน admin@windmill.dev ด้วยรหัสใน windmill/.admin-password ไม่ได้` หรือ `... ไม่ใช่ค่าเริ่มต้นแล้ว แต่ไม่มีไฟล์ windmill/.admin-password` | มีคนเปลี่ยนรหัสในหน้าเว็บ — ใส่รหัสปัจจุบันลงไฟล์ `~/chawengburi-exporter/windmill/.admin-password` (บรรทัดเดียว) แล้วรัน `setup.mjs` ซ้ำ |
-| ไอคอน FoodStory: `ไม่พบไฟล์ตั้งค่า .env` / `โปรแกรมยังติดตั้งไม่ครบ` / `ไม่พบโปรแกรม Node.js` | รันตัวติดตั้งซ้ำ |
-| ไอคอน FoodStory: `⚠️ ได้บางส่วน` | ดับเบิลคลิกใหม่ (รายงานที่ได้แล้วไม่หาย) · ซ้ำสองรอบ: ดู `_summary.txt` ของเมื่อวาน แจ้งผู้พัฒนา |
-| ไอคอน FoodStory: `❌ ไม่สำเร็จ — ยังไม่ได้รายงาน` | ส่วนใหญ่กด captcha ไม่ทัน 5 นาที หรือเน็ตหลุด — ดับเบิลคลิกใหม่ |
-| ไอคอน FoodStory: `❌ ไม่สำเร็จ — เข้าสู่ระบบได้ แต่ไม่ได้รายงานเลย` | เว็บ FoodStory อาจเปลี่ยนหน้าตา — ถ่ายรูปหน้าจอ แจ้งผู้พัฒนา |
-| ไอคอน FoodStory: `⏳ มีการดึงรายงาน FoodStory รันอยู่แล้ว` | มีหน้าต่างอื่นรันอยู่ — รอให้จบ (ถ้าไม่มีจริง ๆ ระบบจะปลดล็อกเองตอนดับเบิลคลิกครั้งถัดไป) |
+| ตัวติดตั้ง: `Do not run this with sudo/root` | รันใหม่โดยไม่ใส่ `sudo` ในบัญชีผู้ใช้ปกติ |
+| ตัวติดตั้ง: `Node.js not found` / `Node.js ... is too old` | ติดตั้ง/อัปเดต Node.js ตามหัวข้อก่อนติดตั้ง แล้วเปิด Terminal ใหม่ |
+| ตัวติดตั้ง: `Installing the packages failed` / `Downloading Chromium failed` | เช็คอินเทอร์เน็ต แล้วรันตัวติดตั้งซ้ำ |
+| ตัวติดตั้ง: `This account cannot use sudo, but Chromium is missing system libraries` | ผู้ที่มี sudo รันคำสั่งที่ขึ้นบนจอครั้งเดียว แล้วรันตัวติดตั้งซ้ำ |
+| ตัวติดตั้ง: `Installed, but Chromium still cannot start` | ถ่ายรูปหน้าจอส่งผู้พัฒนา |
+| ตัวติดตั้ง: `... still to do ... Install Docker Engine` / `Grant Docker permission` / `Start Docker` | ทำตามคำสั่งในบรรทัดนั้น (ให้สิทธิ์แล้วต้อง logout/login) แล้วรันตัวติดตั้งซ้ำ |
+| ตัวติดตั้ง: `Starting Windmill failed` | พอร์ต 8000 อาจมีโปรแกรมอื่นใช้อยู่ (`sudo ss -ltnp \| grep 8000`) หรือ build ล้ม — ดู `cd ~/chawengburi-exporter/windmill && docker compose logs --tail 50` |
+| ตัวติดตั้ง: `HotelTime login failed` | เช็คชื่อผู้ใช้/รหัสผ่าน (หัวข้อ "เปลี่ยนรหัสผ่าน") แล้วรันซ้ำ |
+| ตัวติดตั้ง: `Setting up Windmill failed` | อ่านข้อความด้านบนบรรทัดนั้น แก้แล้วรัน `node ~/chawengburi-exporter/windmill/setup.mjs` |
+| `setup.mjs`: `Could not reach Windmill at ... within 3 minutes` | `cd ~/chawengburi-exporter/windmill && docker compose ps` — ทุก service ต้อง Up · ไม่ขึ้น: `docker compose up -d` |
+| `setup.mjs`: `Could not log in as admin@windmill.dev with the password in windmill/.admin-password` หรือ `... is no longer the default, but there is no windmill/.admin-password file` | มีคนเปลี่ยนรหัสในหน้าเว็บ — ใส่รหัสปัจจุบันลงไฟล์ `~/chawengburi-exporter/windmill/.admin-password` (บรรทัดเดียว) แล้วรัน `setup.mjs` ซ้ำ |
+| ไอคอน FoodStory: `The .env settings file was not found` / `The program is not fully installed` / `Node.js (version 22.18 or newer) was not found` | รันตัวติดตั้งซ้ำ |
+| ไอคอน FoodStory: `⚠️ Partial` | ดับเบิลคลิกใหม่ (รายงานที่ได้แล้วไม่หาย) · ซ้ำสองรอบ: ดู `_summary.txt` ของเมื่อวาน แจ้งผู้พัฒนา |
+| ไอคอน FoodStory: `❌ Failed — no reports were obtained yet` | ส่วนใหญ่กด captcha ไม่ทัน 5 นาที หรือเน็ตหลุด — ดับเบิลคลิกใหม่ |
+| ไอคอน FoodStory: `❌ Failed — logged in, but not a single report was obtained` | เว็บ FoodStory อาจเปลี่ยนหน้าตา — ถ่ายรูปหน้าจอ แจ้งผู้พัฒนา |
+| ไอคอน FoodStory: `⏳ A FoodStory pull is already running` | มีหน้าต่างอื่นรันอยู่ — รอให้จบ (ถ้าไม่มีจริง ๆ ระบบจะปลดล็อกเองตอนดับเบิลคลิกครั้งถัดไป) |
 | สถานะ: `รอบเที่ยงไม่ได้ดึง — ดู Windmill` / `... ยังไม่ได้ดึง N (...) — รอบถัดไปเติมเอง` / `รอบไม่จบ` | เครื่องดับ/Docker ไม่ทำงานตอนนั้น — เช็ค <http://localhost:8000/runs> และ `docker compose ps` · เปิดกลับมาแล้ว รอบถัดไปเติมวันที่ขาดให้เอง (ครั้งละ 3 วัน) |
 | สถานะ: `... ล้ม N (...)` | ดู `_summary.txt` ของวันนั้น (ตารางถัดไป) · HotelTime และ FoodStory: รอบเก็บตกถัดไป (15:00 / 18:00 / เที่ยงพรุ่งนี้) ลองซ้ำเอง · FoodStory ล้มทั้งวัน: ดูหัวข้อ "FoodStory รันเองทุกวัน" (คีย์/ยอดเงิน 2captcha) แล้วค่อยดับเบิลคลิกไอคอนสำรอง |
 | สถานะ: `snapshot ... หายถาวร เติมไม่ได้` | วันนั้นไม่มีรอบไหนถ่ายรายงาน snapshot ได้ — ไม่มีอะไรให้ทำ (ดึงย้อนไม่ได้) · ถ้าเป็นทุกวันให้เช็คว่า Windmill/การกดทำงาน |

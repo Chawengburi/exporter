@@ -1,18 +1,18 @@
 #!/bin/bash
-# ดับเบิลคลิกจาก Desktop (macOS: Finder · Ubuntu: ไอคอน .desktop) → ดึงรายงาน FoodStory ของ "เมื่อวาน" ทั้งหมด (ticket 11, ADR-0006)
-# พร้อมเติมวันที่ยังไม่ได้กดและถ่ายรายงาน snapshot ของวันนี้ใน login เดียว (ใบ 06 ของ exporter-daily-per-day-raw, ADR-0008/0009)
+# Double-click from the Desktop (macOS: Finder · Ubuntu: the .desktop icon) -> pulls all of "yesterday's" FoodStory reports (ticket 11, ADR-0006)
+# and also fills in the days not yet pulled and takes today's snapshot reports in a single login (ticket 06 of exporter-daily-per-day-raw, ADR-0008/0009)
 #
-# พนักงานกด reCAPTCHA ครั้งเดียว ที่เหลือรันเองจนจบ แล้วสรุปเป็นภาษาไทย · วางบน Desktop เป็น alias/symlink ได้ — สคริปต์ตาม
-# symlink กลับมาหาโฟลเดอร์ exporter เอง ไม่ผูกกับ path ของเครื่องไหน · คู่มือ: docs/FOODSTORY-DAILY-STAFF-GUIDE.md
+# The staff member solves the reCAPTCHA once, the rest runs by itself to the end and then prints a summary · can be placed on the Desktop as an alias/symlink — the script follows the
+# symlink back to the exporter folder itself, so it is not tied to any machine's path · guide: docs/FOODSTORY-DAILY-STAFF-GUIDE.md
 #
-# ไม่พึ่ง PATH ของ Terminal: เปิดจาก Finder แล้ว PATH อาจไม่มี node (เช่น ติดตั้งผ่าน nvm) — หา node >= 22.18 เองตามลำดับ
-# · สรุปตอนจบอ่านจาก `_run.json` ทุกโฟลเดอร์ที่รอบนี้เขียน (เฉพาะรายงานที่รอบนี้รัน) ไม่แกะข้อความที่ exporter พิมพ์ — รันซ้ำแล้ว
-#   โฟลเดอร์ครบก็ขึ้นว่าครบ แม้รอบนี้จะล้มบางใบ (ไฟล์ที่ผ่านของรอบก่อนยังอยู่) · ไม่มีงานค้าง = exporter จบ 0 โดยไม่ login ไม่เขียน `_run.json`
+# Does not rely on the Terminal's PATH: when opened from Finder, PATH may not have node (e.g. installed through nvm) — finds node >= 22.18 itself, in order
+# · the final summary is read from the `_run.json` of every folder this run wrote (only the reports this run ran), not by parsing what the exporter prints — after a re-run
+#   where the folder is complete it says complete, even if this run failed some reports (the files that passed in the earlier run are still there) · nothing outstanding = the exporter ends with 0 without logging in and without writing `_run.json`
 set -u
 
 pause_and_exit() {
   echo
-  printf '%s' "กดปุ่มใดก็ได้เพื่อปิดหน้าต่างนี้ ..." # ไม่ใช้ read -p — bash แสดง prompt เฉพาะเมื่อ stdin เป็น terminal
+  printf '%s' "Press any key to close this window ..." # not read -p — bash shows the prompt only when stdin is a terminal
   read -r -n 1 -s || true
   echo
   exit "$1"
@@ -22,11 +22,11 @@ stop_with() {
   echo
   echo "❌ $1"
   [ -n "${2:-}" ] && echo "   $2"
-  echo "   ถ่ายรูปหน้าจอนี้ส่งให้ผู้ดูแลระบบ"
+  echo "   Take a screenshot of this screen and send it to the administrator"
   pause_and_exit 1
 }
 
-# ── หาโฟลเดอร์ exporter: ตาม symlink (เช่น ไฟล์บน Desktop) กลับไปหาตัวจริงใน <exporter>/launchers/ ──
+# ── find the exporter folder: follow the symlink (e.g. the file on the Desktop) back to the real one in <exporter>/launchers/ ──
 SELF="${BASH_SOURCE[0]}"
 while [ -L "$SELF" ]; do
   TARGET="$(readlink "$SELF")"
@@ -38,7 +38,7 @@ done
 EXPORTER_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
 STORE="$EXPORTER_DIR/data/foodstory"
 
-# ── หา node >= 22.18 (exporter รัน .ts ตรง ๆ ต้องใช้ type stripping ของ node รุ่นนี้ขึ้นไป) ──
+# ── find node >= 22.18 (the exporter runs .ts directly, which needs the type stripping of this node version or newer) ──
 node_ok() {
   "$1" -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=18)?0:1)' >/dev/null 2>&1
 }
@@ -49,65 +49,65 @@ nvm_default_node() {
   . "$NVM_DIR/nvm.sh" >/dev/null 2>&1 && nvm which default 2>/dev/null
 }
 NODE=""
-# macOS: Homebrew (/opt/homebrew, /usr/local) · Ubuntu: apt/NodeSource (/usr/bin) หรือแตกไฟล์เองใน ~/.local/node (ไม่ต้องใช้ sudo) · ทั้งคู่: nvm default ข้างล่าง
+# macOS: Homebrew (/opt/homebrew, /usr/local) · Ubuntu: apt/NodeSource (/usr/bin) or unpacked by hand in ~/.local/node (no sudo needed) · both: the nvm default below
 for candidate in "$(command -v node 2>/dev/null)" /opt/homebrew/bin/node /usr/local/bin/node /usr/bin/node "$HOME/.local/node/bin/node"; do
   if [ -n "$candidate" ] && [ -x "$candidate" ] && node_ok "$candidate"; then NODE="$candidate"; break; fi
 done
 if [ -z "$NODE" ]; then
-  candidate="$(nvm_default_node)" # โหลด nvm เฉพาะเมื่อหาแบบอื่นไม่เจอ — ช้า
+  candidate="$(nvm_default_node)" # load nvm only when nothing else is found — it is slow
   if [ -n "$candidate" ] && [ -x "$candidate" ] && node_ok "$candidate"; then NODE="$candidate"; fi
 fi
 
 echo "════════════════════════════════════════════════════════"
-echo "  ดึงรายงาน FoodStory (เมื่อวาน + วันที่ยังขาด + รายงาน snapshot)"
+echo "  Pulling FoodStory reports (yesterday + missing days + snapshot reports)"
 echo "════════════════════════════════════════════════════════"
 
-[ -n "$NODE" ] || stop_with "ไม่พบโปรแกรม Node.js (ต้องเป็นรุ่น 22.18 ขึ้นไป) บนเครื่องนี้" \
-  "ผู้ดูแลระบบ: ติดตั้ง Node.js แล้วลองใหม่ (ดูคู่มือ ส่วนติดตั้งครั้งแรก)"
-[ -e "$EXPORTER_DIR/.env" ] || stop_with "ไม่พบไฟล์ตั้งค่า .env ในโฟลเดอร์ $EXPORTER_DIR" \
-  "ผู้ดูแลระบบ: สร้างจาก .env.example แล้วใส่อีเมล/รหัสผ่าน FoodStory"
-[ -d "$EXPORTER_DIR/node_modules" ] || stop_with "โปรแกรมยังติดตั้งไม่ครบ (ไม่มีโฟลเดอร์ node_modules)" \
-  "ผู้ดูแลระบบ: รัน npm install ในโฟลเดอร์ $EXPORTER_DIR"
-mkdir -p "$STORE" || stop_with "สร้างโฟลเดอร์เก็บไฟล์ $STORE ไม่ได้"
+[ -n "$NODE" ] || stop_with "Node.js (version 22.18 or newer) was not found on this machine" \
+  "Administrator: install Node.js and try again (see the guide, first-time installation)"
+[ -e "$EXPORTER_DIR/.env" ] || stop_with "The .env settings file was not found in the folder $EXPORTER_DIR" \
+  "Administrator: create it from .env.example and fill in the FoodStory email/password"
+[ -d "$EXPORTER_DIR/node_modules" ] || stop_with "The program is not fully installed (there is no node_modules folder)" \
+  "Administrator: run npm install in the folder $EXPORTER_DIR"
+mkdir -p "$STORE" || stop_with "Could not create the file folder $STORE"
 
-# ── ล็อกต่อโฟลเดอร์ exporter: ดับเบิลคลิกซ้ำระหว่างรอบก่อนยังรัน = เบราว์เซอร์สองหน้าต่าง กด captcha สองครั้ง แย่งเขียนโฟลเดอร์เดียวกัน ──
-# ล็อกเก็บ pid — ถ้า process นั้นตายไปแล้ว (เช่น ปิดหน้าต่างกลางคัน) ถือว่าล็อกค้าง ยึดต่อได้
+# ── a lock per exporter folder: double-clicking again while the previous run is still going = two browser windows, two captchas, fighting over the same folder ──
+# the lock stores a pid — if that process is dead (e.g. the window was closed midway) the lock is stale and can be taken over
 LOCK="$STORE/.daily-launcher.pid"
 take_lock() { ( set -o noclobber; echo "$$" >"$LOCK" ) 2>/dev/null; }
-# ลบเฉพาะล็อกของรอบนี้ — หน้าต่างเก่าที่เพิ่งถูกปิดต้องไม่ลบล็อกของรอบใหม่ที่ยึดไปแล้ว
+# remove only this run's lock — an old window that was just closed must not remove the lock of a new run that has already taken it
 release_lock() { [ "$(cat "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"; return 0; }
 if ! take_lock; then
   OTHER="$(cat "$LOCK" 2>/dev/null)"
   if [ -n "$OTHER" ] && kill -0 "$OTHER" 2>/dev/null; then
     echo
-    echo "⏳ มีการดึงรายงาน FoodStory รันอยู่แล้วในอีกหน้าต่างหนึ่ง — รอให้หน้าต่างนั้นจบก่อน แล้วค่อยเปิดใหม่ถ้าจำเป็น"
+    echo "⏳ A FoodStory pull is already running in another window — wait for that window to finish, then open this again if needed"
     pause_and_exit 1
   fi
   rm -f "$LOCK"
-  take_lock || stop_with "ล็อกการรันไม่ได้ ($LOCK)"
+  take_lock || stop_with "Could not take the run lock ($LOCK)"
 fi
-# เวลาเริ่ม — ใช้หา `_run.json` ที่รอบนี้เขียน · template ต้องมี XXXXXX เอง: GNU mktemp (Ubuntu) ปฏิเสธ `-t ชื่อ` แบบ macOS
-MARK="$(mktemp "${TMPDIR:-/tmp}/foodstory-daily.XXXXXX")" || stop_with "สร้างไฟล์ชั่วคราวไม่ได้"
+# start time — used to find the `_run.json` files this run wrote · the template must contain XXXXXX itself: GNU mktemp (Ubuntu) rejects macOS-style `-t name`
+MARK="$(mktemp "${TMPDIR:-/tmp}/foodstory-daily.XXXXXX")" || stop_with "Could not create a temporary file"
 trap 'release_lock; rm -f "$MARK"' EXIT
 
 echo
-echo "  1. จะมีหน้าต่างเบราว์เซอร์เปิดขึ้นมา (อีเมลกับรหัสผ่านกรอกไว้ให้แล้ว)"
-echo "  2. ติ๊กช่อง \"ฉันไม่ใช่โปรแกรมอัตโนมัติ\" ทำตามที่ขึ้นมาจนผ่าน แล้วกดปุ่มเข้าสู่ระบบ — ภายใน 5 นาที"
-echo "  3. จากนั้นปล่อยไว้ ไม่ต้องกดอะไรในเบราว์เซอร์ จนหน้าต่างนี้ขึ้นสรุป (ราว 5-10 นาทีต่อวันที่ต้องดึง)"
-echo "     ถ้ารายงานได้ครบแล้ว จะไม่มีหน้าต่างเบราว์เซอร์ และไม่ต้องกดอะไร"
+echo "  1. A browser window will open (the email and password are already filled in)"
+echo "  2. Tick the \"I'm not a robot\" box, do what it asks until it passes, then press the login button — within 5 minutes"
+echo "  3. Then leave it alone — do not click anything in the browser — until this window shows a summary (about 5-10 minutes per day to pull)"
+echo "     If the reports are already complete, no browser window opens and there is nothing to click"
 echo
 
-cd "$EXPORTER_DIR" || stop_with "เข้าโฟลเดอร์ $EXPORTER_DIR ไม่ได้"
+cd "$EXPORTER_DIR" || stop_with "Could not enter the folder $EXPORTER_DIR"
 "$NODE" src/index.ts export --site foodstory --report all --daily --headful
 EXPORT_RC=$?
-# ปลดล็อกทันทีที่ดึงเสร็จ — หน้าต่างที่ค้างรอ "กดปุ่มใดก็ได้" ข้ามวันต้องไม่ทำให้รอบพรุ่งนี้ขึ้นว่า "รันอยู่แล้ว" (ลองจริง 2026-10-12)
+# release the lock as soon as the pull finishes — a window left waiting at "Press any key" overnight must not make tomorrow's run say "already running" (tried for real 2026-10-12)
 release_lock
 
-# ── สรุปจากสถานะล่าสุดรายใบใน `_run.json` ทุกโฟลเดอร์ที่รอบนี้เขียน (เติมหลายวัน + snapshot ของวันนี้ — ใบ 06) · นับเฉพาะรายงานที่รอบนี้รัน
-#    (รายการรอบสุดท้ายของโฟลเดอร์ ไม่มีรายการรอบ = ทุกใบ) · ผ่าน = ok หรือรอบนี้ล้มแต่ไฟล์ที่ผ่านของรอบก่อนยังอยู่ (previousOk) ──
+# ── summary from the latest per-report status in the `_run.json` of every folder this run wrote (several days back-filled + today's snapshots — ticket 06) · counts only the reports this run ran
+#    (the folder's last run entry; no run entry = every report) · passed = ok, or failed this time but the file that passed in an earlier run is still there (previousOk) ──
 SUMMARY="$(find "$STORE/daily" -name _run.json -newer "$MARK" 2>/dev/null | sort | xargs "$NODE" -e '
   const fs = require("fs");
-  // วันตามเวลาไทยของเวลาเริ่มรอบ — รายงานตามวันไม่เคยถูกดึงในวันของข้อมูลเอง โฟลเดอร์ที่วันตรงกับวันเริ่มรอบจึงเป็นโฟลเดอร์รายงาน snapshot
+  // the Thai-time day of the run start time — per-day reports are never pulled on their own data day, so the folder whose day equals the run start day is the folder of the snapshot reports
   const thaiDay = (iso) => { const d = new Date(iso); return isNaN(d) ? null : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(d); };
   let passed = 0, total = 0, pictures = 0, closes = 0; const days = []; let warnings = [];
   for (const f of process.argv.slice(1)) {
@@ -121,7 +121,7 @@ SUMMARY="$(find "$STORE/daily" -name _run.json -newer "$MARK" 2>/dev/null | sort
       if (!x) continue;
       total++;
       if (!(x.status === "ok" || x.previousOk)) continue;
-      passed++; // วัน/snapshot ที่บอกบนจอ = เฉพาะที่ได้จริง (วันที่ล้มทั้งวันไม่ขึ้นว่า "ได้ข้อมูล")
+      passed++; // the days/snapshots shown on screen = only what was really obtained (a day that failed entirely is not shown as "got data")
       if (id.endsWith("@period-close")) closes++;
       else if (pictureFolder) pictures++;
       else perDay = true;
@@ -140,12 +140,12 @@ DAYS="$(printf '%s\n' "$SUMMARY" | sed -n 2p)"
 read -r PICTURES CLOSES <<<"$(printf '%s\n' "$SUMMARY" | sed -n 3p)"
 PICTURES="${PICTURES:-0}"; CLOSES="${CLOSES:-0}"
 WARNINGS="$(printf '%s\n' "$SUMMARY" | sed -n '4,$p')"
-# ได้อะไรมาบ้าง (เฉพาะที่ได้จริง) — ทุกกรณีที่รอบนี้เขียนอย่างน้อยหนึ่งโฟลเดอร์ (ผ่านครบ / บางส่วน / ล้มหมด = ไม่ขึ้นบรรทัดนี้)
+# what was obtained (only what was really obtained) — in every case where this run wrote at least one folder (all passed / partial / all failed = this line is not shown)
 what_was_fetched() {
-  [ -n "$DAYS" ] && echo "   รายงานตามวัน: ข้อมูลวันที่ $DAYS"
+  [ -n "$DAYS" ] && echo "   Per-day reports: data for $DAYS"
   if [ "$PICTURES" -gt 0 ] || [ "$CLOSES" -gt 0 ]; then
-    line="   รายงาน snapshot: ถ่าย $PICTURES รายงาน"
-    [ "$CLOSES" -gt 0 ] && line="$line · snapshot ปิดงวด $CLOSES รายงาน"
+    line="   Snapshot reports: took $PICTURES report(s)"
+    [ "$CLOSES" -gt 0 ] && line="$line · period-close snapshots $CLOSES report(s)"
     echo "$line"
   fi
   return 0
@@ -155,30 +155,30 @@ echo
 echo "════════════════════════════════════════════════════════"
 if [ "$TOTAL" -eq 0 ] && [ "$EXPORT_RC" -eq 0 ]; then
   RESULT=0
-  echo "✅ ไม่มีงานค้าง — รายงานได้ครบแล้วตั้งแต่รอบก่อน ไม่ต้องกด captcha"
-  echo "   ปิดหน้าต่างนี้ได้เลย"
+  echo "✅ Nothing outstanding — the reports were already complete from an earlier run, no captcha needed"
+  echo "   You can close this window"
 elif [ "$TOTAL" -gt 0 ] && [ "$PASSED" -eq "$TOTAL" ]; then
   RESULT=0
-  echo "✅ เสร็จเรียบร้อย — ได้รายงานครบ $PASSED/$TOTAL รายงาน"
+  echo "✅ Done — got all $PASSED/$TOTAL reports"
   what_was_fetched
-  echo "   ไม่ต้องทำอะไรต่อ ปิดหน้าต่างนี้ได้เลย"
+  echo "   Nothing more to do, you can close this window"
 elif [ "$PASSED" -gt 0 ]; then
   RESULT=2
-  echo "⚠️  ได้บางส่วน — ได้ $PASSED จาก $TOTAL รายงาน · ไม่ผ่าน $((TOTAL - PASSED)) รายงาน"
+  echo "⚠️  Partial — got $PASSED of $TOTAL reports · $((TOTAL - PASSED)) reports failed"
   what_was_fetched
-  echo "   1. ดับเบิลคลิกไฟล์เดิมอีกครั้ง แล้วกด captcha ใหม่ — รายงานที่ได้แล้วจะไม่หาย"
-  echo "   2. ถ้ารอบที่สองยังขึ้นข้อความนี้ ถ่ายรูปหน้าจอนี้ส่งให้ผู้ดูแลระบบ"
+  echo "   1. Double-click the same file again and solve the captcha again — reports already obtained are not lost"
+  echo "   2. If the second run still shows this message, take a screenshot of this screen and send it to the administrator"
 elif [ "$TOTAL" -gt 0 ]; then
   RESULT=1
-  echo "❌ ไม่สำเร็จ — เข้าสู่ระบบได้ แต่ไม่ได้รายงานเลยสักรายงาน"
+  echo "❌ Failed — logged in, but not a single report was obtained"
   what_was_fetched
-  echo "   ถ่ายรูปหน้าจอนี้ส่งให้ผู้ดูแลระบบ"
+  echo "   Take a screenshot of this screen and send it to the administrator"
 else
   RESULT=1
-  echo "❌ ไม่สำเร็จ — ยังไม่ได้รายงาน"
-  echo "   สาเหตุที่พบบ่อย: กด captcha/เข้าสู่ระบบไม่ทันใน 5 นาที หรืออินเทอร์เน็ตหลุด"
-  echo "   1. ดับเบิลคลิกไฟล์เดิมอีกครั้ง"
-  echo "   2. ถ้ายังไม่ได้ ถ่ายรูปหน้าจอนี้ส่งให้ผู้ดูแลระบบ"
+  echo "❌ Failed — no reports were obtained yet"
+  echo "   Common causes: the captcha/login was not completed within 5 minutes, or the internet dropped"
+  echo "   1. Double-click the same file again"
+  echo "   2. If it still does not work, take a screenshot of this screen and send it to the administrator"
 fi
 [ -n "$WARNINGS" ] && printf '%s\n' "$WARNINGS" | sed 's/^/⚠️  /'
 echo "════════════════════════════════════════════════════════"

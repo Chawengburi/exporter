@@ -7,9 +7,9 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-// ticket 11: ไฟล์ดับเบิลคลิกของพนักงาน — รันสคริปต์จริงในโฟลเดอร์ exporter ปลอม ที่ `src/index.ts` เป็นตัวแทนที่เขียน `_run.json`
-// ลงคลังแบบ exporter (หรือไม่เขียนเลย = ล้มก่อนจบ เช่น captcha ไม่ทัน) แล้วจบด้วย exit code ที่กำหนด — ไม่เปิดเบราว์เซอร์ · การใช้งานจริง
-// พิสูจน์ด้วยคนลองตามคู่มือ (seam ตกลงกับเจ้าของ 2026-10-12) · สรุปบนจออ่านจาก `_run.json` ที่รวมผลทั้งโฟลเดอร์ ไม่ใช่ข้อความที่ exporter พิมพ์
+// ticket 11: the staff double-click file — runs the real script in a fake exporter folder whose `src/index.ts` is a stand-in that writes `_run.json`
+// into the store the way the exporter does (or writes nothing = failed before finishing, e.g. the captcha was too slow) and then exits with a given exit code — no browser is opened · real use
+// is proven by a person trying it following the guide (seam agreed with the owner 2026-10-12) · the summary on screen is read from the `_run.json` that combines the results of the whole folder, not from what the exporter prints
 const LAUNCHER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'launchers', 'foodstory-daily.command');
 
 const tempDirs: string[] = [];
@@ -27,13 +27,13 @@ type Fake = { readonly dir: string; readonly launcher: string; readonly argsFile
 
 type FakeFolder = {
   readonly day: string; readonly reports: Readonly<Record<string, ReportState>>; readonly warnings?: readonly string[];
-  /** เวลาเริ่มรอบ (UTC ISO) — โฟลเดอร์ที่วันตรงกับวันที่เริ่มรอบ (เวลาไทย) คือโฟลเดอร์รายงาน snapshot ของวันนี้ */
+  /** start time of the run (UTC ISO) — the folder whose day equals the run's start day (Thai time) is today's snapshot-report folder */
   readonly startedAt?: string;
 };
 
 /**
- * `reports` = สถานะล่าสุดรายใบใน `_run.json` ของโฟลเดอร์เมื่อวาน · `folders` = รอบที่เขียนหลายโฟลเดอร์ (เติมวันที่ขาด + snapshot ของวันนี้ — ใบ 06)
- * · ไม่ระบุทั้งคู่ = ตัวแทนไม่เขียน `_run.json` เลย
+ * `reports` = the latest per-report status in the `_run.json` of yesterday's folder · `folders` = a run that writes several folders (back-filled days + today's snapshots — ticket 06)
+ * · neither given = the stand-in writes no `_run.json` at all
  */
 async function fakeExporter(opts: {
   env?: boolean;
@@ -53,7 +53,7 @@ async function fakeExporter(opts: {
   const argsFile = path.join(dir, 'args.json');
   const toRecord = (f: FakeFolder, runs: boolean) => ({
     site: 'foodstory', kind: 'daily', dataThrough: f.day, skipped: [],
-    // รอบเดิมของ ticket 11 ไม่มีรายการรอบ (runs ว่าง) — launcher ต้องนับทุกใบในโฟลเดอร์เหมือนเดิม
+    // ticket 11's original run has no run entries (runs is empty) — the launcher must count every report in the folder as before
     runs: runs ? [{ startedAt: f.startedAt ?? 'x', finishedAt: 'x', reports: Object.keys(f.reports), ...(f.warnings ? { warnings: f.warnings } : {}) }] : [],
     reports: Object.fromEntries(Object.entries(f.reports).map(([id, r]) => [id, {
       report: id, status: r.status,
@@ -77,64 +77,64 @@ async function fakeExporter(opts: {
   return { dir, launcher, argsFile };
 }
 
-// 17:00 เวลาไทย 2026-10-14 — รอบที่เติมวันที่ 12, 13 และถ่าย snapshot ของวันที่ 14
+// 17:00 Thai time 2026-10-14 — a run that backfills the 12th and 13th and takes the snapshots of the 14th
 const STARTED = '2026-10-14T10:00:00.000Z';
 
 const all = (n: number, state: ReportState): Record<string, ReportState> =>
   Object.fromEntries(Array.from({ length: n }, (_, i) => [`r${i}`, state]));
 
 function run(file: string): { code: number | null; out: string } {
-  // stdin = ปุ่มที่กดตอน "กดปุ่มใดก็ได้เพื่อปิดหน้าต่าง"
+  // stdin = the key pressed at "Press any key to close this window"
   const r = spawnSync('bash', [file], { input: 'x', encoding: 'utf8', timeout: 30_000 });
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
 }
 
-test('ผ่านครบ: รัน exporter รอบรายวัน FoodStory แบบเปิดเบราว์เซอร์ แล้วสรุปภาษาไทยว่าเสร็จ ไม่ต้องทำอะไรต่อ', async () => {
+test('all passed: runs the FoodStory daily exporter run with a visible browser, then summarises that it is done and nothing more is needed', async () => {
   const fake = await fakeExporter({ reports: all(49, { status: 'ok' }) });
   const { code, out } = run(fake.launcher);
   assert.equal(code, 0);
   assert.deepEqual(JSON.parse(await readFile(fake.argsFile, 'utf8')), ['export', '--site', 'foodstory', '--report', 'all', '--daily', '--headful']);
-  assert.match(out, /เสร็จเรียบร้อย[\s\S]*49\/49/);
-  assert.match(out, /ปิดหน้าต่างนี้ได้เลย/);
+  assert.match(out, /Done[\s\S]*49\/49/);
+  assert.match(out, /you can close this window/);
 });
 
-test('ได้บางใบ: บอกว่าได้กี่ใบ ไม่ผ่านกี่ใบ และต้องทำอะไร (ดับเบิลคลิกใหม่ แล้วค่อยแจ้งผู้ดูแลระบบ)', async () => {
+test('some reports: says how many passed and how many failed and what to do (double-click again, then tell the administrator)', async () => {
   const failed = { status: 'failed' } as const;
   const fake = await fakeExporter({ exit: 2, reports: { ...all(45, { status: 'ok' }), f1: failed, f2: failed, f3: failed, f4: failed } });
   const { code, out } = run(fake.launcher);
   assert.equal(code, 2);
-  assert.match(out, /ได้ 45 จาก 49[\s\S]*ไม่ผ่าน 4 รายงาน/);
-  assert.match(out, /ดับเบิลคลิก[\s\S]*อีกครั้ง/);
-  assert.match(out, /ผู้ดูแลระบบ/);
+  assert.match(out, /got 45 of 49[\s\S]*4 reports failed/);
+  assert.match(out, /Double-click[\s\S]*again/);
+  assert.match(out, /administrator/);
 });
 
-test('รันซ้ำแล้วรอบนี้ล้มบางใบ แต่ไฟล์ที่ผ่านของรอบก่อนในโฟลเดอร์ยังอยู่ = โฟลเดอร์ครบ → ขึ้นว่าเสร็จ ไม่ให้แจ้งผู้ดูแลระบบเปล่า ๆ', async () => {
+test('a re-run where this run failed some reports but the files that passed in an earlier run are still in the folder = the folder is complete -> says done, no pointless call to the administrator', async () => {
   const kept = { status: 'failed', previousOk: true } as const;
   const fake = await fakeExporter({ exit: 2, reports: { ...all(47, { status: 'ok' }), a: kept, b: kept } });
   const { code, out } = run(fake.launcher);
   assert.equal(code, 0);
-  assert.match(out, /เสร็จเรียบร้อย[\s\S]*49\/49/);
+  assert.match(out, /Done[\s\S]*49\/49/);
 });
 
-test('ล้มก่อนจบ (ไม่มี _run.json — เช่น กด captcha ไม่ทัน 5 นาที, อินเทอร์เน็ต): บอกสาเหตุที่พบบ่อย ให้ลองใหม่/แจ้งผู้ดูแลระบบ', async () => {
+test('failed before finishing (no _run.json — e.g. the captcha was not solved within 5 minutes, the internet): states the common causes, to try again/tell the administrator', async () => {
   const fake = await fakeExporter({ exit: 1 });
   const { code, out } = run(fake.launcher);
   assert.equal(code, 1);
-  assert.match(out, /ไม่สำเร็จ/);
+  assert.match(out, /Failed/);
   assert.match(out, /captcha/i);
-  assert.match(out, /ผู้ดูแลระบบ/);
+  assert.match(out, /administrator/);
 });
 
-test('เข้าสู่ระบบได้แต่ไม่ได้รายงานเลยสักใบ: ไม่โทษ captcha — ให้แจ้งผู้ดูแลระบบ', async () => {
+test('logged in but not a single report obtained: does not blame the captcha — tell the administrator', async () => {
   const fake = await fakeExporter({ exit: 1, reports: all(49, { status: 'failed' }) });
   const { code, out } = run(fake.launcher);
   assert.equal(code, 1);
-  assert.match(out, /ไม่ได้รายงานเลย/);
+  assert.match(out, /not a single report/);
   assert.doesNotMatch(out, /captcha/i);
-  assert.match(out, /ผู้ดูแลระบบ/);
+  assert.match(out, /administrator/);
 });
 
-test('ไม่มีไฟล์ตั้งค่า .env: บอกชัด ไม่เริ่มรัน', async () => {
+test('no .env settings file: says so clearly, does not start', async () => {
   const fake = await fakeExporter({ env: false });
   const { code, out } = run(fake.launcher);
   assert.equal(code, 1);
@@ -142,7 +142,7 @@ test('ไม่มีไฟล์ตั้งค่า .env: บอกชัด 
   assert.equal(existsSync(fake.argsFile), false);
 });
 
-test('ยังไม่ได้ติดตั้ง (ไม่มี node_modules): บอกชัด ไม่เริ่มรัน', async () => {
+test('not installed yet (no node_modules): says so clearly, does not start', async () => {
   const fake = await fakeExporter({ nodeModules: false });
   const { code, out } = run(fake.launcher);
   assert.equal(code, 1);
@@ -150,22 +150,22 @@ test('ยังไม่ได้ติดตั้ง (ไม่มี node_mod
   assert.equal(existsSync(fake.argsFile), false);
 });
 
-test('ดับเบิลคลิกซ้ำระหว่างรอบก่อนของโฟลเดอร์นี้ยังรันอยู่: บอกว่ารันอยู่แล้ว ไม่เริ่มรอบที่สอง · ตัวล็อกค้างจากรอบที่ตายไปแล้วไม่ขวาง', async () => {
+test('double-clicking again while the previous run of this folder is still going: says it is already running, does not start a second run · a stale lock from a dead run does not block', async () => {
   const fake = await fakeExporter({ reports: all(49, { status: 'ok' }) });
   const lock = path.join(fake.dir, 'data', 'foodstory', '.daily-launcher.pid');
   await mkdir(path.dirname(lock), { recursive: true });
-  await writeFile(lock, `${process.pid}\n`); // process นี้ยังมีชีวิต = มีรอบรันอยู่
+  await writeFile(lock, `${process.pid}\n`); // this process is alive = a run is going
   const busy = run(fake.launcher);
   assert.equal(busy.code, 1);
-  assert.match(busy.out, /รันอยู่แล้ว/);
+  assert.match(busy.out, /already running/);
   assert.equal(existsSync(fake.argsFile), false);
 
-  await writeFile(lock, '999999\n'); // pid ที่ไม่มีอยู่ = ตัวล็อกค้าง
+  await writeFile(lock, '999999\n'); // a pid that does not exist = a stale lock
   assert.equal(run(fake.launcher).code, 0);
-  assert.equal(existsSync(lock), false, 'จบแล้วต้องปลดล็อก');
+  assert.equal(existsSync(lock), false, 'the lock must be released when it finishes');
 });
 
-test('เรียกผ่าน symlink บน Desktop: ยังหาโฟลเดอร์ exporter เจอ', async () => {
+test('called through a symlink on the Desktop: still finds the exporter folder', async () => {
   const fake = await fakeExporter({ reports: all(49, { status: 'ok' }) });
   const link = path.join(await tempDir('fs-desktop-'), 'Exporter - FoodStory Daily.command');
   await symlink(fake.launcher, link);
@@ -174,19 +174,19 @@ test('เรียกผ่าน symlink บน Desktop: ยังหาโฟ�
   assert.ok(existsSync(fake.argsFile));
 });
 
-// ลองจริง 2026-10-12: หน้าต่างค้างที่ "กดปุ่มใดก็ได้" ยังถือล็อกอยู่ — พนักงานเปิดทิ้งไว้ข้ามวัน พรุ่งนี้ดับเบิลคลิกจะขึ้นว่า "รันอยู่แล้ว"
-// ต้องปลดล็อกทันทีที่ดึงเสร็จ ก่อนรอกดปุ่ม
-test('ระหว่างรอ "กดปุ่มใดก็ได้" ตอนจบ ล็อกต้องถูกปลดแล้ว (เปิดหน้าต่างทิ้งไว้ไม่ขวางรอบถัดไป)', async () => {
+// Tried for real 2026-10-12: a window left at "Press any key" still held the lock — a staff member left it open overnight, so tomorrow's double-click would say "already running"
+// the lock must be released as soon as the pull finishes, before waiting for a key
+test('while waiting at "Press any key" at the end, the lock must already be released (a window left open does not block the next run)', async () => {
   const { spawn } = await import('node:child_process');
   const fake = await fakeExporter({ reports: all(49, { status: 'ok' }) });
   const lock = path.join(fake.dir, 'data', 'foodstory', '.daily-launcher.pid');
   const child = spawn('bash', [fake.launcher], { stdio: ['pipe', 'pipe', 'pipe'] });
   let out = '';
   const waiting = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`ไม่ถึงขั้นรอกดปุ่ม: ${out}`)), 20_000);
+    const timer = setTimeout(() => reject(new Error(`never reached the wait for a key: ${out}`)), 20_000);
     const onData = (b: Buffer) => {
       out += b.toString();
-      if (out.includes('กดปุ่มใดก็ได้')) { clearTimeout(timer); resolve(); }
+      if (out.includes('Press any key')) { clearTimeout(timer); resolve(); }
     };
     child.stdout.on('data', onData);
     child.stderr.on('data', onData);
@@ -194,15 +194,15 @@ test('ระหว่างรอ "กดปุ่มใดก็ได้" ต�
   const closed = new Promise<number | null>((resolve) => child.on('close', resolve));
   try {
     await waiting;
-    assert.equal(existsSync(lock), false, 'ยังถือล็อกอยู่ระหว่างรอกดปุ่ม');
+    assert.equal(existsSync(lock), false, 'still holding the lock while waiting for a key');
     child.stdin.end('x');
     assert.equal(await closed, 0);
   } finally {
-    child.kill(); // ล้มกลางทางต้องไม่ทิ้ง bash ค้างรอ stdin จน test ไม่จบ
+    child.kill(); // failing midway must not leave bash hanging on stdin so that the test never finishes
   }
 });
 
-test('🔴 รอบเดียวเติมหลายวัน + snapshot ของวันนี้ (ใบ 06): รวมผลทุกโฟลเดอร์ที่รอบนี้เขียน บอกวันที่ได้ และคำเตือนวันที่ยังขาด', async () => {
+test('🔴 one run back-fills several days + today\'s snapshots (ticket 06): combines the results of every folder this run wrote, says which days were obtained, and the warning about days still missing', async () => {
   const fake = await fakeExporter({
     folders: [
       { day: '2026-10-12', reports: all(42, { status: 'ok' }), startedAt: STARTED },
@@ -212,21 +212,21 @@ test('🔴 รอบเดียวเติมหลายวัน + snapshot 
   });
   const { code, out } = run(fake.launcher);
   assert.equal(code, 0);
-  assert.match(out, /เสร็จเรียบร้อย[\s\S]*91\/91/);
-  assert.match(out, /รายงานตามวัน: ข้อมูลวันที่ 2026-10-12, 2026-10-13\n/);
-  assert.match(out, /รายงาน snapshot: ถ่าย 7 รายงาน/);
+  assert.match(out, /Done[\s\S]*91\/91/);
+  assert.match(out, /Per-day reports: data for 2026-10-12, 2026-10-13\n/);
+  assert.match(out, /Snapshot reports: took 7 report\(s\)/);
   assert.match(out, /ยังขาดอีก 2 วัน/);
 });
 
-test('🔴 ไม่มีงานค้าง (exporter จบ 0 โดยไม่ login ไม่เขียน _run.json): บอกว่าครบแล้ว ไม่ใช่ "ไม่สำเร็จ"', async () => {
+test('🔴 nothing outstanding (the exporter ends with 0 without logging in and without writing _run.json): says it is complete, not "Failed"', async () => {
   const fake = await fakeExporter({ exit: 0 });
   const { code, out } = run(fake.launcher);
   assert.equal(code, 0);
-  assert.match(out, /ไม่มีงานค้าง|ครบแล้ว/);
-  assert.doesNotMatch(out, /ไม่สำเร็จ/);
+  assert.match(out, /Nothing outstanding/);
+  assert.doesNotMatch(out, /Failed/);
 });
 
-test('🔴 ได้บางส่วน: ยังบอกว่าได้ข้อมูลวันไหน snapshot กี่รายงาน และ snapshot ปิดงวด — นับเฉพาะที่ได้จริง วันที่ล้มทั้งวันไม่ขึ้น (code review ใบ 06 — เดิมบอกเฉพาะตอนผ่านครบ)', async () => {
+test('🔴 partial: still says which days were obtained, how many snapshot reports and period-close snapshots — counts only what was really obtained, a day that failed entirely is not shown (code review of ticket 06 — it used to say this only when everything passed)', async () => {
   const fake = await fakeExporter({
     folders: [
       { day: '2026-09-30', reports: { a: { status: 'ok' }, 'salebymonthsum@period-close': { status: 'ok' } }, startedAt: STARTED },
@@ -237,7 +237,7 @@ test('🔴 ได้บางส่วน: ยังบอกว่าได้�
   });
   const { code, out } = run(fake.launcher);
   assert.equal(code, 2);
-  assert.match(out, /ได้บางส่วน/);
-  assert.match(out, /รายงานตามวัน: ข้อมูลวันที่ 2026-09-30, 2026-10-13\n/);
-  assert.match(out, /รายงาน snapshot: ถ่าย 1 รายงาน · snapshot ปิดงวด 1 รายงาน/);
+  assert.match(out, /Partial/);
+  assert.match(out, /Per-day reports: data for 2026-09-30, 2026-10-13\n/);
+  assert.match(out, /Snapshot reports: took 1 report\(s\) · period-close snapshots 1 report\(s\)/);
 });

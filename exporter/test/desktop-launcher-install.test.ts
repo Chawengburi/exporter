@@ -7,9 +7,9 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-// ticket 02 (exporter-ubuntu-deploy): วางไฟล์ดับเบิลคลิกบน Desktop ด้วยคำสั่งเดียว — macOS = symlink ไป .command,
-// Ubuntu = ไฟล์ .desktop (Terminal=true) · รันสคริปต์จริงโดยชี้ HOME ไปโฟลเดอร์ชั่วคราว (ไม่แตะ Desktop จริง) — test ชุดเดียวรันได้ทั้งบน
-// Mac และใน container Linux ผลที่ตรวจตาม process.platform
+// ticket 02 (exporter-ubuntu-deploy): place the double-click file on the Desktop with a single command — macOS = a symlink to the .command,
+// Ubuntu = a .desktop file (Terminal=true) · runs the real script with HOME pointed at a temporary folder (the real Desktop is not touched) — the same test suite runs on
+// a Mac and in a Linux container, with the checks depending on process.platform
 const LAUNCHERS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'launchers');
 const INSTALL = path.join(LAUNCHERS, 'install-desktop-launcher.sh');
 const TARGET = path.join(LAUNCHERS, 'foodstory-daily.command');
@@ -29,7 +29,7 @@ function install(home: string): { code: number | null; out: string } {
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
 }
 
-test('วางไฟล์ดับเบิลคลิกบน Desktop ที่ชี้กลับมาที่ launchers/foodstory-daily.command ของโฟลเดอร์นี้ · รันซ้ำได้', async () => {
+test('places the double-click file on the Desktop pointing back at this folder\'s launchers/foodstory-daily.command · safe to re-run', async () => {
   const home = await fakeHome();
   const first = install(home);
   assert.equal(first.code, 0, first.out);
@@ -46,26 +46,26 @@ test('วางไฟล์ดับเบิลคลิกบน Desktop ท�
     assert.match(entry, new RegExp(`^Name=${NAME}$`, 'm'));
     assert.match(entry, /^Terminal=true$/m);
     assert.ok(entry.includes(`Exec=bash "${TARGET}"`), entry);
-    assert.ok(((await stat(file)).mode & 0o111) !== 0, 'ไฟล์ .desktop ต้อง executable ไม่งั้น GNOME ไม่ยอมเปิด');
-    assert.ok(existsSync(path.join(home, '.local', 'share', 'applications', 'foodstory-daily.desktop')), 'ต้องอยู่ในเมนูแอปด้วย');
+    assert.ok(((await stat(file)).mode & 0o111) !== 0, 'the .desktop file must be executable, otherwise GNOME refuses to open it');
+    assert.ok(existsSync(path.join(home, '.local', 'share', 'applications', 'foodstory-daily.desktop')), 'it must also be in the app menu');
   }
   const again = install(home);
   assert.equal(again.code, 0, again.out);
 });
 
-test('มีไฟล์ชื่อเดียวกันบน Desktop ที่ไม่ใช่ของเรา: ไม่เขียนทับ บอกให้ลบเอง', async () => {
+test('a file with the same name on the Desktop that is not ours: not overwritten, tells the user to delete it themselves', async () => {
   const home = await fakeHome();
   const desktop = path.join(home, 'Desktop');
   await mkdir(desktop, { recursive: true });
   const other = path.join(desktop, process.platform === 'darwin' ? `${NAME}.command` : `${NAME}.desktop`);
-  await writeFile(other, 'ของคนอื่น\n');
+  await writeFile(other, 'someone else\n');
   const { code, out } = install(home);
   assert.equal(code, 1);
-  assert.match(out, /มีไฟล์ชื่อนี้อยู่แล้ว/);
-  assert.equal(await readFile(other, 'utf8'), 'ของคนอื่น\n');
+  assert.match(out, /already exists/);
+  assert.equal(await readFile(other, 'utf8'), 'someone else\n');
 });
 
-test('มี symlink ค้างชื่อเดียวกันบน Desktop (ชี้ไปที่อื่น): ไม่เขียนทะลุ symlink ไปสร้างไฟล์ที่ปลายทาง', async () => {
+test('a leftover symlink with the same name on the Desktop (pointing elsewhere): not written through to create a file at the target', async () => {
   const { symlink } = await import('node:fs/promises');
   const home = await fakeHome();
   const desktop = path.join(home, 'Desktop');
@@ -74,11 +74,11 @@ test('มี symlink ค้างชื่อเดียวกันบน Desk
   await symlink(elsewhere, path.join(desktop, process.platform === 'darwin' ? `${NAME}.command` : `${NAME}.desktop`));
   const { code, out } = install(home);
   assert.equal(code, 1);
-  assert.match(out, /มีไฟล์ชื่อนี้อยู่แล้ว/);
+  assert.match(out, /already exists/);
   assert.equal(existsSync(elsewhere), false);
 });
 
-test('macOS: symlink เดิมของเราที่ชี้ไป repo ตำแหน่งเก่า (ย้ายโฟลเดอร์) → เปลี่ยนให้ชี้ที่ใหม่', { skip: process.platform !== 'darwin' }, async () => {
+test('macOS: our own existing symlink pointing at the repo\'s old location (the folder was moved) -> repointed to the new one', { skip: process.platform !== 'darwin' }, async () => {
   const { symlink } = await import('node:fs/promises');
   const home = await fakeHome();
   const desktop = path.join(home, 'Desktop');
@@ -90,11 +90,11 @@ test('macOS: symlink เดิมของเราที่ชี้ไป repo
   assert.equal(await readlink(link), TARGET);
 });
 
-test('Linux: เมนูแอปมีไฟล์ชื่อเดียวกันที่ไม่ใช่ของเรา → ไม่วางอะไรเลยสักที่ (ไม่ติดตั้งครึ่งเดียว)', { skip: process.platform === 'darwin' }, async () => {
+test('Linux: the app menu has a file with the same name that is not ours -> nothing is placed anywhere (no half installs)', { skip: process.platform === 'darwin' }, async () => {
   const home = await fakeHome();
   const apps = path.join(home, '.local', 'share', 'applications');
   await mkdir(apps, { recursive: true });
-  await writeFile(path.join(apps, 'foodstory-daily.desktop'), 'ของคนอื่น\n');
+  await writeFile(path.join(apps, 'foodstory-daily.desktop'), 'someone else\n');
   const { code } = install(home);
   assert.equal(code, 1);
   assert.equal(existsSync(path.join(home, 'Desktop', `${NAME}.desktop`)), false);

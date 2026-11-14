@@ -1,23 +1,23 @@
 # exporter
 
-ดึงรายงานจากเว็บที่ไม่มี API ด้วย Playwright แล้วเก็บลงดิสก์ — **HotelTime** (PMS โรงแรม, รันอัตโนมัติทุกวันผ่าน Windmill) และ
-**FoodStory** (POS ร้านอาหาร, พนักงานดับเบิลคลิกแล้วกด reCAPTCHA เองวันละครั้ง)
+Pulls reports from websites that have no API, using Playwright, and stores them on disk — **HotelTime** (hotel PMS, runs automatically every day through Windmill) and
+**FoodStory** (restaurant POS, staff double-click an icon and solve the reCAPTCHA themselves once a day).
 
-> repo นี้คือต้นทางของโปรเจกต์ (พัฒนาและ commit ที่นี่โดยตรง) · ผู้ดูแลเครื่อง Ubuntu อัปเดตด้วย `git pull` ตามคู่มือ
+> This repo is the source of the project (developed and committed here directly) · the Ubuntu machine's administrator updates it with `git pull` as described in the guide.
 
-## โครงสร้าง
+## Layout
 
-| โฟลเดอร์ | คืออะไร |
+| Folder | What it is |
 |---|---|
-| `exporter/` | ตัวโปรแกรม (Node.js ≥ 22.18 + Playwright) — เริ่มที่ [`exporter/README.md`](exporter/README.md) |
-| `exporter/launchers/` | ไฟล์ดับเบิลคลิกสำหรับพนักงาน (FoodStory รายวัน) |
-| `windmill/` | ตัวตั้งเวลาให้ HotelTime รันทุกวัน (Docker) — [`windmill/INSTALL.md`](windmill/INSTALL.md) |
-| `docs/` | คู่มือผู้ดูแลระบบ Ubuntu, คู่มือพนักงาน FoodStory, คู่มือผู้ใช้, สอนใช้ CLI (ภาษาไทย) |
+| `exporter/` | The program (Node.js ≥ 22.18 + Playwright) — start at [`exporter/README.md`](exporter/README.md) |
+| `exporter/launchers/` | Double-click files for staff (FoodStory daily) |
+| `windmill/` | The scheduler that runs the daily jobs (Docker) — [`windmill/INSTALL.md`](windmill/INSTALL.md) |
+| `docs/` | Ubuntu administrator guide, FoodStory staff guide, user guides, CLI tutorial (mostly Thai) |
 
-## ติดตั้งบน Ubuntu Desktop
+## Installing on Ubuntu Desktop
 
-ผู้ดูแลระบบติดตั้ง **Node.js 22.18+** และ **Docker (มี docker compose)** เองก่อน และเพิ่ม **deploy key** ของเครื่อง (repo นี้ private —
-ขั้นตอนอยู่ใน [`docs/UBUNTU-ADMIN-GUIDE.md`](docs/UBUNTU-ADMIN-GUIDE.md) หัวข้อก่อนติดตั้ง) แล้วในบัญชีของคนที่จะใช้เครื่อง (ห้ามใส่ sudo):
+The administrator first installs **Node.js 22.18+** and **Docker (with docker compose)** and adds the machine's **deploy key** (this repo is private —
+the steps are in [`docs/UBUNTU-ADMIN-GUIDE.md`](docs/UBUNTU-ADMIN-GUIDE.md), "before installing"). Then, in the account of the person who will use the machine (do not use sudo):
 
 ```bash
 git clone git@github.com:Chawengburi/exporter.git ~/chawengburi-exporter
@@ -25,19 +25,19 @@ cd ~/chawengburi-exporter
 bash deploy/ubuntu/install.sh
 ```
 
-สคริปต์ติดตั้ง package + Chromium, ถามรหัสผ่าน HotelTime/FoodStory แล้วเขียน `exporter/.env`, ตั้งวันเริ่มใช้งานเป็นวันที่ติดตั้ง และถาม
-URL ของ Discord webhook (ข้ามได้), สุ่มรหัสฐานข้อมูล Windmill, วางไอคอน "Exporter - FoodStory Daily" บน Desktop, เปิดและตั้งค่า Windmill และลอง
-ล็อกอิน HotelTime · รันซ้ำได้เสมอ (ไม่แตะค่าที่มีแล้วใน `.env` — เติมแค่ที่ยังไม่มี)
+The installer installs the packages and Chromium, asks for the HotelTime/FoodStory passwords and writes `exporter/.env`, sets the go-live date to the install date, asks for the
+Discord webhook URL (optional), generates the Windmill database password, places the "Exporter - FoodStory Daily" icon on the Desktop, starts and configures Windmill, and tries a
+HotelTime login · it can always be re-run (it never touches values already in `.env` — it only fills in what is missing).
 
-**คู่มือผู้ดูแลระบบ (ติดตั้ง งานประจำ เช็คสถานะ แก้ปัญหา อัปเดต): [`docs/UBUNTU-ADMIN-GUIDE.md`](docs/UBUNTU-ADMIN-GUIDE.md)**
+**Administrator guide (install, routine work, checking status, troubleshooting, updating): [`docs/UBUNTU-ADMIN-GUIDE.md`](docs/UBUNTU-ADMIN-GUIDE.md)**
 
-| โฟลเดอร์ | คืออะไร |
+| Folder | What it is |
 |---|---|
-| `deploy/ubuntu/` | สคริปต์ติดตั้ง (`install.sh`) และตัวทดสอบใน Docker |
+| `deploy/ubuntu/` | The install script (`install.sh`) and its Docker test harness |
 
-## สิ่งที่ไม่อยู่ใน repo นี้ (ตั้งใจ)
+## What is deliberately not in this repo
 
-- `exporter/.env`, `windmill/.env` — รหัสผ่าน/ค่าตั้ง สร้างจาก `.env.example` บนเครื่องที่ติดตั้ง **ห้าม commit**
-- `exporter/data/` — ไฟล์ที่ดึงมา มีข้อมูลลูกค้าและยอดขาย **ห้าม commit / ห้ามส่งต่อ**
-- `exporter/.auth/` — session ของเบราว์เซอร์
-- บันทึกการสำรวจเว็บ (recon) ที่มี path ส่วนตัว — เก็บแยกในที่เก็บเอกสารภายใน ไม่อยู่ใน repo นี้ (เอกสารการตัดสินใจ ADR อยู่ใน `docs/adr/`)
+- `exporter/.env`, `windmill/.env` — passwords and settings, created from `.env.example` on the installed machine. **Never commit.**
+- `exporter/data/` — pulled files, containing customer and sales data. **Never commit or pass on.**
+- `exporter/.auth/` — browser sessions
+- Web recon notes that contain private paths — kept separately in the internal documentation store, not in this repo (decision records, ADRs, are in `docs/adr/`)

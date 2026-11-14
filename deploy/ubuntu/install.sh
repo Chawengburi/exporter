@@ -1,15 +1,15 @@
 #!/bin/bash
-# ติดตั้ง exporter บน Ubuntu Desktop ด้วยคำสั่งเดียว (ticket 04 ของ exporter-ubuntu-deploy)
+# Install the exporter on Ubuntu Desktop with a single command (ticket 04 of exporter-ubuntu-deploy)
 #
-#   cd <โฟลเดอร์ที่ clone Chawengburi/exporter มา>
-#   bash deploy/ubuntu/install.sh                      ← รันในบัญชีของคนที่จะใช้เครื่อง ห้ามใส่ sudo (สคริปต์ขอ sudo เองตอนจำเป็น)
+#   cd <the folder where Chawengburi/exporter was cloned>
+#   bash deploy/ubuntu/install.sh                      <- run in the account of the person who will use the machine, without sudo (the script asks for sudo itself when needed)
 #
-#   --skip-windmill    ไม่เปิด Windmill (Docker)
-#   --no-login-check   ไม่ลองล็อกอิน HotelTime ตอนจบ
+#   --skip-windmill    do not start Windmill (Docker)
+#   --no-login-check   do not try a HotelTime login at the end
 #
-# รันซ้ำได้: ค่าใน .env ที่มีอยู่แล้วไม่ถูกแตะ (แก้เองด้วย nano) — แค่เติมวันเริ่มใช้งาน/URL ของ Discord ถ้ายังไม่มี (ใบ 10) · ไม่ลบ node_modules ที่ติดตั้งครบแล้ว (Windmill mount โฟลเดอร์นี้อยู่ —
-# ลบระหว่างรอบเที่ยงจะทำให้รอบนั้นพัง) · ไม่เรียก apt ซ้ำถ้า Chromium เปิดได้แล้ว · ไม่ติดตั้ง Node.js/Docker ให้ — ผู้ดูแลระบบ
-# ติดตั้งเอง (ตกลง 2026-10-12) สคริปต์แค่เช็คและบอกวิธี · ข้อความเป็นภาษาไทยทั้งหมด เพราะเครื่องปลายทางไม่มี AI ช่วยอ่าน error
+# Safe to re-run: values already in .env are not touched (edit them yourself with nano) — it only fills in the go-live date / Discord URLs if missing (ticket 10) · does not delete a complete node_modules (Windmill mounts this folder —
+# deleting it during the noon run would break that run) · does not call apt again if Chromium already starts · does not install Node.js/Docker — the administrator
+# installs those (agreed 2026-10-12); the script only checks and explains how.
 set -euo pipefail
 
 SKIP_WINDMILL=0
@@ -18,7 +18,7 @@ for arg in "$@"; do
   case "$arg" in
     --skip-windmill) SKIP_WINDMILL=1 ;;
     --no-login-check) LOGIN_CHECK=0 ;;
-    *) echo "✘ ไม่รู้จักตัวเลือก: $arg" >&2; exit 1 ;;
+    *) echo "✘ Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
@@ -26,8 +26,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXPORTER="$ROOT/exporter"
 WINDMILL="$ROOT/windmill"
 STEP=0
-PENDING=() # สิ่งที่ผู้ดูแลยังต้องทำเอง — สรุปซ้ำตอนจบ ไม่ปล่อยให้จมอยู่กลางข้อความ
-# ไฟล์ชั่วคราวระหว่างเขียน .env มีรหัสผ่าน และ .gitignore ไม่ครอบชื่อ .env.XXXXXX — หยุดกลางทางต้องลบทิ้งเสมอ
+PENDING=() # things the administrator still has to do — repeated in the summary at the end so they do not get lost in the output
+# temporary file used while writing .env contains passwords and .gitignore does not cover the name .env.XXXXXX — it must always be removed if we stop midway
 TMP_ENV=""
 trap '[ -z "$TMP_ENV" ] || rm -f "$TMP_ENV"' EXIT
 
@@ -37,76 +37,76 @@ warn() { echo "   ⚠ $1"; }
 stop() {
   echo "   ✘ $1" >&2
   [ -n "${2:-}" ] && echo "     $2" >&2
-  # สิ่งที่จดไว้ก่อนหยุด (เช่น เรื่อง Docker) ต้องไม่หายไปกับการหยุดกลางทาง
+  # things noted before stopping (e.g. Docker) must not be lost when stopping midway
   if [ "${#PENDING[@]}" -gt 0 ]; then
-    echo "     และยังต้องทำ:" >&2
+    echo "     and still to do:" >&2
     for item in "${PENDING[@]}"; do echo "     - $item" >&2; done
   fi
-  echo "     แก้แล้วรันคำสั่งเดิมซ้ำได้เลย — ขั้นที่ทำไปแล้วจะไม่ทำซ้ำ" >&2
+  echo "     Fix it and re-run the same command — steps already done will not be repeated" >&2
   exit 1
 }
 
 echo "════════════════════════════════════════════════════════"
-echo "  ติดตั้ง exporter (HotelTime + FoodStory) บน Ubuntu"
+echo "  Installing the exporter (HotelTime + FoodStory) on Ubuntu"
 echo "════════════════════════════════════════════════════════"
 
-# sudo ตั้ง HOME เป็น /root — ไอคอน/เบราว์เซอร์/ไฟล์จะไปอยู่ในบัญชี root แทนบัญชีที่ใช้งานจริง
-[ "$(id -u)" -ne 0 ] || stop "อย่ารันด้วย sudo/root" "รัน: bash deploy/ubuntu/install.sh ในบัญชีของคนที่จะใช้เครื่อง (สคริปต์ขอรหัส sudo เองตอนจำเป็น)"
+# sudo sets HOME to /root — the icon/browser/files would end up in the root account instead of the account actually used
+[ "$(id -u)" -ne 0 ] || stop "Do not run this with sudo/root" "Run: bash deploy/ubuntu/install.sh in the account of the person who will use the machine (the script asks for the sudo password itself when needed)"
 [ -f "$EXPORTER/package.json" ] && [ -f "$WINDMILL/docker-compose.yml" ] \
-  || stop "ไม่พบโฟลเดอร์ exporter/ หรือ windmill/ ข้าง ๆ deploy/" "รันจากโฟลเดอร์ที่ clone Chawengburi/exporter มาทั้งก้อน"
-[ "$(uname -s)" = Linux ] || stop "สคริปต์นี้สำหรับ Ubuntu เท่านั้น" "macOS ดู exporter/README.md"
-grep -qi ubuntu /etc/os-release 2>/dev/null || warn "ไม่ใช่ Ubuntu — ลองต่อ แต่ทดสอบมากับ Ubuntu 24.04 เท่านั้น"
+  || stop "The exporter/ or windmill/ folder next to deploy/ was not found" "Run it from the folder where the whole Chawengburi/exporter repo was cloned"
+[ "$(uname -s)" = Linux ] || stop "This script is for Ubuntu only" "For macOS see exporter/README.md"
+grep -qi ubuntu /etc/os-release 2>/dev/null || warn "Not Ubuntu — continuing, but it has only been tested on Ubuntu 24.04"
 
 # ── 1. Node.js ──
-step "เช็ค Node.js (ต้อง 22.18 ขึ้นไป)"
+step "Checking Node.js (22.18 or newer required)"
 command -v node >/dev/null 2>&1 \
-  || stop "ไม่พบ Node.js" "ติดตั้ง Node.js 22 ก่อน (เช่น NodeSource หรือ nvm — apt ของ Ubuntu เองเก่าเกินไป) แล้วเปิด Terminal ใหม่"
+  || stop "Node.js not found" "Install Node.js 22 first (e.g. NodeSource or nvm — the apt version in Ubuntu itself is too old), then open a new Terminal"
 node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=18)?0:1)' \
-  || stop "Node.js รุ่น $(node --version) เก่าเกินไป ต้อง 22.18 ขึ้นไป" "อัปเดต Node.js แล้วรันใหม่"
+  || stop "Node.js $(node --version) is too old, 22.18 or newer is required" "Update Node.js and run again"
 ok "Node.js $(node --version) ($(command -v node))"
 
 # ── 2. package ──
-step "ติดตั้ง package ของ exporter"
-# npm ci ลบ node_modules ทิ้งก่อนทุกครั้ง — ติดตั้งครบแล้ว (lockfile ภายในใหม่กว่า package-lock.json) ไม่ต้องทำซ้ำ
+step "Installing the exporter packages"
+# npm ci deletes node_modules every time — if the install is complete (the internal lockfile is newer than package-lock.json) do not repeat it
 if [ -f "$EXPORTER/node_modules/.package-lock.json" ] && [ "$EXPORTER/node_modules/.package-lock.json" -nt "$EXPORTER/package-lock.json" ]; then
-  ok "มีอยู่แล้ว ไม่ติดตั้งซ้ำ"
+  ok "Already installed, not installing again"
 else
-  (cd "$EXPORTER" && npm ci --no-audit --no-fund --loglevel=error) || stop "ติดตั้ง package ไม่สำเร็จ" "เช็คอินเทอร์เน็ต แล้วรันใหม่"
-  ok "node_modules พร้อม"
+  (cd "$EXPORTER" && npm ci --no-audit --no-fund --loglevel=error) || stop "Installing the packages failed" "Check the internet connection and run again"
+  ok "node_modules ready"
 fi
 
-# ── 3. เบราว์เซอร์ ──
-step "ติดตั้งเบราว์เซอร์ Chromium"
-(cd "$EXPORTER" && npx --no-install playwright install chromium) || stop "ดาวน์โหลด Chromium ไม่สำเร็จ" "เช็คอินเทอร์เน็ต แล้วรันใหม่"
+# ── 3. Browser ──
+step "Installing the Chromium browser"
+(cd "$EXPORTER" && npx --no-install playwright install chromium) || stop "Downloading Chromium failed" "Check the internet connection and run again"
 chromium_starts() { (cd "$EXPORTER" && node --input-type=module -e "import { chromium } from 'playwright'; await (await chromium.launch()).close();") >/dev/null 2>&1; }
 if chromium_starts; then
-  ok "Chromium พร้อม"
+  ok "Chromium ready"
 else
-  # library ของระบบยังไม่ครบ — ต้องใช้ apt (sudo) ครั้งเดียวต่อเครื่อง
+  # system libraries are incomplete — apt (sudo) is needed once per machine
   sudo -n true 2>/dev/null || sudo -v 2>/dev/null \
-    || stop "บัญชีนี้ใช้ sudo ไม่ได้ แต่ Chromium ยังขาด library ของระบบ" \
-      "ให้ผู้ดูแลระบบรันครั้งเดียว: cd $EXPORTER && sudo npx --no-install playwright install-deps chromium แล้วรันคำสั่งนี้ใหม่"
-  echo "   ติดตั้ง library ของระบบให้ Chromium (ครั้งเดียวต่อเครื่อง — ใช้ sudo)"
-  (cd "$EXPORTER" && sudo npx --no-install playwright install-deps chromium) || stop "ติดตั้ง library ของ Chromium ไม่สำเร็จ" "เช็คอินเทอร์เน็ต แล้วรันใหม่"
-  chromium_starts || stop "ติดตั้งแล้วแต่ Chromium ยังเปิดไม่ได้" "ถ่ายรูปหน้าจอนี้ส่งผู้ดูแลระบบ"
-  ok "Chromium พร้อม"
+    || stop "This account cannot use sudo, but Chromium is missing system libraries" \
+      "Ask the administrator to run this once: cd $EXPORTER && sudo npx --no-install playwright install-deps chromium, then run this command again"
+  echo "   Installing the system libraries for Chromium (once per machine — uses sudo)"
+  (cd "$EXPORTER" && sudo npx --no-install playwright install-deps chromium) || stop "Installing the Chromium libraries failed" "Check the internet connection and run again"
+  chromium_starts || stop "Installed, but Chromium still cannot start" "Take a screenshot of this screen and send it to the administrator"
+  ok "Chromium ready"
 fi
 
-# ── ตัวช่วยเขียนไฟล์ลับ: เขียนลงไฟล์ชั่วคราว 600 ก่อน แล้วค่อยย้ายเข้าที่ (ไม่มีจังหวะที่ไฟล์จริงเปิดให้คนอื่นอ่าน/เขียนค้างครึ่ง) ──
-write_secret_file() { # write_secret_file <ปลายทาง> — อ่านเนื้อหาจาก stdin
+# ── helper for writing secret files: write to a temporary 600 file first, then move it into place (the real file is never readable by others or left half-written) ──
+write_secret_file() { # write_secret_file <destination> — reads the content from stdin
   TMP_ENV="$(mktemp "$1.XXXXXX")"
   chmod 600 "$TMP_ENV"
   cat >"$TMP_ENV"
   mv "$TMP_ENV" "$1"
   TMP_ENV=""
 }
-keep_private() { # .env ที่มีอยู่แล้ว (อาจสร้างโดยบัญชีอื่น) — บังคับ 600 ถ้าทำได้
-  chmod 600 "$1" 2>/dev/null || warn "ตั้งสิทธิ์ $1 ให้อ่านได้เฉพาะเจ้าของไม่ได้ (ไฟล์เป็นของบัญชีอื่น?) — ให้ผู้ดูแลรัน: sudo chown $USER $1"
+keep_private() { # an existing .env (may have been created by another account) — force 600 if possible
+  chmod 600 "$1" 2>/dev/null || warn "Could not make $1 readable by the owner only (is the file owned by another account?) — ask the administrator to run: sudo chown $USER $1"
 }
 
 # ── 4. exporter/.env ──
-step "ตั้งค่ารหัสผ่าน (exporter/.env)"
-# ค่าใส่ quote ให้ dotenv อ่านตรงตัว: '...' ไม่แปลงอะไรเลย · มี ' ในค่า → "..." (ถ้าไม่มี " และ \) · ไม่งั้นให้แก้ไฟล์เอง
+step "Setting the passwords (exporter/.env)"
+# values are quoted so dotenv reads them literally: '...' converts nothing · a ' in the value -> "..." (if there is no " and no \) · otherwise edit the file by hand
 quote_env() {
   case "$1" in
     *$'\n'*) return 1 ;;
@@ -114,7 +114,7 @@ quote_env() {
     *) printf "'%s'" "$1" ;;
   esac
 }
-ask() { # ask <ตัวแปร> <ข้อความ> [secret|ค่าเริ่มต้น] — IFS= กันไม่ให้ตัดช่องว่างหัวท้ายของรหัสผ่าน
+ask() { # ask <variable> <prompt> [secret|default] — IFS= keeps leading/trailing spaces of passwords from being trimmed
   local value="" mode="${3:-}"
   if [ "$mode" = secret ]; then
     IFS= read -r -s -p "   $2: " value || true; echo
@@ -124,21 +124,21 @@ ask() { # ask <ตัวแปร> <ข้อความ> [secret|ค่าเ�
   else
     IFS= read -r -p "   $2: " value || true
   fi
-  [ -n "$value" ] || stop "ไม่ได้ใส่ $2"
-  quote_env "$value" >/dev/null || stop "$2 มีอักขระที่ใส่อัตโนมัติไม่ได้ (มีทั้ง ' และ \" หรือ \\)" "แก้เองด้วย: nano exporter/.env (สร้างจาก .env.example)"
+  [ -n "$value" ] || stop "No value was entered for $2"
+  quote_env "$value" >/dev/null || stop "$2 contains characters that cannot be filled in automatically (both ' and \" or \\)" "Edit it yourself with: nano exporter/.env (created from .env.example)"
   printf -v "$1" '%s' "$value"
 }
 if [ -e "$EXPORTER/.env" ]; then
-  ok "มีอยู่แล้ว ไม่แตะ — แก้เองได้ด้วย: nano exporter/.env"
+  ok "Already exists, not touching it — you can edit it yourself with: nano exporter/.env"
 else
   DEFAULT_BRANCH="$(sed -n 's/^FOODSTORY_BRANCH_NAME=//p' "$EXPORTER/.env.example" | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/")"
-  echo "   กรอกทีละช่อง (รหัสผ่านจะไม่แสดงบนจอระหว่างพิมพ์):"
-  ask HT_USER "HotelTime ชื่อผู้ใช้"
-  ask HT_PASS "HotelTime รหัสผ่าน" secret
-  ask FS_EMAIL "FoodStory อีเมล"
-  ask FS_PASS "FoodStory รหัสผ่าน" secret
-  ask FS_BRANCH "FoodStory ชื่อสาขา (ตามที่ขึ้นในหน้าเว็บ)" "$DEFAULT_BRANCH"
-  # ส่งค่าเข้า awk ทาง environment ไม่ใช่ argument (argument ของ process เห็นได้จาก ps ของบัญชีอื่น)
+  echo "   Fill in one field at a time (passwords are not shown on screen while you type):"
+  ask HT_USER "HotelTime username"
+  ask HT_PASS "HotelTime password" secret
+  ask FS_EMAIL "FoodStory email"
+  ask FS_PASS "FoodStory password" secret
+  ask FS_BRANCH "FoodStory branch name (as shown on the website)" "$DEFAULT_BRANCH"
+  # pass the values to awk through the environment, not as arguments (process arguments are visible to other accounts via ps)
   HOTELTIME_USERNAME="$(quote_env "$HT_USER")" HOTELTIME_PASSWORD="$(quote_env "$HT_PASS")" \
     FOODSTORY_EMAIL="$(quote_env "$FS_EMAIL")" FOODSTORY_PASSWORD="$(quote_env "$FS_PASS")" \
     FOODSTORY_BRANCH_NAME="$(quote_env "$FS_BRANCH")" \
@@ -147,34 +147,34 @@ else
               for (i in keys) want[keys[i]] = 1 }
       /^[A-Z_]+=/ && ($1 in want) { print $1 "=" ENVIRON[$1]; seen[$1] = 1; next }
       { print }
-      END { for (k in want) if (!(k in seen)) { print "ไม่พบ " k " ใน .env.example" > "/dev/stderr"; exit 1 } }
+      END { for (k in want) if (!(k in seen)) { print "Not found: " k " in .env.example" > "/dev/stderr"; exit 1 } }
     ' "$EXPORTER/.env.example" | write_secret_file "$EXPORTER/.env" \
-    || stop "เขียน exporter/.env ไม่สำเร็จ" "เช็คว่า exporter/.env.example อ่านได้และมีครบทุกช่อง"
-  ok "เขียน exporter/.env แล้ว (อ่านได้เฉพาะบัญชีนี้)"
+    || stop "Writing exporter/.env failed" "Check that exporter/.env.example is readable and has every field"
+  ok "Wrote exporter/.env (readable by this account only)"
 fi
 keep_private "$EXPORTER/.env"
 
-# ── 4b. วันเริ่มใช้งาน + Discord (ใบ 10 ของ exporter-daily-per-day-raw) — เติมเฉพาะที่ยังไม่มี ไม่ทับค่าเดิม (เครื่องที่ติดตั้งไว้ก่อนรันซ้ำก็ได้) ──
-step "ตั้งวันเริ่มใช้งาน และการแจ้งเตือน Discord (exporter/.env)"
+# ── 4b. Go-live date + Discord (ticket 10 of exporter-daily-per-day-raw) — only fills in what is missing, never overwrites existing values (machines installed earlier can re-run it) ──
+step "Setting the go-live date and Discord alerts (exporter/.env)"
 env_has() { grep -qE "^$1=.+" "$EXPORTER/.env"; }
-env_key() { grep -qE "^$1=" "$EXPORTER/.env"; } # มีบรรทัดของคีย์นี้ (ค่าว่างก็นับ — ตั้งใจเว้นไว้)
-append_env() { # append_env <บรรทัด> — printf เป็น builtin (ค่าไม่โผล่ใน ps) · ไฟล์ไม่จบด้วยขึ้นบรรทัดใหม่ต้องเติมก่อน ไม่งั้นต่อท้ายบรรทัดเดิม
-  [ -w "$EXPORTER/.env" ] || stop "เขียน exporter/.env ไม่ได้ (ไฟล์เป็นของบัญชีอื่น?)" "ให้ผู้ดูแลรัน: sudo chown $USER $EXPORTER/.env แล้วรันใหม่"
+env_key() { grep -qE "^$1=" "$EXPORTER/.env"; } # the line for this key exists (an empty value counts — it was left blank on purpose)
+append_env() { # append_env <line> — printf is a builtin (the value does not show up in ps) · if the file does not end with a newline, add one first, otherwise it would be appended to the last line
+  [ -w "$EXPORTER/.env" ] || stop "Cannot write exporter/.env (is the file owned by another account?)" "Ask the administrator to run: sudo chown $USER $EXPORTER/.env and run again"
   [ -z "$(tail -c1 "$EXPORTER/.env")" ] || printf '\n' >>"$EXPORTER/.env"
   printf '%s\n' "$1" >>"$EXPORTER/.env"
 }
 if env_key EXPORTER_GO_LIVE; then
   GO_LIVE="$(sed -n 's/^EXPORTER_GO_LIVE=//p' "$EXPORTER/.env" | tail -1)"
-  if [ -n "$GO_LIVE" ]; then ok "วันเริ่มใช้งาน $GO_LIVE (มีอยู่แล้ว ไม่แตะ)"
-  else warn "EXPORTER_GO_LIVE ว่างอยู่ (ตั้งใจเว้นไว้?) ไม่แตะ — ระบบดึงแค่เมื่อวาน ไม่เติมวันที่ขาด"; fi
+  if [ -n "$GO_LIVE" ]; then ok "Go-live date $GO_LIVE (already set, not touching it)"
+  else warn "EXPORTER_GO_LIVE is empty (left blank on purpose?), not touching it — the system pulls only yesterday and does not back-fill missing days"; fi
 else
   GO_LIVE="$(TZ=Asia/Bangkok date +%F)"
   append_env "EXPORTER_GO_LIVE=$GO_LIVE"
-  ok "ตั้งวันเริ่มใช้งานเป็นวันนี้ $GO_LIVE — ตั้งแต่วันนี้ วันไหนขาด ระบบเติมให้เอง (เปลี่ยนได้ที่ EXPORTER_GO_LIVE ใน exporter/.env)"
+  ok "Set the go-live date to today, $GO_LIVE — from today on, any missing day is back-filled automatically (change it with EXPORTER_GO_LIVE in exporter/.env)"
 fi
-# ask_optional_secret <KEY> <regex> <ข้อความถาม> <มีแล้ว> <ข้าม> <บันทึกแล้ว> <ผิดรูปแบบ> <สิ่งที่ยังต้องทำ> — ค่าลับที่ไม่บังคับ (URL ของ webhook,
-# คีย์ 2captcha): ถามเฉพาะเมื่อยังไม่มี ไม่ทับค่าเดิม · ไม่แสดงบนจอระหว่างพิมพ์และไม่พิมพ์กลับ · ค่าผ่าน builtin/stdin เท่านั้น (ไม่ขึ้น argv ใน ps) ·
-# ว่าง/ผิดรูปแบบ = ไม่บันทึก แล้วจดวิธีทำทีหลังไว้ในสรุปตอนจบ (code review ใบ 04 ของ exporter-foodstory-scheduled-daily: เดิมเขียนซ้ำทีละตัว)
+# ask_optional_secret <KEY> <regex> <prompt> <already set> <skipped> <saved> <invalid> <still to do> — an optional secret (webhook URL,
+# 2captcha key): asked only when it is missing, never overwrites an existing value · not shown while typing and not echoed back · the value goes only through builtins/stdin (never in argv, so not in ps) ·
+# empty/invalid = not saved, and how to do it later is noted in the summary at the end (code review of ticket 04 of exporter-foodstory-scheduled-daily: it used to be written out once per secret)
 ask_optional_secret() {
   local key="$1" pattern="$2" prompt="$3" have="$4" skipped="$5" saved="$6" invalid="$7" todo="$8"
   if env_has "$key"; then
@@ -182,7 +182,7 @@ ask_optional_secret() {
     return
   fi
   local value=""
-  IFS= read -r -s -p "   $prompt (วางแล้วกด Enter — ไม่แสดงบนจอ · กด Enter เฉย ๆ = ข้ามไปก่อน): " value || true
+  IFS= read -r -s -p "   $prompt (paste it and press Enter — not shown on screen · just press Enter = skip for now): " value || true
   echo
   value="$(printf '%s' "$value" | tr -d '[:space:]')"
   if [ -z "$value" ]; then
@@ -196,142 +196,142 @@ ask_optional_secret() {
     PENDING+=("$todo")
   fi
 }
-# เจ้าของระบบขอ 2026-10-18: แยก channel Discord ระหว่างขา export กับขา upload — ถามทีละตัว คนละตัวแปร · URL ของ webhook = ความลับ (ใครมีก็โพสต์เข้าห้องได้)
-ask_webhook() { # ask_webhook <ENV_KEY> <ป้ายชื่อขา>
+# the system owner asked on 2026-10-18 to separate the Discord channels of the export leg and the upload leg — asked one at a time, separate variables · a webhook URL is a secret (anyone who has it can post to the channel)
+ask_webhook() { # ask_webhook <ENV_KEY> <leg label>
   ask_optional_secret "$1" '^https://((ptb|canary)\.)?(discord|discordapp)\.com/api/(v[0-9]+/)?webhooks/[0-9]+/[A-Za-z0-9_-]+$' \
-    "URL ของ Discord webhook ขา $2" \
-    "มี URL ของ Discord webhook ขา $2 แล้ว ไม่แตะ" \
-    "ข้ามไปก่อน — ยังไม่มีการแจ้งเตือนขา $2 ทาง Discord" \
-    "บันทึก URL ของ Discord webhook ขา $2 แล้ว (ไม่แสดงบนจอ)" \
-    "ไม่ใช่ URL webhook ของ Discord (ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/) — ไม่บันทึก" \
-    "ตั้งการแจ้งเตือน Discord ขา $2: nano exporter/.env แล้วเพิ่มบรรทัด $1=<URL ของ webhook>"
+    "Discord webhook URL for the $2 leg" \
+    "The Discord webhook URL for the $2 leg is already set, not touching it" \
+    "Skipped for now — there are no Discord alerts for the $2 leg yet" \
+    "Saved the Discord webhook URL for the $2 leg (not shown on screen)" \
+    "Not a Discord webhook URL (it must start with https://discord.com/api/webhooks/) — not saved" \
+    "Set up Discord alerts for the $2 leg: nano exporter/.env and add the line $1=<webhook URL>"
 }
 ask_webhook DISCORD_WEBHOOK_URL_EXPORT "export"
 ask_webhook DISCORD_WEBHOOK_URL_UPLOAD "upload"
-# ── 4c. คีย์ 2captcha (ADR-0010 · ใบ 04 ของ exporter-foodstory-scheduled-daily) — มีคีย์ = login ของ FoodStory แก้ reCAPTCHA เอง จึงรันเองตามเวลา
-# บน Windmill ได้ · ความลับ + บริการเสียเงิน · คีย์ของ 2captcha เป็นตัวอักษร/ตัวเลข 32 ตัว (ผิดรูปแบบ = ไม่บันทึก ใส่เองด้วย nano ได้เสมอ)
+# ── 4c. 2captcha key (ADR-0010 · ticket 04 of exporter-foodstory-scheduled-daily) — with a key, the FoodStory login solves the reCAPTCHA itself, so it can run on a schedule
+# on Windmill · a secret + a paid service · a 2captcha key is 32 letters/digits (invalid format = not saved; it can always be added by hand with nano)
 ask_optional_secret TWOCAPTCHA_API_KEY '^[A-Za-z0-9]{32}$' \
-  "คีย์ 2captcha ให้ FoodStory แก้ reCAPTCHA เอง" \
-  "มีคีย์ 2captcha แล้ว ไม่แตะ — FoodStory รันเองทุกวันบน Windmill" \
-  "ข้ามไปก่อน — FoodStory รอบตามเวลาบน Windmill จะล้มทันที (แจ้ง Discord ว่าขาดคีย์) จนกว่าจะใส่คีย์ · ไอคอน FoodStory บน Desktop ยังใช้ได้" \
-  "บันทึกคีย์ 2captcha แล้ว (ไม่แสดงบนจอ) — FoodStory รันเองทุกวันบน Windmill" \
-  "คีย์ 2captcha ต้องเป็นตัวอักษร/ตัวเลข 32 ตัว (ดูที่หน้า Dashboard ของ 2captcha.com) — ไม่บันทึก" \
-  "ใส่คีย์ 2captcha ให้ FoodStory รันเองตามเวลา: nano exporter/.env แล้วเพิ่มบรรทัด TWOCAPTCHA_API_KEY=<คีย์จาก 2captcha.com>"
-# ── 4d. บัญชี uploader (ขาอัปโหลด `exporter upload`) — ต้องมีครบสามตัว ไม่มี default ในโค้ด · ถามเฉพาะเมื่อยังไม่มีเลย ไม่ทับค่าเดิม ·
-# มีบางตัวแล้วบางตัวยังไม่มี = ไม่เดา ไม่แตะ แจ้งในสิ่งที่ยังต้องทำ · ว่างที่อีเมล = ข้ามทั้งหมด · รหัสผ่านไม่แสดงบนจอ ใส่ quote ให้ dotenv อ่านตรงตัว
+  "2captcha key so FoodStory can solve the reCAPTCHA itself" \
+  "The 2captcha key is already set, not touching it — FoodStory runs by itself every day on Windmill" \
+  "Skipped for now — the scheduled FoodStory run on Windmill will fail immediately (Discord is told the key is missing) until a key is added · the FoodStory icon on the Desktop still works" \
+  "Saved the 2captcha key (not shown on screen) — FoodStory runs by itself every day on Windmill" \
+  "The 2captcha key must be 32 letters/digits (see the Dashboard on 2captcha.com) — not saved" \
+  "Add the 2captcha key so FoodStory runs on a schedule: nano exporter/.env and add the line TWOCAPTCHA_API_KEY=<key from 2captcha.com>"
+# ── 4d. uploader account (the upload leg `exporter upload`) — all three values are required, there is no default in the code · asked only when none exist, never overwrites existing values ·
+# some set and some missing = do not guess, do not touch, report it in what is still to do · an empty email = skip everything · the password is not shown on screen and is quoted so dotenv reads it literally
 ask_uploader() {
-  local todo="ตั้งค่าขาอัปโหลด: nano exporter/.env แล้วเติม UPLOADER_URL=https://uploader.chawengbot.cloud · UPLOADER_EMAIL=<อีเมล> · UPLOADER_PASSWORD=<รหัสผ่าน> (ดู docs/UPLOAD-SETUP-UBUNTU.md)"
+  local todo="Set up the upload leg: nano exporter/.env and add UPLOADER_URL=https://uploader.chawengbot.cloud · UPLOADER_EMAIL=<email> · UPLOADER_PASSWORD=<password> (see docs/UPLOAD-SETUP-UBUNTU.md)"
   local have=0 k
   for k in UPLOADER_URL UPLOADER_EMAIL UPLOADER_PASSWORD; do env_has "$k" && have=$((have + 1)); done
-  if [ "$have" -eq 3 ]; then ok "มีบัญชี uploader ครบแล้ว ไม่แตะ"; return; fi
+  if [ "$have" -eq 3 ]; then ok "The uploader account is complete, not touching it"; return; fi
   if [ "$have" -gt 0 ]; then
-    warn "ตั้งค่า uploader ไว้ไม่ครบ ($have จาก 3 ตัว) — ไม่แตะ ไม่เดา"
+    warn "The uploader settings are incomplete ($have of 3) — not touching them, not guessing"
     PENDING+=("$todo")
     return
   fi
   local url="" email="" pass=""
-  IFS= read -r -p "   URL ของ uploader [Enter = https://uploader.chawengbot.cloud]: " url || true
+  IFS= read -r -p "   Uploader URL [Enter = https://uploader.chawengbot.cloud]: " url || true
   [ -n "$url" ] || url="https://uploader.chawengbot.cloud"
-  IFS= read -r -p "   อีเมลบัญชี uploader ของเครื่องนี้ (กด Enter เฉย ๆ = ข้ามไปก่อน): " email || true
+  IFS= read -r -p "   Email of this machine's uploader account (just press Enter = skip for now): " email || true
   email="$(printf '%s' "$email" | tr -d '[:space:]')"
   if [ -z "$email" ]; then
-    warn "ข้ามไปก่อน — ยังอัปโหลดเข้า uploader ไม่ได้จนกว่าจะตั้งบัญชี"
+    warn "Skipped for now — uploading to the uploader is not possible until the account is set up"
     PENDING+=("$todo")
     return
   fi
-  IFS= read -r -s -p "   รหัสผ่านบัญชี uploader (ไม่แสดงบนจอ): " pass || true
+  IFS= read -r -s -p "   Uploader account password (not shown on screen): " pass || true
   echo
   local quoted_pass
   if ! printf '%s' "$url" | grep -qE '^https?://[^[:space:]]+$'; then
-    warn "URL ของ uploader ไม่ใช่รูปแบบ https://... — ไม่บันทึก"; PENDING+=("$todo")
+    warn "The uploader URL is not in the form https://... — not saved"; PENDING+=("$todo")
   elif ! printf '%s' "$email" | grep -qE '^[^@]+@[^@]+$'; then
-    warn "อีเมลของ uploader ไม่ใช่รูปแบบอีเมล — ไม่บันทึก"; PENDING+=("$todo")
+    warn "The uploader email is not in email format — not saved"; PENDING+=("$todo")
   elif [ -z "$pass" ]; then
-    warn "ไม่ได้ใส่รหัสผ่าน uploader — ไม่บันทึก"; PENDING+=("$todo")
+    warn "No uploader password was entered — not saved"; PENDING+=("$todo")
   elif ! quoted_pass="$(quote_env "$pass")"; then
-    warn "รหัสผ่าน uploader มีอักขระที่ใส่อัตโนมัติไม่ได้ (มีทั้ง ' และ \" หรือ \\) — ไม่บันทึก"; PENDING+=("$todo")
+    warn "The uploader password contains characters that cannot be filled in automatically (both ' and \" or \\) — not saved"; PENDING+=("$todo")
   else
     append_env "UPLOADER_URL=$url"
     append_env "UPLOADER_EMAIL=$email"
     append_env "UPLOADER_PASSWORD=$quoted_pass"
-    ok "บันทึกบัญชี uploader แล้ว (รหัสผ่านไม่แสดงบนจอ)"
+    ok "Saved the uploader account (the password is not shown on screen)"
   fi
 }
 ask_uploader
 keep_private "$EXPORTER/.env"
 
 # ── 5. windmill/.env ──
-step "ตั้งค่า Windmill (windmill/.env)"
+step "Setting up Windmill (windmill/.env)"
 if [ -e "$WINDMILL/.env" ]; then
-  ok "มีอยู่แล้ว ไม่แตะ"
+  ok "Already exists, not touching it"
 else
-  PG_PASS="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')" # รหัส Postgres สุ่มใหม่ (hex) — ไม่ใช้ changeme ของตัวอย่าง
+  PG_PASS="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')" # a fresh random Postgres password (hex) — not the example's changeme
   sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
     -e "s|^DATABASE_URL=postgres://postgres:[^@]*@|DATABASE_URL=postgres://postgres:$PG_PASS@|" \
-    "$WINDMILL/.env.example" | write_secret_file "$WINDMILL/.env" || stop "เขียน windmill/.env ไม่สำเร็จ"
+    "$WINDMILL/.env.example" | write_secret_file "$WINDMILL/.env" || stop "Writing windmill/.env failed"
   grep -q "^POSTGRES_PASSWORD=$PG_PASS$" "$WINDMILL/.env" && grep -q "^DATABASE_URL=postgres://postgres:$PG_PASS@" "$WINDMILL/.env" \
-    || { rm -f "$WINDMILL/.env"; stop "รูปแบบ windmill/.env.example ไม่ตรงที่สคริปต์รู้จัก" "ถ่ายรูปหน้าจอนี้ส่งผู้ดูแลระบบ"; }
-  ok "เขียน windmill/.env แล้ว (รหัสฐานข้อมูลสุ่มใหม่)"
+    || { rm -f "$WINDMILL/.env"; stop "The format of windmill/.env.example is not what the script expects" "Take a screenshot of this screen and send it to the administrator"; }
+  ok "Wrote windmill/.env (a new random database password)"
 fi
 keep_private "$WINDMILL/.env"
 
-# ── 6. โฟลเดอร์ข้อมูล + ไอคอน ──
-step "เตรียมโฟลเดอร์เก็บไฟล์ และวางไอคอน FoodStory บน Desktop"
+# ── 6. Data folder + icon ──
+step "Preparing the file folder and placing the FoodStory icon on the Desktop"
 mkdir -p "$EXPORTER/data"
-ok "ไฟล์ที่ดึงมาจะอยู่ที่ exporter/data/"
+ok "Pulled files will be in exporter/data/"
 # Mount points of the data pipeline (docker-compose.yml): must exist on the host before `docker compose up`, otherwise docker creates them empty and owned by root.
 # They stay empty until the pipeline bundle is installed with install.py from the hoteltime-schema repo.
 mkdir -p "$ROOT/pipeline" "$ROOT/pipeline-state"
-bash "$EXPORTER/launchers/install-desktop-launcher.sh" | sed 's/^/   /' || stop "วางไอคอนไม่สำเร็จ (ดูข้อความด้านบน)"
+bash "$EXPORTER/launchers/install-desktop-launcher.sh" | sed 's/^/   /' || stop "Placing the icon failed (see the messages above)"
 
 # ── 7. Windmill ──
-step "เปิด Windmill (ตัวตั้งเวลาให้ HotelTime และ FoodStory รันทุกวัน)"
+step "Starting Windmill (the scheduler that runs HotelTime and FoodStory every day)"
 WINDMILL_UP=0
 if [ "$SKIP_WINDMILL" = 1 ]; then
-  warn "ข้ามตามที่สั่ง (--skip-windmill)"
-  PENDING+=("เปิด Windmill: รันคำสั่งนี้ซ้ำโดยไม่ใส่ --skip-windmill")
+  warn "Skipped as requested (--skip-windmill)"
+  PENDING+=("Start Windmill: run this command again without --skip-windmill")
 elif ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
-  warn "ยังไม่มี Docker (พร้อม docker compose)"
-  PENDING+=("ติดตั้ง Docker Engine + docker compose ตามคู่มือ Docker สำหรับ Ubuntu แล้วรันคำสั่งนี้ซ้ำ")
+  warn "Docker (with docker compose) is not installed yet"
+  PENDING+=("Install Docker Engine + docker compose following the Docker guide for Ubuntu, then run this command again")
 elif DOCKER_ERR="$(docker info 2>&1 >/dev/null)"; then
-  # ครั้งแรก build worker ที่มี Chromium อาจใช้หลายนาที
-  (cd "$WINDMILL" && docker compose up -d) || stop "เปิด Windmill ไม่สำเร็จ" "ดูสาเหตุ: cd windmill && docker compose logs"
+  # the first time, building the worker that includes Chromium can take several minutes
+  (cd "$WINDMILL" && docker compose up -d) || stop "Starting Windmill failed" "See the cause: cd windmill && docker compose logs"
   WINDMILL_UP=1
-  ok "Windmill เปิดแล้วที่ http://localhost:8000"
-  # ตั้งรหัส admin / tag chromium / สคริปต์ / schedule ผ่าน API แทนการคลิกหน้าเว็บ (ticket 03) — รันซ้ำได้ ไม่มีอะไรเปลี่ยน = ไม่แตะ
-  # ล้ม = จดไว้ในสิ่งที่ยังต้องทำ แล้วทำขั้นอื่นต่อ (ลองล็อกอิน HotelTime ยังมีประโยชน์)
+  ok "Windmill is up at http://localhost:8000"
+  # set the admin password / chromium tag / scripts / schedules through the API instead of clicking through the web UI (ticket 03) — safe to re-run, nothing changed = nothing touched
+  # failure = note it in what is still to do and carry on with the other steps (trying the HotelTime login is still useful)
   node "$WINDMILL/setup.mjs" | sed 's/^/   /' \
-    || PENDING+=("ตั้งค่า Windmill ไม่สำเร็จ (ดูข้อความด้านบน) — แก้แล้วรัน: node windmill/setup.mjs หรือรันคำสั่งนี้ซ้ำ")
+    || PENDING+=("Setting up Windmill failed (see the messages above) — fix it and run: node windmill/setup.mjs or run this command again")
 elif printf '%s' "$DOCKER_ERR" | grep -qi "permission denied"; then
-  warn "บัญชีนี้ยังไม่มีสิทธิ์ใช้ Docker"
-  PENDING+=("ให้สิทธิ์ Docker: sudo usermod -aG docker $USER แล้ว logout/login ใหม่ แล้วรันคำสั่งนี้ซ้ำ")
+  warn "This account does not have permission to use Docker yet"
+  PENDING+=("Grant Docker permission: sudo usermod -aG docker $USER, then log out and in again, then run this command again")
 else
-  warn "Docker ไม่ได้ทำงานอยู่"
-  PENDING+=("เปิด Docker: sudo systemctl enable --now docker แล้วรันคำสั่งนี้ซ้ำ")
+  warn "Docker is not running"
+  PENDING+=("Start Docker: sudo systemctl enable --now docker, then run this command again")
 fi
 
-# ── 8. ลองล็อกอิน HotelTime ──
-step "ลองล็อกอิน HotelTime (ไม่ต้องกดอะไร)"
+# ── 8. Try a HotelTime login ──
+step "Trying a HotelTime login (nothing to click)"
 if [ "$LOGIN_CHECK" = 0 ]; then
-  warn "ข้ามตามที่สั่ง (--no-login-check)"
-  PENDING+=("ลองล็อกอิน HotelTime: cd exporter && node src/index.ts login --site hoteltime --check")
+  warn "Skipped as requested (--no-login-check)"
+  PENDING+=("Try the HotelTime login: cd exporter && node src/index.ts login --site hoteltime --check")
 elif (cd "$EXPORTER" && node src/index.ts login --site hoteltime --check); then
-  ok "ล็อกอิน HotelTime ได้"
+  ok "HotelTime login works"
 else
-  stop "ล็อกอิน HotelTime ไม่ได้" "เช็คชื่อผู้ใช้/รหัสผ่านใน exporter/.env (nano exporter/.env) แล้วรันใหม่"
+  stop "HotelTime login failed" "Check the username/password in exporter/.env (nano exporter/.env) and run again"
 fi
 
 echo
 echo "════════════════════════════════════════════════════════"
 if [ "${#PENDING[@]}" -eq 0 ]; then
-  echo "✅ ติดตั้งเสร็จ"
+  echo "✅ Installation complete"
 else
-  echo "⚠️  ติดตั้งส่วนของโปรแกรมแล้ว — ยังต้องทำอีก ${#PENDING[@]} อย่าง:"
+  echo "⚠️  The program part is installed — ${#PENDING[@]} more thing(s) still to do:"
   i=0
   for item in "${PENDING[@]}"; do i=$((i + 1)); echo "   $i. $item"; done
 fi
 echo
-[ "$WINDMILL_UP" = 1 ] && echo "   • HotelTime + FoodStory: รันเองทุกวัน 12:00 (เก็บตก 15:00/18:00) — ดูประวัติที่ http://localhost:8000/runs · ล็อกอิน admin@windmill.dev รหัสอยู่ใน windmill/.admin-password"
-echo "   • FoodStory ทางสำรอง: ดับเบิลคลิกไอคอน \"Exporter - FoodStory Daily\" บน Desktop เมื่อ Discord แจ้งว่ารอบอัตโนมัติล้ม (ครั้งแรกอาจต้องคลิกขวา → Allow Launching)"
-echo "   • คู่มือพนักงาน: docs/FOODSTORY-DAILY-STAFF-GUIDE.md"
+[ "$WINDMILL_UP" = 1 ] && echo "   • HotelTime + FoodStory: run by themselves every day at 12:00 (catch-up 15:00/18:00) — see the history at http://localhost:8000/runs · log in as admin@windmill.dev, the password is in windmill/.admin-password"
+echo "   • FoodStory fallback: double-click the \"Exporter - FoodStory Daily\" icon on the Desktop when Discord says the automatic run failed (the first time you may need to right-click → Allow Launching)"
+echo "   • Staff guide: docs/FOODSTORY-DAILY-STAFF-GUIDE.md"
 echo "════════════════════════════════════════════════════════"
