@@ -34,6 +34,8 @@ const TIMEZONE = 'Asia/Bangkok';
 // เพดานเวลาของ job FoodStory (วินาที) ตั้งที่สคริปต์เอง ไม่พึ่งค่าตั้งต้นของ Windmill: รอบปกติราว 5 นาที + วันที่ขาดวันละราว 3 นาที (สูงสุด 3 วัน) +
 // login/แก้ captcha (ลองซ้ำ 3 ครั้ง) — ราว 20 นาทีในกรณีหนัก เผื่อไว้ 1 ชั่วโมง · HotelTime ใช้ไม่ถึง 15 นาที ไม่ตั้ง (พฤติกรรมเดิม)
 const FOODSTORY_TIMEOUT_S = 3600;
+// Data pipeline (hoteltime-schema) timeout: 1 hour. Normally a few minutes; not yet measured against the real D1.
+const PIPELINE_TIMEOUT_S = 3600;
 // ทั้งสอง Site เวลาเดียวกัน — status/Discord ใช้กติกาเวลาชุดเดียว (core/status.ts: เส้นตาย 15:00 / รอบสุดท้ายประเมินที่ 18:30)
 const DAILY_CRON = '0 0 12 * * *';
 const CATCHUP_CRON = '0 0 15,18 * * *';
@@ -42,6 +44,14 @@ const JOBS = [
   { name: 'pms_export_daily_catchup', summary: 'HotelTime รอบเก็บตก (15:00 / 18:00)', cron: CATCHUP_CRON },
   { name: 'foodstory_export_daily', summary: 'FoodStory รอบรายวัน (เที่ยง)', cron: DAILY_CRON, timeout: FOODSTORY_TIMEOUT_S },
   { name: 'foodstory_export_daily_catchup', summary: 'FoodStory รอบเก็บตก (15:00 / 18:00)', cron: CATCHUP_CRON, timeout: FOODSTORY_TIMEOUT_S },
+];
+// Data pipeline (hoteltime-schema): registered only when the pipeline bundle is installed (../pipeline/.env exists); otherwise the jobs would fail red every day.
+// After installing the bundle later, run setup.mjs again to register them. 19:00 = after the 15:00/18:00 catch-up runs and the 18:30 status. Full Silver check: Sunday 20:00.
+// The chromium worker is a single one and jobs queue behind each other: if the 18:00 FoodStory run takes almost an hour, the pipeline may start a little after 19:00. That is fine.
+const PIPELINE_ENV = path.join(HERE, '..', 'pipeline', '.env');
+const PIPELINE_JOBS = [
+  { name: 'ht_pipeline_daily', summary: 'HotelTime data pipeline Bronze→Silver→Gold→D1 (19:00)', cron: '0 0 19 * * *', timeout: PIPELINE_TIMEOUT_S },
+  { name: 'ht_pipeline_weekly_verify', summary: 'Full check of Silver against every source xlsx (Sunday 20:00)', cron: '0 0 20 * * 0', timeout: PIPELINE_TIMEOUT_S },
 ];
 
 class SetupError extends Error {}
@@ -176,7 +186,9 @@ async function main() {
   const token = await adminToken(report);
   const who = (await json('GET', `/w/${WORKSPACE}/users/whoami`, { token })).username;
   await ensureWorkerTag(token, report);
-  for (const job of JOBS) {
+  const pipelineInstalled = existsSync(PIPELINE_ENV);
+  if (!pipelineInstalled) console.log('   - skipping the data pipeline jobs (pipeline/.env not found: install the pipeline bundle, then run this command again)');
+  for (const job of [...JOBS, ...(pipelineInstalled ? PIPELINE_JOBS : [])]) {
     const scriptPath = `u/${who}/${job.name}`;
     await ensureScript(token, scriptPath, job, report);
     await ensureSchedule(token, scriptPath, job, who, report);

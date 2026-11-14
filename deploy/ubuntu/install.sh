@@ -279,6 +279,9 @@ keep_private "$WINDMILL/.env"
 step "เตรียมโฟลเดอร์เก็บไฟล์ และวางไอคอน FoodStory บน Desktop"
 mkdir -p "$EXPORTER/data"
 ok "ไฟล์ที่ดึงมาจะอยู่ที่ exporter/data/"
+# Mount points of the data pipeline (docker-compose.yml): must exist on the host before `docker compose up`, otherwise docker creates them empty and owned by root.
+# They stay empty until the pipeline bundle is installed with install.py from the hoteltime-schema repo.
+mkdir -p "$ROOT/pipeline" "$ROOT/pipeline-state"
 bash "$EXPORTER/launchers/install-desktop-launcher.sh" | sed 's/^/   /' || stop "วางไอคอนไม่สำเร็จ (ดูข้อความด้านบน)"
 
 # ── 7. Windmill ──

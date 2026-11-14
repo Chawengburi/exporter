@@ -1,0 +1,3 @@
+# Data pipeline (repo hoteltime-schema), installed by that bundle's install.py. Not part of this repo (holds a real .env and silver.sqlite).
+pipeline/
+pipeline-state/

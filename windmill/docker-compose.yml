@@ -145,6 +145,13 @@ services:
       # แทน downloads/ + ขั้นก๊อปไป downloads-archive/ เดิม (สองตัวนั้นเลิก mount แล้ว ของเก่ายังอยู่บน host)
       - ../exporter/data:/workspace/exporter/data:rw
       - ../exporter/recon/captures:/workspace/exporter/recon/captures:rw
+      # Data pipeline (repo hoteltime-schema: Bronze -> Silver -> Gold -> D1), installed into ../pipeline by that bundle's install.py.
+      # Code is read-only; the real .env (chmod 600) lives in the pipeline folder. ../pipeline and ../pipeline-state must exist on the host
+      # before `up` (install.sh creates them), otherwise docker creates them as root. After changing a mount, run `docker compose up -d` again
+      # (setup.mjs alone is not enough).
+      - ../pipeline:/workspace/pipeline:ro
+      # Holds the pipeline's silver.sqlite: writable, on the host so it survives restarts (if lost, ingest again from Bronze; no data is lost).
+      - ../pipeline-state:/workspace/pipeline-state:rw
       # mount `data/` ครอบทุกชนิดรอบ (daily/baseline/backfill) อยู่แล้ว — ถ้าวันหนึ่งจะตั้ง --baseline บน
       # Windmill ก็เขียนได้เลย ไม่ต้องเพิ่ม mount (การแทนไฟล์ทำด้วย rename ภายในโฟลเดอร์รอบ ไม่ rename จุด mount)
     logging: *default-logging
