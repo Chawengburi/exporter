@@ -1,5 +1,6 @@
 import type { Page } from 'playwright';
 import { addDaysISO, formatDMY, formatISO, parseISODate, type DateRange } from '../../../core/order.ts';
+import { DAY_MINUTES } from '../../../core/scraped-split.ts';
 import { gridRowCount, setSingleDate } from '../webforms.ts';
 import type { Report } from './_types.ts';
 
@@ -28,14 +29,31 @@ const FIND = 'ctl00$pc$btnFind';
 /** ทุก control ที่ใบนี้แตะจริงใน applyFilters — ดู core/gate.ts · ไม่มี `btnFiltrReset` โดยเจตนา */
 const ALLOWED_CONTROLS = [FROM_DATE, FROM_HOUR, FROM_MINUTE, TO_DATE, TO_HOUR, TO_MINUTE, FIND];
 
-/** ค่าที่กรอกลงหน้าเว็บสำหรับวันของข้อมูล D — ช่วงครึ่งเปิด `[D 00:00, D+1 00:00)` */
-export function auditWindow(day: Date): {
+type WindowFields = {
   readonly fromDate: string; readonly fromHour: string; readonly fromMinute: string;
   readonly toDate: string; readonly toHour: string; readonly toMinute: string;
-} {
+};
+
+/** ค่าที่กรอกลงหน้าเว็บสำหรับช่วงครึ่งเปิด `[start, end)` นาทีของวัน D (end = 1440 → 00:00 ของวันถัดไป) */
+export function auditWindowMinutes(day: Date, startMinute: number, endMinute: number): WindowFields {
   const next = parseISODate(addDaysISO(formatISO(day), 1));
   if (next === null) throw new Error(`วันที่ไม่ถูกต้อง: ${formatISO(day)}`);
-  return { fromDate: formatDMY(day), fromHour: '00', fromMinute: '00', toDate: formatDMY(next), toHour: '00', toMinute: '00' };
+  const at = (m: number) => ({ date: formatDMY(m >= DAY_MINUTES ? next : day), hour: String(Math.floor(m / 60) % 24).padStart(2, '0'), minute: String(m % 60).padStart(2, '0') });
+  const [f, t] = [at(startMinute), at(endMinute)];
+  return { fromDate: f.date, fromHour: f.hour, fromMinute: f.minute, toDate: t.date, toHour: t.hour, toMinute: t.minute };
+}
+
+/** ค่าที่กรอกลงหน้าเว็บสำหรับวันของข้อมูล D — ช่วงครึ่งเปิด `[D 00:00, D+1 00:00)` */
+export const auditWindow = (day: Date): WindowFields => auditWindowMinutes(day, 0, DAY_MINUTES);
+
+async function fillWindow(page: Page, w: WindowFields): Promise<void> {
+  // ตั้งทุกช่องแบบ explicit ทับค่าตั้งต้นของหน้า (From = วันนี้ 03:00, To ว่าง)
+  await setSingleDate(page, FROM_DATE, w.fromDate, ALLOWED_CONTROLS, REPORT_ID);
+  await setSingleDate(page, FROM_HOUR, w.fromHour, ALLOWED_CONTROLS, REPORT_ID);
+  await setSingleDate(page, FROM_MINUTE, w.fromMinute, ALLOWED_CONTROLS, REPORT_ID);
+  await setSingleDate(page, TO_DATE, w.toDate, ALLOWED_CONTROLS, REPORT_ID);
+  await setSingleDate(page, TO_HOUR, w.toHour, ALLOWED_CONTROLS, REPORT_ID);
+  await setSingleDate(page, TO_MINUTE, w.toMinute, ALLOWED_CONTROLS, REPORT_ID);
 }
 
 export const auditTrail: Report = {
@@ -46,11 +64,15 @@ export const auditTrail: Report = {
   dailyOnly: true,
   family: 'per-day',
   skipDateCoverageCheck: false,
-  scrape: { gridIdPart: 'dtgList', rowCap: AUDIT_ROW_CAP },
+  scrape: {
+    gridIdPart: 'dtgList',
+    rowCap: AUDIT_ROW_CAP,
+    applyWindow: (page, day, start, end) => fillWindow(page, auditWindowMinutes(day, start, end)),
+  },
 
   chunk: {
     kind: 'whole',
-    reason: 'dailyOnly — วันของข้อมูลวันเดียว (ปกติ 100–170 แถวต่อวัน) · ชนเพดาน 500 = ล้ม จนกว่าจะมีนโยบายแบ่งช่วงเวลา (ticket 04)',
+    reason: 'dailyOnly — วันของข้อมูลวันเดียว (ปกติ 100–170 แถวต่อวัน) · ชนเพดาน 500 → แบ่งช่วงเวลาลงไปถึง 1 ชั่วโมง (core/scraped-split.ts) ชั่วโมงเดียวยังชน = ล้ม',
   },
   hasRowCap: true,
   dateColumn: 'Date',
@@ -62,14 +84,7 @@ export const auditTrail: Report = {
   expectedColumns: ['', '', 'Date', 'Operation', 'Object', 'Object connected with operation', 'Description', 'Data', 'User'],
 
   async applyFilters(page: Page, range: DateRange): Promise<void> {
-    const w = auditWindow(range.from);
-    // ตั้งทุกช่องแบบ explicit ทับค่าตั้งต้นของหน้า (From = วันนี้ 03:00, To ว่าง)
-    await setSingleDate(page, FROM_DATE, w.fromDate, ALLOWED_CONTROLS, REPORT_ID);
-    await setSingleDate(page, FROM_HOUR, w.fromHour, ALLOWED_CONTROLS, REPORT_ID);
-    await setSingleDate(page, FROM_MINUTE, w.fromMinute, ALLOWED_CONTROLS, REPORT_ID);
-    await setSingleDate(page, TO_DATE, w.toDate, ALLOWED_CONTROLS, REPORT_ID);
-    await setSingleDate(page, TO_HOUR, w.toHour, ALLOWED_CONTROLS, REPORT_ID);
-    await setSingleDate(page, TO_MINUTE, w.toMinute, ALLOWED_CONTROLS, REPORT_ID);
+    await fillWindow(page, auditWindow(range.from));
   },
 
   async hasResults(page: Page): Promise<boolean> {

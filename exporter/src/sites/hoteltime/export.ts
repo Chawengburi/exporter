@@ -41,6 +41,7 @@ import {
   downloadExport,
   readGridText,
 } from './webforms.ts';
+import { DAY_MINUTES, fetchSplitTable, type WindowFetcher } from '../../core/scraped-split.ts';
 import { ScrapeError, scrapedTableToRawFile } from '../../core/scraped-table.ts';
 import { REPORTS, findReport, reportIds, toPlanned } from './reports/index.ts';
 import type { Report } from './reports/_types.ts';
@@ -133,7 +134,7 @@ async function fetchChunk(
   await assertFormAccepted(page);
 
   // หน้าที่ไม่มีปุ่ม export: อ่านตารางแล้วเขียนไฟล์ดิบแบบ scrape เอง (ADR-0012) — ผลว่าง (0 แถว) ล้มเอง ไม่ใช่ "ว่าง"
-  if (report.scrape !== undefined) return fetchScraped(page, report, range, chunkDir);
+  if (report.scrape !== undefined) return fetchScraped(session, cfg, report, range, chunkDir);
 
   // ต้องเช็คก่อน export เสมอ — ผลว่างจะไม่มีไฟล์ส่งมาเลย ได้แค่ timeout
   if (!(await report.hasResults(page))) {
@@ -162,14 +163,32 @@ async function fetchChunk(
 
 /**
  * หน้าที่ไม่มีปุ่ม export (`Report.scrape`) — อ่านตารางผลลัพธ์ → ด่านความครบ (`scrapedTableToRawFile`) → เขียน CSV ลงที่พัก · ข้อมูลทั้งวันก้อนเดียว
- * (ticket 02: ชนเพดานแถว = ล้ม · การแบ่งช่วงเวลาอยู่ ticket 04) · วันของข้อมูลคือวันเดียวของ `range`
+ * (ชนเพดานแถว → แบ่งช่วงเวลา ticket 04 · รายงานที่ไม่มี `applyWindow` = ล้ม) · วันของข้อมูลคือวันเดียวของ `range`
  */
-async function fetchScraped(page: Page, report: Report, range: DateRange, chunkDir: string): Promise<ChunkOutcome> {
+async function fetchScraped(session: Session, cfg: Config, report: Report, range: DateRange, chunkDir: string): Promise<ChunkOutcome> {
+  const { page } = session;
   const scrape = report.scrape!;
-  const table = await readGridText(page, scrape.gridIdPart);
-  if (table === null) throw new ScrapeError(`ไม่พบตารางผลลัพธ์ (id มี "${scrape.gridIdPart}") — หน้าเว็บน่าจะเปลี่ยนโครงสร้าง`);
+  const read = async (): Promise<string[][]> => {
+    const t = await readGridText(page, scrape.gridIdPart);
+    if (t === null) throw new ScrapeError(`ไม่พบตารางผลลัพธ์ (id มี "${scrape.gridIdPart}") — หน้าเว็บน่าจะเปลี่ยนโครงสร้าง`);
+    return t;
+  };
+  const wholeDay = await read(); // ฟิลเตอร์ทั้งวันถูกตั้งและกด Search แล้วโดย fetchChunk
+  const fetchWindow: WindowFetcher = async (start, end) => {
+    if (start === 0 && end === DAY_MINUTES) return wholeDay;
+    await scrape.applyWindow!(page, range.from, start, end);
+    await clickAndSettle(page, report.searchButton, cfg.timeoutMs, report.allowedControls, report.id);
+    await assertFormAccepted(page);
+    return read();
+  };
+  // รายงานที่แบ่งช่วงได้ (มี applyWindow): ชนเพดาน → แบ่งแล้วรวม · แต่ละช่วงผ่านด่านเพดานของตัวเองแล้ว จึงไม่ตรวจเพดานซ้ำกับตารางรวม
+  // รายงานที่แบ่งไม่ได้: ใช้ตารางทั้งวัน ชนเพดาน = ล้มที่ scrapedTableToRawFile
+  const split = scrape.applyWindow !== undefined;
+  const table = split
+    ? await fetchSplitTable({ fetchWindow, expectedHeader: report.expectedColumns, dateColumn: report.dateColumn, rowCap: scrape.rowCap })
+    : wholeDay;
   const file = scrapedTableToRawFile(table, {
-    expectedHeader: report.expectedColumns, rowCap: scrape.rowCap, dateColumn: report.dateColumn, day: formatISO(range.from),
+    expectedHeader: report.expectedColumns, rowCap: split ? Infinity : scrape.rowCap, dateColumn: report.dateColumn, day: formatISO(range.from),
   });
   const dest = path.join(chunkDir, chunkFileName(range, 'csv'));
   const bytes = Buffer.from(file.csv, 'utf8');

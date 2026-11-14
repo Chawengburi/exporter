@@ -92,7 +92,12 @@ export type Report = {
    * หน้านี้ไม่มีปุ่ม export — อ่านตารางจากหน้าเว็บแล้วเขียนเป็น**ไฟล์ดิบแบบ scrape** (ADR-0012) แทนการดาวน์โหลด · ไม่ใส่ = ดาวน์โหลดไฟล์ตามปกติ ·
    * `gridIdPart` = ส่วนของ id ตารางผลลัพธ์ · `rowCap` = เพดานแถวของหน้า (ถึงเพดาน = ถูกตัด = ล้ม)
    */
-  readonly scrape?: { readonly gridIdPart: string; readonly rowCap: number };
+  readonly scrape?: {
+    readonly gridIdPart: string;
+    readonly rowCap: number;
+    /** ตั้งฟิลเตอร์เวลาเป็นช่วงครึ่งเปิด `[start, end)` นาทีของวัน D (0–1440) — ใช้ตอนชนเพดานแล้วแบ่งช่วง (ticket 04) · ไม่ใส่ = ชนเพดานเป็นล้ม */
+    readonly applyWindow?: (page: Page, day: Date, startMinute: number, endMinute: number) => Promise<void>;
+  };
 
   /** หัวตารางที่คาดหวัง — ต่างจากนี้เมื่อไหร่แปลว่ารายงานเปลี่ยน ต้องสำรวจใหม่ */
   readonly expectedColumns: readonly string[];

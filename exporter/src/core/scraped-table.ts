@@ -12,7 +12,7 @@ export class ScrapeError extends Error {
 export type ScrapeSpec = {
   /** หัวตารางที่คาด ต้องตรงเป๊ะ (รวมคอลัมน์ไอคอนที่ไม่มีชื่อ) */
   readonly expectedHeader: readonly string[];
-  /** เพดานแถวของหน้า — ได้แถวเท่าเพดานขึ้นไป = ถือว่าถูกตัด */
+  /** เพดานแถวของหน้า — ได้แถวเท่าเพดานขึ้นไป = ถือว่าถูกตัด · `Infinity` = ไม่ตรวจ (ตารางที่รวมจากหลายช่วง แต่ละช่วงผ่านด่านเพดานของตัวเองแล้ว) */
   readonly rowCap: number;
   /** คอลัมน์วันที่ ข้อความรูป `DD/MM/YYYY HH:MM:SS` */
   readonly dateColumn: string;
@@ -41,18 +41,29 @@ function sortKey(text: string): { key: number; isoDay: string } | null {
   return { key: Number(`${m[3]}${m[2]}${m[1]}${m[4]}${m[5]}${m[6]}`), isoDay: `${m[3]}-${m[2]}-${m[1]}` };
 }
 
-export function scrapedTableToRawFile(table: readonly (readonly string[])[], spec: ScrapeSpec): ScrapedFile {
-  const [header, ...body] = table;
-  if (header === undefined || header.length !== spec.expectedHeader.length || header.some((h, i) => h !== spec.expectedHeader[i])) {
+/** นาทีของวัน (0–1439) จากข้อความ `DD/MM/YYYY HH:MM:SS` · อ่านไม่ออก = null — ใช้ตรวจว่าแถวอยู่ในช่วงที่ขอ (ticket 04) */
+export function scrapedMinuteOfDay(text: string): number | null {
+  const m = DATE_TEXT.exec(text);
+  return m === null ? null : Number(m[4]) * 60 + Number(m[5]);
+}
+
+/** ด่านหัวตาราง — ใช้ทั้งตอนอ่านก้อนเดียวและทุกช่วงของการแบ่ง (ข้อความ error ไม่มีเนื้อแถว) */
+export function assertScrapedHeader(header: readonly string[] | undefined, expectedHeader: readonly string[]): asserts header is readonly string[] {
+  if (header === undefined || header.length !== expectedHeader.length || header.some((h, i) => h !== expectedHeader[i])) {
     // แถวแรกที่ได้อาจเป็นแถวข้อมูล (ตารางไม่มีหัว) — แสดงเฉพาะเมื่อไม่ใช่ (ไม่มีเซลล์รูปวันที่เวลา) และตัดความยาว กันชื่อผู้ใช้/เลขจองรั่วลง log
     const got = header ?? [];
     const looksLikeData = got.some((c) => DATE_TEXT.test(c));
     const gotText = looksLikeData ? `${got.length} คอลัมน์ (แถวแรกเหมือนแถวข้อมูล ไม่ใช่หัวตาราง — ไม่แสดงเนื้อหา)` : JSON.stringify(got.map((c) => c.slice(0, 40)));
     throw new ScrapeError(
       `หัวตารางไม่ตรงที่คาด — หน้าเว็บน่าจะเปลี่ยนโครงสร้าง ต้องสำรวจใหม่\n` +
-        `  คาด: ${JSON.stringify(spec.expectedHeader)}\n  ได้: ${gotText}`,
+        `  คาด: ${JSON.stringify(expectedHeader)}\n  ได้: ${gotText}`,
     );
   }
+}
+
+export function scrapedTableToRawFile(table: readonly (readonly string[])[], spec: ScrapeSpec): ScrapedFile {
+  const [header, ...body] = table;
+  assertScrapedHeader(header, spec.expectedHeader);
   if (body.length === 0) {
     throw new ScrapeError(
       'ได้ 0 แถวทั้งวัน — นับเป็นล้ม ไม่ใช่ "ว่าง" (ระบบที่ใช้งานอยู่มีเหตุการณ์ทุกวัน 0 แถวแปลว่าอ่านผิดหรือฟิลเตอร์ไม่ทำงาน) (ADR-0012)',
