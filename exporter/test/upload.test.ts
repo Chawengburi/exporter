@@ -1103,3 +1103,70 @@ test('uploadSite: ไม่มีโฟลเดอร์เลย → ผลว
     await fake.close();
   }
 });
+
+// ── audit-trail (exporter-audit-trail ticket 05 · S4): ไฟล์ CSV `provenance: scrape` ผ่านขาอัปโหลดเดิม ──
+
+const AUDIT_ENTRY: RawFileEntry = {
+  ...ENTRY_BASE,
+  file: 'hoteltime__2026-10-15__audit-trail.csv',
+  report: 'audit-trail',
+  label: 'Audit trail',
+  family: 'per-day',
+  takenAt: '2026-10-15T12:10:00+07:00',
+  rows: 154,
+  sheets: ['scrape'],
+  source: 'https://th07.hoteltime.com/pms/audit/auditlist.aspx',
+  sourceName: 'scrape:dtgList',
+  provenance: 'scrape',
+};
+
+test('🔴 audit-trail (provenance: scrape, .csv): ได้ document_type hoteltime_audit_trail · as_of จาก _run.json หาจากชื่อไฟล์ได้ · ช่วง = วันเดียว · ไม่ส่ง provenance ไปให้ uploader (ยังไม่ตกลงกัน)', async () => {
+  const folder = await makeFolder([AUDIT_ENTRY]);
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  const fake = await fakeUploader({
+    catalog: ['hoteltime_audit_trail'],
+    ingest: () => ({ status: 200, body: { failed: 0, succeeded: 1, results: [{ index: 0, ok: true, file_id: 'a1', status: 'embedding' }] } }),
+  });
+  try {
+    const result = await uploadFolder({ folder, dataDir, config: configFor(fake.url), credentials: CREDENTIALS });
+    assert.equal(result.sent, 1);
+    assert.deepEqual(result.results, [{ file: AUDIT_ENTRY.file, report: 'audit-trail', kind: 'sent', fileId: 'a1' }]);
+    assert.deepEqual(fake.ingestCalls[0], {
+      source_system: 'hoteltime', document_type: 'hoteltime_audit_trail', report: 'audit-trail',
+      range_from: '2026-10-15', range_to: '2026-10-15', as_of: '2026-10-15T06:00:05.000Z', rows: 154,
+      report_label: 'Audit trail', filter_column: 'Date', filter_note: 'x',
+    });
+    assert.equal((await readManifest(folder)).files[0]?.uploaded?.fileId, 'a1');
+  } finally {
+    await fake.close();
+  }
+});
+
+test('🔴 audit-trail: document_type ยังไม่อยู่ใน catalog ของ uploader → ปฏิเสธไม่ส่ง ไม่เดา · ไฟล์ไม่หาย (ยังค้างใน backlog) · ไม่ตั้ง backlog "ว่างที่ยังไม่ประกาศ"', async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  const folder = await makeFolderUnderSite(dataDir, 'hoteltime', '2026-10-15', [AUDIT_ENTRY]);
+  const fake = await fakeUploader({ catalog: ['hoteltime_arrivals', 'hoteltime_audit'], ingest: () => ({ status: 200, body: {} }) });
+  try {
+    const result = await uploadFolder({ folder, dataDir, config: configFor(fake.url, { sendEmpty: true }), credentials: CREDENTIALS });
+    assert.equal(result.rejected, 1);
+    assert.equal(fake.ingestCalls.length, 0);
+    assert.equal(fake.emptyCalls.length, 0);
+    const r = result.results[0];
+    assert.match(r?.kind === 'rejected' ? r.reason : '', /hoteltime_audit_trail.*catalog/);
+    assert.equal((await readManifest(folder)).files[0]?.uploaded, undefined); // ไม่หาย ไม่ถูกนับว่าส่งแล้ว
+    assert.deepEqual(await readUploadBacklog(dataDir, 'hoteltime'), { site: 'hoteltime', pending: 1, blocked: 0, stuck: 0, empty: 0 });
+    const state = await readUploadStateFile(dataDir, 'hoteltime').catch(() => null);
+    assert.deepEqual(state?.empty ?? {}, {});
+    // uploader เพิ่ม document_type แล้ว → รอบถัดไปส่งได้เลยโดยไม่ต้องดึงใหม่
+    await fake.close();
+    const fake2 = await fakeUploader({ catalog: ['hoteltime_audit_trail'], ingest: () => ({ status: 200, body: { failed: 0, succeeded: 1, results: [{ index: 0, ok: true, file_id: 'a2', status: 'embedding' }] } }) });
+    try {
+      const again = await uploadFolder({ folder, dataDir, config: configFor(fake2.url), credentials: CREDENTIALS });
+      assert.equal(again.sent, 1);
+    } finally {
+      await fake2.close();
+    }
+  } finally {
+    await fake.close().catch(() => undefined);
+  }
+});
