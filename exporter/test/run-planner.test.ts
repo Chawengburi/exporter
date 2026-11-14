@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { RunRecord } from '../src/core/run-record.ts';
+import { plannedReports } from '../src/sites/hoteltime/reports/index.ts';
 import { daysToRead, planBaselineRun, planDailyRun, planDateRun, planWarnings, storeStateFrom, type PlannedReport, type StoreState } from '../src/core/run-planner.ts';
 
 /**
@@ -384,4 +385,41 @@ test('ภาพรวมจาก _run.json: ผลถ่ายซ้ำบั�
   assert.equal(state.get('in-house-guests@refresh@2026-10-14'), 'data');
   assert.equal(state.get('in-house-guests@2026-10-14'), 'data');
   assert.equal(state.get('no-such-report@refresh@2026-10-14'), undefined);
+});
+
+// ── audit-trail ในรอบรายวัน (exporter-audit-trail ticket 03 · S3) — ใช้แคตตาล็อกจริงของ HotelTime ──
+
+const REAL = plannedReports();
+
+test('audit-trail ในแคตตาล็อกจริง: ตระกูลรายงานตามวัน ไม่มี refreshAtHour (ไม่ถ่ายระหว่างวัน)', () => {
+  const a = REAL.find((r) => r.id === 'audit-trail');
+  assert.equal(a?.family, 'per-day');
+  assert.equal(a?.refreshAtHour, undefined);
+  assert.equal(REAL.filter((r) => r.family === 'per-day').length, 23);
+});
+
+test('audit-trail อยู่ในแผนรอบเที่ยง ของวัน D = เมื่อวาน · ยังไม่ถึงกำหนดก่อน 07:00 เหมือนรายงานตามวันอื่น', () => {
+  const plan = planDailyRun({ now: NOON_14, reports: REAL, state: EMPTY_STORE });
+  assert.deepEqual(plan.perDay.filter((p) => p.report === 'audit-trail'), [{ report: 'audit-trail', day: '2026-10-13' }]);
+  assert.equal(planDailyRun({ now: new Date('2026-10-13T23:59:00Z'), reports: REAL, state: EMPTY_STORE }).perDay.some((p) => p.report === 'audit-trail'), false);
+});
+
+test('🔴 audit-trail ที่ขาดถูกเติมตามเพดานต่อรอบ (ใหม่สุดก่อน) เหมือนรายงานตามวันอื่น — ไม่เกินเพดานแล้วค้างไปรอบหน้า', () => {
+  const plan = planDailyRun({ now: NOON_14, reports: REAL, state: EMPTY_STORE, goLive: '2026-10-01', cap: 3 });
+  const audit = plan.perDay.filter((p) => p.report === 'audit-trail').map((p) => p.day);
+  assert.deepEqual(audit.sort(), ['2026-10-11', '2026-10-12', '2026-10-13']);
+  assert.equal(plan.backlogDays, 10); // ขาด 1–13 ต.ค. = 13 วัน เอา 3 ค้าง 10
+});
+
+test('audit-trail ที่สำเร็จแล้วไม่ถูกดึงซ้ำ · ที่ล้มถูกลองใหม่ รายงานอื่นไม่ถูกแตะ', () => {
+  const done: StoreState = new Map([['audit-trail@2026-10-13', 'data']]);
+  assert.equal(planDailyRun({ now: NOON_14, reports: REAL, state: done }).perDay.some((p) => p.report === 'audit-trail'), false);
+  const failed: StoreState = new Map([['audit-trail@2026-10-13', 'failed']]);
+  assert.equal(planDailyRun({ now: NOON_14, reports: REAL, state: failed }).perDay.some((p) => p.report === 'audit-trail'), true);
+});
+
+test('🔴 audit-trail ไม่อยู่ใน refreshes รอบเย็น และไม่อยู่ใน pictures', () => {
+  const plan = planDailyRun({ now: AT_18, reports: REAL, state: EMPTY_STORE });
+  assert.equal(plan.refreshes.some((p) => p.report === 'audit-trail'), false);
+  assert.equal(plan.pictures.some((p) => p.report === 'audit-trail'), false);
 });

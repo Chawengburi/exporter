@@ -88,11 +88,11 @@ exporter status                          # ท้ายหน้าบอกว�
 
 ## 3. HotelTime
 
-### รายงาน 48 ใบ แบ่งเป็น 2 ตระกูล
+### รายงาน 50 ใบ แบ่งเป็น 2 ตระกูล
 
 | ตระกูล | ตัวอย่าง | ดึงยังไง | ดึงย้อนหลังได้ไหม |
 |---|---|---|---|
-| **รายงานตามวัน** (22 ใบ) | `reservations-search`, `reservations-cancelled`, `postings`, `manual-postings`, `invoices-*`, `city-tax`, `guest-profiles`, `manager-day-detail` | ทีละ **วันของข้อมูล** ไฟล์ละวัน | ✅ (`--date`, `--baseline`) |
+| **รายงานตามวัน** (23 ใบ) | `reservations-search`, `reservations-cancelled`, `postings`, `manual-postings`, `invoices-*`, `city-tax`, `guest-profiles`, `manager-day-detail`, `audit-trail` | ทีละ **วันของข้อมูล** ไฟล์ละวัน | ✅ (`--date`, `--baseline`) |
 | **รายงาน snapshot** (27 ใบ) | `arrivals`, `departures`, `in-house-guests`, `housekeeping`, `rooms-status-overview`, `manager-summary`, `trial-balance`, `reservation-stats-*` | snapshot ณ เวลาที่ดึง วันละครั้ง (HotelTime ถ่ายซ้ำรอบ 18:00 อีกฉบับ — ADR-0011) | ❌ snapshot ของวันที่ผ่านไปแล้วหายถาวร |
 
 รายงาน snapshot ที่เป็นยอดสะสมเดือน/ปี (`manager-summary`, `trial-balance`, `reservation-stats-month` ฯลฯ) ได้ **snapshot ปิดงวด** ของงวดที่จบให้เอง
@@ -157,7 +157,7 @@ exit code: `0` ผ่านหมดหรือไม่มีงาน · `2` 
 ### 3.2 ดึงวันเดิมใหม่
 
 ```bash
-# วันเดียว — รายงานตามวันทั้ง 22 ใบของวันที่ 12 ใหม่ ลงโฟลเดอร์ของวันนั้น (ฉบับเก่าไป _superseded/) · ถึงเมื่อวาน · ไม่ถ่ายรายงาน snapshot
+# วันเดียว — รายงานตามวันทั้ง 23 ใบของวันที่ 12 ใหม่ ลงโฟลเดอร์ของวันนั้น (ฉบับเก่าไป _superseded/) · ถึงเมื่อวาน · ไม่ถ่ายรายงาน snapshot
 exporter export --report all --date 2026-10-12
 exporter export --report postings --date 2026-10-12        # ใบเดียว
 
@@ -168,7 +168,7 @@ exporter export --report all --baseline                     # ไม่ใส่
 
 - baseline ไว้เก็บ **การแก้ย้อนหลัง** ที่รอบรายวัน (ดึงตอนเที่ยงของวันถัดไป) มองไม่เห็น — เทียบไฟล์ของวันเดียวกันในสองโฟลเดอร์ได้เลย
   · ⚠ sha256 ของทั้งไฟล์ต่างกันทุกครั้งที่ดาวน์โหลด แม้ข้อมูลเหมือนเดิม (มีเวลาที่สร้างไฟล์อยู่ในไฟล์) ต้องเทียบเนื้อหา
-- ใช้เวลาราววันละ 2–3 นาที (22 ใบ × ~6 วินาที) — 30 วัน ≈ 70 นาที · รายงาน snapshot ไม่มี baseline (ใส่มาใบเดียว = ปฏิเสธ · `all` = ข้าม)
+- ใช้เวลาราววันละ 2–3 นาที (23 ใบ × ~6 วินาที) — 30 วัน ≈ 70 นาที · รายงาน snapshot ไม่มี baseline (ใส่มาใบเดียว = ปฏิเสธ · `all` = ข้าม)
 - **เลี่ยงรันช่วง 11:50–12:15, 15:00, 18:00** เพราะจะล็อกอิน HotelTime พร้อมกับ Windmill
 
 ### 3.3 back-fill (ก้อนหลายวัน)

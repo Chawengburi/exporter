@@ -10,6 +10,7 @@ import { notifyLogPath } from '../src/core/discord.ts';
 import { LOW_BALANCE_USD, lowBalanceMessage, notifyCaptchaBalance, notifyDiscord, notifyUpload } from '../src/notify.ts';
 import type { UploadRunResult } from '../src/core/uploader.ts';
 import { plannedReports } from '../src/sites/foodstory/reports/index.ts';
+import { plannedReports as hoteltimePlanned } from '../src/sites/hoteltime/reports/index.ts';
 
 // ใบ 08: แจ้งผลหลังรอบรายวัน — ใช้แคตตาล็อกจริงของทั้งสอง Site กับคลังปลอม + เซิร์ฟเวอร์ Discord ปลอม · ไม่ส่งซ้ำ · ส่งไม่ได้ไม่โยน error และบันทึกไว้ ·
 // URL ของ webhook ไม่อยู่ในบันทึก
@@ -338,4 +339,27 @@ test('notifyCaptchaBalance: ยอดต่ำแต่ไม่ได้ตั�
   const r = await notifyCaptchaBalance({ getBalance: async () => 0.1, now: thai('2026-10-27T12:20'), dataDir: s.dataDir, envFile: await s.envFile(null) });
   assert.equal(r.status, 'skipped');
   assert.equal(existsSync(notifyLogPath(s.dataDir)), false);
+});
+
+test('🔴 audit-trail ล้ม (exporter-audit-trail ticket 03, story 32): แจ้งชื่อรายงานด้วยข้อความล้มเดิม รายงานตามวันอื่นที่สำเร็จไม่ถูกแตะ · ไม่มีเนื้อแถวในข้อความ', async () => {
+  const s = await fakeStore();
+  const ids = hoteltimePlanned().filter((r) => r.family === 'per-day').map((r) => r.id);
+  assert.ok(ids.includes('audit-trail'));
+  const reports = Object.fromEntries(ids.map((id) => [id, id === 'audit-trail'
+    ? { report: id, status: 'failed', error: 'audit-trail: 0 แถวทั้งวัน (ถือว่าล้ม)', attempts: 3, finishedAt: '2026-10-14T05:10:00.000Z' }
+    : { report: id, status: 'ok', rows: 1, range: { from: '2026-10-13', to: '2026-10-13' }, actualRange: null, files: [], attempts: 1, finishedAt: '2026-10-14T05:10:00.000Z' }]));
+  const folder = path.join(s.dataDir, 'hoteltime', 'daily', '2026-10', '2026-10-13');
+  await writeFile(path.join(folder, '_run.json'), JSON.stringify({
+    site: 'hoteltime', kind: 'daily', dataThrough: '2026-10-13', skipped: [],
+    runs: [{ startedAt: '2026-10-14T05:00:00.000Z', finishedAt: '2026-10-14T05:10:00.000Z', reports: ids }], reports,
+  }));
+  const discord = await fakeDiscord();
+  try {
+    await notifyDiscord({ trigger: 'hoteltime-daily', now: thai('2026-10-14T18:10'), dataDir: s.dataDir, envFile: await s.envFile(discord.url) });
+    const all = discord.bodies.map((b) => b.content).join('\n');
+    assert.match(all, /\*\*Failed \(1\)\*\*\n• HotelTime: audit-trail: /);
+    assert.doesNotMatch(all, /Failed \([2-9]/);
+  } finally {
+    await discord.close();
+  }
 });
