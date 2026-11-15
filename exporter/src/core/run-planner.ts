@@ -49,6 +49,74 @@ export function refreshId(report: string): string {
   return `${report}${REFRESH_SUFFIX}`;
 }
 
+/**
+ * Extra snapshot rounds at fixed hours (ADR-0013, supersedes the "one re-take at 18:00" part of ADR-0011): each slot is a separate command
+ * run (`export --snapshot-slot <HH>`) that takes the snapshot reports again and nothing else (no per-day reports, no back-fill, no period-close).
+ * A slot records its results under its own id `<report>@refresh-<HH>` — one status per id per folder in `_run.json`, the same reason as
+ * `@refresh` — while the 18:00 re-take keeps the plain `@refresh` id (no migration).
+ */
+export const SNAPSHOT_SLOTS = ['06', '23'] as const;
+export type SnapshotSlot = (typeof SNAPSHOT_SLOTS)[number];
+
+/**
+ * Thai-time hours [from, to) in which a slot may run. Outside the window the command does nothing: a delayed or retried job must not write
+ * slot 23 into the next calendar day's folder after midnight, and slot 06 must not run into the noon round (which takes the normal snapshot).
+ */
+export const SLOT_WINDOW: Readonly<Record<SnapshotSlot, { readonly from: number; readonly to: number }>> = {
+  '06': { from: 6, to: 12 },
+  '23': { from: 23, to: 24 },
+};
+
+export const isSnapshotSlot = (v: string): v is SnapshotSlot => (SNAPSHOT_SLOTS as readonly string[]).includes(v);
+
+export function slotRefreshId(report: string, slot: SnapshotSlot): string {
+  return `${report}${REFRESH_SUFFIX}-${slot}`;
+}
+
+/** `<report>@refresh` (the 18:00 re-take, slot = null) or `<report>@refresh-<HH>` (an extra round); anything else = null */
+export function parseRefreshId(id: string): { readonly base: string; readonly slot: string | null } | null {
+  const m = /^(.+)@refresh(?:-(\d{2}))?$/.exec(id);
+  return m === null ? null : { base: m[1]!, slot: m[2] ?? null };
+}
+
+/** Parse `HOTELTIME_SNAPSHOT_SLOTS` ("06,23") — empty/unset = no extra rounds · an unknown slot is an error (a typo must not silently turn a round off) */
+export function parseSnapshotSlots(raw: string | undefined): { readonly slots: readonly SnapshotSlot[] } | { readonly error: string } {
+  if (raw === undefined || raw.trim() === '') return { slots: [] };
+  const slots: SnapshotSlot[] = [];
+  for (const part of raw.split(',').map((x) => x.trim()).filter((x) => x !== '')) {
+    if (!isSnapshotSlot(part)) return { error: `HOTELTIME_SNAPSHOT_SLOTS has an unknown slot ${JSON.stringify(part)} — allowed: ${SNAPSHOT_SLOTS.join(', ')} (e.g. HOTELTIME_SNAPSHOT_SLOTS=06,23)` };
+    if (!slots.includes(part)) slots.push(part);
+  }
+  return { slots };
+}
+
+/**
+ * Plan of an extra snapshot round: every snapshot report that can be re-taken (`refreshAtHour` set — the same set as the 18:00 re-take) whose slot result for
+ * today is not done yet, optionally narrowed to `only` (a subset of report ids). Outside the slot's window the plan is empty and `inWindow` is false.
+ * Pure: never plans per-day reports, back-fill, period-close or the normal snapshot.
+ */
+export function planSnapshotSlot(input: {
+  readonly now: Date;
+  readonly reports: readonly PlannedReport[];
+  readonly state: StoreState;
+  readonly slot: SnapshotSlot;
+  readonly only?: readonly string[];
+}): { readonly items: readonly PlannedItem[]; readonly inWindow: boolean; readonly today: string } {
+  const today = formatISO(thaiToday(input.now));
+  const hour = thaiClock(input.now).hour;
+  const w = SLOT_WINDOW[input.slot];
+  const inWindow = hour >= w.from && hour < w.to;
+  if (!inWindow) return { items: [], inWindow, today };
+  const items = input.reports
+    .filter(
+      (r) =>
+        r.family === 'picture' && r.refreshAtHour !== undefined && (input.only === undefined || input.only.includes(r.id)) &&
+        !isDone(input.state.get(stateKey(slotRefreshId(r.id, input.slot), today))),
+    )
+    .map((r) => ({ report: r.id, day: today }));
+  return { items, inWindow, today };
+}
+
 /** สถานะล่าสุดของรายงานหนึ่งในวันหนึ่ง (CONTEXT.md: มีข้อมูล / ว่าง / ล้ม) · ไม่มีในภาพรวม = ยังไม่ได้ดึง */
 export type DayStatus = 'data' | 'empty' | 'failed';
 
@@ -275,8 +343,9 @@ export function storeStateFrom(
       // snapshot ปิดงวดนับเป็น snapshot (ไม่มีกติกาช่วงวันเดียวของรายงานตามวัน) — แต่รายงานต้นทางต้องอยู่ในแคตตาล็อก
       // snapshot ถ่ายซ้ำก็เป็นแบบเดียวกัน (ADR-0011)
       const isClose = id.endsWith(PERIOD_CLOSE_SUFFIX);
-      const suffix = isClose ? PERIOD_CLOSE_SUFFIX : id.endsWith(REFRESH_SUFFIX) ? REFRESH_SUFFIX : null;
-      const f = suffix !== null ? (family.has(id.slice(0, -suffix.length)) ? 'picture' : undefined) : family.get(id);
+      const retake = parseRefreshId(id); // `@refresh` and the extra rounds `@refresh-<HH>` (ADR-0013)
+      const baseId = isClose ? id.slice(0, -PERIOD_CLOSE_SUFFIX.length) : retake !== null ? retake.base : null;
+      const f = baseId !== null ? (family.has(baseId) ? 'picture' : undefined) : family.get(id);
       if (f === undefined) continue;
       if (f === 'per-day' && !isClose && fetchedOnOrBefore(record, id, day)) continue;
       if (o.status === 'failed') {

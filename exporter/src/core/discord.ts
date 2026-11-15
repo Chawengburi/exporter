@@ -2,8 +2,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { SITE_LABEL } from './placement.ts';
 import { createRedactor } from './redact.ts';
-import { isLoginFailureReason } from './run-record.ts';
-import { baseOfRefresh, isRefreshId, type DayView, type FailedReport, type SiteView, type StatusReport } from './status.ts';
+import { isLoginFailureReason, loginFailureDetail } from './run-record.ts';
+import { baseOfRefresh, isRefreshId, retakeRound, type DayView, type FailedReport, type SiteView, type StatusReport } from './status.ts';
 import { thaiClock } from './thai-time.ts';
 import { isUnresolvedDocumentTypeReason } from './uploader.ts';
 import type { EmptyResultEntry, UploadFileResult, UploadRunResult } from './uploader.ts';
@@ -125,9 +125,11 @@ function summarySiteBlock(site: SiteView, today: string): string {
     const bad = pictures.failed.filter((f) => !isRefreshId(f.report)).length + pictures.missing.length; // รอบเย็นล้มทั้งรอบไม่ใช่ snapshot ที่ขาด (รอบเที่ยงได้แล้ว)
     parts.push(bad === 0 ? `snapshots ${pictures.taken}/${pictures.total}` : `snapshots ${pictures.taken}/${pictures.total} (${bad} missing)`);
     // ถ่ายซ้ำรอบเย็นล้ม (ADR-0011): รอบเที่ยงได้แล้ว ไม่ใช่ snapshot ที่ขาด — บอกในสรุปอย่างเดียว ไม่เป็นแจ้งเตือน
-    if (pictures.refreshFailed.length > 0) {
-      const shown = pictures.refreshFailed.slice(0, 3).map((f) => baseOfRefresh(f.report));
-      parts[parts.length - 1] += ` · evening re-take failed: ${shown.join(', ')}${pictures.refreshFailed.length > 3 ? ` +${pictures.refreshFailed.length - 3} more` : ''}`;
+    for (const round of ['evening', '06', '23']) {
+      const failed = pictures.refreshFailed.filter((f) => retakeRound(f.report) === round);
+      if (failed.length === 0) continue;
+      const shown = failed.slice(0, 3).map((f) => baseOfRefresh(f.report));
+      parts[parts.length - 1] += ` · ${round === 'evening' ? 'evening re-take' : `${round}:00 re-take`} failed: ${shown.join(', ')}${failed.length > 3 ? ` +${failed.length - 3} more` : ''}`;
     }
   }
   return `**${label}** · ${parts.join(' · ')}`;
@@ -240,7 +242,7 @@ function exportFailures(report: StatusReport, today: string): { readonly label: 
       out.push({ label, reason: `login failed — ${firstLine(site.loginFailure.detail)}` });
     }
     for (const f of notLogin(perDay)) out.push({ label: `${label}: ${f.report}`, reason: firstLine(f.error) });
-    for (const f of notLogin(pictures)) out.push({ label: `${label}: ${isRefreshId(f.report) ? `${baseOfRefresh(f.report)} (evening re-take)` : `${f.report} (snapshot)`}`, reason: firstLine(f.error) });
+    for (const f of notLogin(pictures)) out.push({ label: `${label}: ${isRefreshId(f.report) ? `${baseOfRefresh(f.report)} (${retakeRound(f.report) === 'evening' ? 'evening' : `${retakeRound(f.report)}:00`} re-take)` : `${f.report} (snapshot)`}`, reason: firstLine(f.error) });
   }
   return out;
 }
@@ -397,6 +399,32 @@ export function discordMessages(report: StatusReport, opts: { readonly summary: 
   if (summaryMsg === undefined || groups.length === 0) return merged;
   const [first, ...rest] = merged as [DiscordMessage, ...DiscordMessage[]];
   return [...appendFileGroups(first, groups, summaryKey, `### Exported files (continued)\n${subtext(at, undefined)}`), ...rest];
+}
+
+/**
+ * Alert of an extra snapshot round (ADR-0013): sent only when **every** report of the round failed (login, password changed, browser broken) — a partly failed extra round is not an
+ * alert (the earlier snapshots of the day are still the latest good state), same rule as the 18:00 re-take in ADR-0011. null when the round is not wholly failed.
+ * Key = once per slot per day (a retry that fails again does not post twice).
+ */
+export function snapshotSlotAlert(input: {
+  readonly slot: string;
+  readonly day: string;
+  readonly at: string;
+  readonly total: number;
+  readonly failed: readonly { readonly report: string; readonly error: string }[];
+}): DiscordMessage | null {
+  if (input.total === 0 || input.failed.length !== input.total) return null;
+  const login = input.failed.find((f) => isLoginFailureReason(f.error));
+  const reason = login !== undefined ? `login failed — ${firstLine(loginFailureDetail(login.error) ?? login.error)}` : firstLine(input.failed[0]!.error);
+  const names = input.failed.slice(0, 3).map((f) => f.report).join(', ');
+  const more = input.failed.length > 3 ? ` and ${input.failed.length - 3} more` : '';
+  const content = [
+    `### HotelTime snapshot round ${input.slot}:00 failed`,
+    subtext(input.at, undefined, [`all ${input.total} reports failed`]),
+    `• ${reason}`,
+    `• ${names}${more}`,
+  ].join('\n');
+  return { keys: [`slot-failed@hoteltime@${input.slot}@${input.day}`], content, accentColor: DISCORD_COLOR.problem };
 }
 
 // ── ticket 05 ของ exporter-upload-to-uploader: ข้อความ Discord ของขาอัปโหลด ──

@@ -4,6 +4,7 @@ import {
   discordMessages,
   postDiscord,
   readNotifyLog,
+  snapshotSlotAlert,
   uploadDiscordMessages,
   webhookRedactor,
   writeNotifyLog,
@@ -11,6 +12,9 @@ import {
 } from './core/discord.ts';
 import { SCHEDULED_CATCHUP_DONE_MIN, buildStatus, defaultDataDir, readStoreSnapshot, readWebhookUrl, type Folder } from './core/status.ts';
 import { formatISO } from './core/order.ts';
+import { dailyFolder } from './core/placement.ts';
+import { parseRefreshId } from './core/run-planner.ts';
+import { readRunRecord } from './core/run-record.ts';
 import { thaiClock, thaiToday } from './core/thai-time.ts';
 import { defaultEnvFile, statusSetup } from './status-setup.ts';
 import type { UploadRunResult } from './core/uploader.ts';
@@ -129,6 +133,44 @@ export async function notifyDiscord(opts: {
   } catch (err) {
     // ห้ามทำให้รอบ export ล้ม · redact เผื่อไว้ (ตัวส่งเป็นจุดเดียวที่ถือ URL และ redact เองแล้ว)
     return { status: 'failed', sent: 0, error: redact(`แจ้ง Discord ไม่สำเร็จ — ${err instanceof Error ? err.message : String(err)}`) };
+  }
+}
+
+/**
+ * Alert after an extra snapshot round (ADR-0013, `export --snapshot-slot`): **no summary and no status evaluation** — extra rounds must not repeat the day's other alerts
+ * (the status-based alerts belong to the noon/catch-up rounds). It only reads today's `_run.json`, and posts one alert when every report of this slot failed
+ * (login/browser trouble); a partly failed round is not an alert. Never throws and never changes the round's exit code, like `notifyDiscord`.
+ */
+export async function notifySnapshotSlot(opts: {
+  readonly slot: string;
+  readonly now?: Date;
+  readonly dataDir?: string;
+  readonly envFile?: string;
+  readonly dryRun?: boolean;
+}): Promise<NotifyResult> {
+  const now = opts.now ?? new Date();
+  const dataDir = opts.dataDir ?? defaultDataDir();
+  const envFile = opts.envFile ?? defaultEnvFile();
+  let redact = (s: string) => s;
+  try {
+    const url = readWebhookUrl(envFile, 'export');
+    if (url !== null) redact = webhookRedactor(url);
+    if (url === null && !opts.dryRun) return { status: 'skipped', reason: 'DISCORD_WEBHOOK_URL_EXPORT is not set in exporter/.env — Discord skipped' };
+    const day = formatISO(thaiToday(now));
+    const record = await readRunRecord(dailyFolder(dataDir, 'hoteltime', { from: thaiToday(now), to: thaiToday(now) }));
+    const mine = Object.entries(record?.reports ?? {}).filter(([id]) => parseRefreshId(id)?.slot === opts.slot);
+    const failed = mine.flatMap(([id, o]) => (o.status === 'failed' ? [{ report: parseRefreshId(id)!.base, error: o.error }] : []));
+    const c = thaiClock(now);
+    const p = (n: number) => String(n).padStart(2, '0');
+    const alert = snapshotSlotAlert({ slot: opts.slot, day, at: `${day} ${p(c.hour)}:${p(c.minute)}`, total: mine.length, failed });
+    if (alert === null) return { status: 'sent', messages: 0 };
+    const log = await readNotifyLog(dataDir);
+    const messages = alert.keys.every((k) => k in log.sent) ? [] : [alert];
+    if (opts.dryRun) return { status: 'dry-run', messages };
+    if (url === null || messages.length === 0) return { status: 'sent', messages: 0 };
+    return await sendAndLog(dataDir, url, messages, now);
+  } catch (err) {
+    return { status: 'failed', sent: 0, error: redact(`Discord notification failed — ${err instanceof Error ? err.message : String(err)}`) };
   }
 }
 

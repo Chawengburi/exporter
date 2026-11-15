@@ -22,7 +22,8 @@ import { withBrowserRetry } from '../../core/retry.ts';
 import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
 import {
-  PlanError, daysToRead, periodCloseId, planBaselineRun, planDailyRun, refreshId, planDateRun, planWarnings, storeStateFrom, type WorkPlan,
+  PlanError, SNAPSHOT_SLOTS, SLOT_WINDOW, daysToRead, isSnapshotSlot, periodCloseId, planBaselineRun, planDailyRun, planSnapshotSlot, refreshId, planDateRun, planWarnings,
+  slotRefreshId, storeStateFrom, type WorkPlan,
 } from '../../core/run-planner.ts';
 import { createRedactor, redactError, type Redactor } from '../../core/redact.ts';
 import { verifyMerged, type ChunkVerdict } from '../../core/verify.ts';
@@ -63,6 +64,11 @@ export type ExportOptions = {
   /** หน่วงทุก action (ms) ให้คนดูทันตอน --headful · undefined = ใช้ค่าจาก .env */
   readonly slowMoMs: number | undefined;
   readonly json: boolean;
+  /**
+   * `--snapshot-slot 06|23`: an extra snapshot-only round (ADR-0013) — takes the snapshot reports again and nothing else (no per-day reports, no back-fill,
+   * no period-close); cannot be combined with any other mode. Optional so existing callers need not set it.
+   */
+  readonly snapshotSlot?: string | undefined;
 };
 
 /**
@@ -684,6 +690,76 @@ async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Re
 }
 
 /**
+ * Extra snapshot round (ADR-0013): `export --snapshot-slot 06|23`. Takes the snapshot reports again into today's folder and records each result under its own id
+ * `<report>@refresh-<HH>`; never plans per-day reports, back-fill or period-close, never moves `daily/latest`, and never touches the normal snapshot's status — so the
+ * noon round and the 18:30 deadline logic see exactly what they saw before. Does nothing (no browser, no credentials) when the slot is switched off in
+ * `HOTELTIME_SNAPSHOT_SLOTS`, when it is outside the slot's Thai-time window, or when every report of the slot is already done (that is what the second cron 30 minutes later hits).
+ */
+async function runSnapshotSlot(opts: ExportOptions, cfg: Config, requested: readonly Report[], many: boolean): Promise<number> {
+  const slot = opts.snapshotSlot!;
+  if (!isSnapshotSlot(slot)) {
+    throw new ConfigError(`--snapshot-slot must be one of ${SNAPSHOT_SLOTS.join(', ')} — got ${JSON.stringify(slot)}`);
+  }
+  if (!many) {
+    const report = requested[0]!;
+    if (toPlanned(report).family !== 'picture') throw new ConfigError(`--snapshot-slot takes snapshot reports only — "${report.id}" is a per-day report`);
+  }
+  const nothing = (code: string, text: string): number => {
+    if (opts.json) {
+      console.log(JSON.stringify({ ok: true, code, text, warnings: [], reports: [], failed: [], skipped: [], totalRows: 0, outDirs: [] }, null, 2));
+    } else {
+      console.log(`${chalk.green('✔')} ${text}`);
+    }
+    return 0;
+  };
+  if (!cfg.snapshotSlots.includes(slot)) {
+    return nothing('slot_disabled', `snapshot slot ${slot} is switched off — add ${slot} to HOTELTIME_SNAPSHOT_SLOTS in exporter/.env to enable it`);
+  }
+  const now = new Date();
+  const today = formatISO(thaiToday(now));
+  const date = parseISODate(today)!;
+  const outDir = dailyFolder(cfg.dataDir, 'hoteltime', { from: date, to: date });
+  const warnings: string[] = [];
+  let state = storeStateFrom([], REPORTS.map(toPlanned));
+  try {
+    const record = await readRunRecord(outDir);
+    if (record !== null) state = storeStateFrom([{ day: today, record }], REPORTS.map(toPlanned));
+  } catch (err) {
+    // an unreadable _run.json must not stop the round — the files already there stay (ADR-0005) and this round simply plans every report again
+    warnings.push(`could not read the _run.json of ${today} (${(err as Error).message.split('\n')[0]}) — treating the slot as not taken yet`);
+  }
+  if (!opts.json) for (const w of warnings) console.error(chalk.yellow(`⚠ ${w}`));
+  const plan = planSnapshotSlot({
+    now,
+    reports: requested.map(toPlanned),
+    state,
+    slot,
+    ...(cfg.snapshotSlotReports !== null ? { only: cfg.snapshotSlotReports } : {}),
+  });
+  if (!plan.inWindow) {
+    const w = SLOT_WINDOW[slot];
+    return nothing('slot_window_passed', `snapshot slot ${slot} only runs between ${String(w.from).padStart(2, '0')}:00 and ${String(w.to).padStart(2, '0')}:00 Thai time — nothing done`);
+  }
+  if (plan.items.length === 0) {
+    return nothing('nothing_to_do', `snapshot slot ${slot} of ${today}: nothing left to take — every report is done`);
+  }
+
+  const ctx = runContext(opts, cfg);
+  const startedAt = new Date();
+  if (!opts.json) console.log(`${chalk.dim('Result of this round')}  ${path.relative(cfg.projectRoot, outDir)}/  ${chalk.dim(`(snapshot slot ${slot}, ${plan.items.length} reports)`)}\n`);
+  const result = await runReports(
+    ctx, outDir,
+    plan.items.map((i) => ({ report: REPORT_BY_ID.get(i.report)!, job: oneDayJob(date, 'daily'), recordId: slotRefreshId(i.report, slot) })),
+    plan.items.length > 1,
+    { first: 0, total: plan.items.length },
+  );
+  const outcomes = outcomesOf(result);
+  // no `latest`: a slot-only folder must not become `daily/latest` (at 06:00 it would hold no normal snapshot yet)
+  await recordRun(outDir, { site: 'hoteltime', kind: 'daily', dataThrough: today, startedAt, finishedAt: new Date(), outcomes });
+  return finish(opts, plan.items.length > 1, result, [], outcomes, { outDirs: [outDir] }, warnings);
+}
+
+/**
  * **baseline** (ใบ 09, ADR-0008) — ดึงวันของข้อมูลในช่วงใหม่หมด ทีละวัน ไฟล์ละวัน `YYYY-MM-DD__<รายงาน>.xlsx` (ชื่อ/key เดียวกับรอบรายวัน) ลงโฟลเดอร์ของ
  * รอบนี้ `baseline/<วันที่รัน>/` (เจ้าของเลือก 2026-10-14): ฉบับรายวันกับฉบับ baseline อยู่คนละโฟลเดอร์ ไม่ลบไม่ทับ (ADR-0005) เทียบกันได้เลย · ตัววางแผนและ
  * status อ่านแค่โฟลเดอร์รายวัน — ผลของ baseline (รวมที่ล้ม) จึงไม่ทำให้รอบรายวันดึงวันนั้นซ้ำ · `_run.json` บันทึกด้วย id `<รายงาน>@<วัน>` ·
@@ -782,6 +858,13 @@ export async function runExport(opts: ExportOptions): Promise<number> {
     const cfg = loadConfig();
     const many = opts.reportId === ALL_REPORTS;
 
+    if (opts.snapshotSlot !== undefined) {
+      if (opts.daily || opts.baseline || opts.date !== undefined || opts.from !== undefined || opts.to !== undefined || opts.lastDays !== undefined
+        || opts.baselineIntervalDays !== undefined) {
+        throw new ConfigError('--snapshot-slot cannot be combined with --daily/--date/--from/--to/--last-days/--baseline — it is its own snapshot-only round');
+      }
+      return await runSnapshotSlot(opts, cfg, many ? REPORTS : [requireReport(opts.reportId)], many);
+    }
     if (opts.date !== undefined) {
       if (opts.daily || opts.baseline || opts.from !== undefined || opts.to !== undefined || opts.lastDays !== undefined
         || opts.baselineIntervalDays !== undefined) {

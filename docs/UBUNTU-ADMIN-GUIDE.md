@@ -222,6 +222,19 @@ nano ~/chawengburi-exporter/exporter/.env
    แล้วดู Discord ขา upload ว่ามีไฟล์ถูกปฏิเสธไหม
 3. ดูรอบ 12:00 แรกที่ http://localhost:8000/runs (ต้องขึ้นเขียวทั้ง HotelTime และ FoodStory) และสรุปใน Discord ขา export
 
+## รอบ snapshot เสริมของ HotelTime (06:00 / 23:00)
+
+เพิ่มความสดของสถานะ (เช่น แขกที่ยังอยู่ในโรงแรม) ระหว่างรอบเที่ยงกับรอบ 18:00 — รอบเสริมถ่าย**เฉพาะรายงาน snapshot** ซ้ำ (ไม่ดึงรายงานตามวัน ไม่เติมวันที่ขาด) ที่ 06:00 และ 23:00 เวลาไทย
+(ADR-0013) · แต่ละรอบมีรอบลองซ้ำอัตโนมัติ 30 นาทีหลังจากนั้น (06:30 / 23:30) ซึ่งไม่ทำอะไรถ้ารอบแรกได้ครบแล้ว
+
+- **เปิด/ปิด** ที่ `exporter/.env` บรรทัดเดียว: `HOTELTIME_SNAPSHOT_SLOTS=23` (เปิดเฉพาะ 23:00) · `HOTELTIME_SNAPSHOT_SLOTS=06,23` (เปิดทั้งสอง) · ว่างหรือไม่มีบรรทัดนี้ = ปิด (ค่าเริ่มต้น) ·
+  มีผลตั้งแต่รอบถัดไป ไม่ต้อง deploy ใหม่ · ปิด schedule ในหน้า Windmill อย่างเดียวไม่พอ เพราะ `install.sh`/`setup.mjs` เปิดคืนให้เอง
+- **เปิดทีละรอบ:** เปิด 23 ก่อนแล้วดูหนึ่งถึงสองคืน (`exporter status`, Windmill http://localhost:8000/runs) · เปิด 06 หลังยืนยันกับ front office แล้วว่า night audit ปิดวันเสร็จก่อน 06:00
+- หลังเปิด/ปิดรอบ ให้รัน `node ~/chawengburi-exporter/windmill/setup.mjs` หนึ่งครั้ง (ลงทะเบียน schedule ของ pipeline ที่ตามหลังรอบนั้น 20 นาที — ถ้าติดตั้ง pipeline แล้ว)
+- ผลต่อโหลด: HotelTime login ต่อรายงาน รอบเสริมหนึ่งรอบ = ราว 27 login (ราว 3.5 นาที) · ลดได้ด้วย `HOTELTIME_SNAPSHOT_SLOT_REPORTS=in-house-guests,rooms-status-overview,arrivals,departures` (เฉพาะรายงานที่ระบุ)
+- `exporter status` บอกรอบเสริมที่ล้มบางใบเป็นข้อมูล (เช่น "ถ่ายซ้ำรอบ 23:00 ล้ม 1 (arrivals)") · ล้ม**ทุกใบ** = ปัญหา และ Discord ขา export แจ้งหนึ่งข้อความต่อรอบต่อวัน
+- รอบเสริมไม่ส่งสรุปเข้า Discord และไม่ขยับตัวชี้ `daily/latest`
+
 ## เปลี่ยนรหัสผ่าน HotelTime / FoodStory
 
 ```bash

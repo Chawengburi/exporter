@@ -6,7 +6,7 @@ import { parse as parseDotenv } from 'dotenv';
 import { addDaysISO, formatISO, utcDate } from './order.ts';
 import { SITE_LABEL } from './placement.ts';
 import {
-  CATCH_UP_CAP_DAYS, GO_LIVE_ENV, PERIOD_CLOSE_SUFFIX, PERIOD_CLOSE_WINDOW_DAYS, isDone, lastDueDay, parseGoLive, REFRESH_SUFFIX, periodCloseRetryUntil, planDailyRun, refreshId,
+  CATCH_UP_CAP_DAYS, GO_LIVE_ENV, PERIOD_CLOSE_SUFFIX, PERIOD_CLOSE_WINDOW_DAYS, isDone, lastDueDay, parseGoLive, parseRefreshId, SNAPSHOT_SLOTS, periodCloseRetryUntil, planDailyRun, refreshId, slotRefreshId,
   stateKey, storeStateFrom, type DayStatus, type PlannedItem, type PlannedReport,
 } from './run-planner.ts';
 import { isLoginFailureReason, loginFailureDetail, type RunRecord } from './run-record.ts';
@@ -216,7 +216,11 @@ function perDayLevel(v: PerDayView, day: string, mode: Mode, now: Clock): Judged
 /** รายงาน snapshot ที่ถ่ายในวันหนึ่ง — วันที่ผ่านไปแล้ว = หายถาวร (บอกเฉย ๆ) */
 function pictureLevel(v: PictureView, day: string, mode: Mode, now: Clock): Judged {
   if (v.failed.length === 0 && v.missing.length === 0) {
-    return v.refreshFailed.length > 0 && day === now.today ? { level: 'info', note: 'ถ่ายซ้ำรอบเย็นล้ม — ใช้ฉบับรอบเที่ยงอยู่ ไม่ถือเป็นปัญหา' } : { level: 'ok', note: '' };
+    if (v.refreshFailed.length > 0 && day === now.today) {
+      const onlyExtra = v.refreshFailed.every((f) => parseRefreshId(f.report)?.slot != null);
+      return { level: 'info', note: onlyExtra ? 'ถ่ายซ้ำรอบเสริมล้ม — ใช้ฉบับก่อนหน้าอยู่ ไม่ถือเป็นปัญหา' : 'ถ่ายซ้ำรอบเย็นล้ม — ใช้ฉบับรอบเที่ยงอยู่ ไม่ถือเป็นปัญหา' };
+    }
+    return { level: 'ok', note: '' };
   }
   if (day < now.today) return { level: 'info', note: '' };
   if (mode === 'manual') {
@@ -276,7 +280,12 @@ function siteView(
   const perDayIds = catalog.filter((r) => r.family === 'per-day').map((r) => r.id);
   const pictureIds = catalog.filter((r) => r.family === 'picture').map((r) => r.id);
   // snapshot ถ่ายซ้ำรอบเย็น (ADR-0011): ไม่นับใน "N/N" (นับต่อรายงาน) · ล้ม = บอกในสรุป ไม่ถือเป็นปัญหา (รอบเที่ยงยังใช้ได้)
-  const refreshIds = catalog.filter((r) => r.family === 'picture' && r.refreshAtHour !== undefined).map((r) => refreshId(r.id));
+  // Rounds that re-take snapshots: the 18:00 re-take (`@refresh`, ADR-0011) and the extra rounds (`@refresh-<HH>`, ADR-0013) — each judged on its own
+  const retakeCatalog = catalog.filter((r) => r.family === 'picture' && r.refreshAtHour !== undefined);
+  const refreshRounds: readonly (readonly string[])[] = [
+    retakeCatalog.map((r) => refreshId(r.id)),
+    ...SNAPSHOT_SLOTS.map((slot) => retakeCatalog.map((r) => slotRefreshId(r.id, slot))),
+  ];
   const firstWith = (ids: readonly string[]) => readable.map((f) => f.day).filter((d) => ids.some((id) => state.has(stateKey(id, d)))).sort()[0] ?? null;
   const perDayStart = goLive ?? firstWith(perDayIds);
   const pictureStart = goLive ?? firstWith(pictureIds);
@@ -312,9 +321,14 @@ function siteView(
       if (pictureStart !== null && day >= pictureStart) {
         const s = split(pictureIds, day);
         // ล้มทั้งรอบ (ทุกใบที่ถ่ายซ้ำล้มหมด — login/รหัสผ่านเปลี่ยน/เบราว์เซอร์พัง) ไม่ลดระดับ: ต้องเห็นทันที ไม่รอรอบเที่ยงวันถัดไป · ล้มบางใบ = บอกในสรุป ไม่ใช่ปัญหา
-        const refreshFailures = split(refreshIds, day).failed;
-        const wholeRoundFailed = refreshIds.length > 0 && refreshFailures.length === refreshIds.length;
-        pictures = { total: pictureIds.length, taken: s.data + s.empty.length, empty: s.empty, failed: wholeRoundFailed ? [...s.failed, ...refreshFailures] : s.failed, missing: s.notDone, refreshFailed: wholeRoundFailed ? [] : refreshFailures };
+        const wholeFailed: FailedReport[] = [];
+        const partlyFailed: FailedReport[] = [];
+        for (const ids of refreshRounds) {
+          const failures = split(ids, day).failed;
+          if (ids.length > 0 && failures.length === ids.length) wholeFailed.push(...failures);
+          else partlyFailed.push(...failures);
+        }
+        pictures = { total: pictureIds.length, taken: s.data + s.empty.length, empty: s.empty, failed: [...s.failed, ...wholeFailed], missing: s.notDone, refreshFailed: partlyFailed };
       }
       const record = recordOf.get(day);
       const legacy = perDay === null && day <= now.due && record !== undefined && Object.keys(record.reports).some((id) => perDayIds.includes(id));
@@ -324,7 +338,9 @@ function siteView(
   }
 
   const plan = planDailyRun({ now: at, reports: catalog, state, goLive });
-  const lastRunDay = readable.flatMap((f) => f.record.runs.map((r) => thaiDateOf(r.startedAt) ?? '')).sort().at(-1) || null;
+  // an extra snapshot round (ADR-0013) records only `@refresh-<HH>` ids — it must not make a day look like "the noon round ran"
+  const slotOnly = (r: { readonly reports: readonly string[] }) => r.reports.length > 0 && r.reports.every((id) => parseRefreshId(id)?.slot != null);
+  const lastRunDay = readable.flatMap((f) => f.record.runs.filter((r) => !slotOnly(r)).map((r) => thaiDateOf(r.startedAt) ?? '')).sort().at(-1) || null;
   const closes = closesOf(readable, catalog, state, plan.periodCloses, now.today, windowDays).map((c) => ({ ...c, ...closeLevel(c, mode, now) }));
   // login ล้มทั้งรอบ (ใบ 02): ตัดสินระดับจากกติกาเวลาเดิมก่อน แล้วบรรทัด login บรรทัดเดียวเล่าแทน — วัน/งวดที่ล้มเพราะ login อย่างเดียวไม่นับซ้ำเป็นปัญหา
   const loginFailure = loginFailureOf(days, closes);
@@ -456,7 +472,10 @@ function perDayPart(v: PerDayView): string {
   );
 }
 function picturePart(v: PictureView, lost: boolean): string {
-  const refresh = v.refreshFailed.length > 0 ? ` · ถ่ายซ้ำรอบเย็นล้ม ${v.refreshFailed.length} (${names(v.refreshFailed.map((f) => baseOfRefresh(f.report)))})` : '';
+  const refresh = ['', ...SNAPSHOT_SLOTS].map((slot) => {
+    const failed = v.refreshFailed.filter((f) => (parseRefreshId(f.report)?.slot ?? '') === slot);
+    return failed.length > 0 ? ` · ${slot === '' ? 'ถ่ายซ้ำรอบเย็นล้ม' : `ถ่ายซ้ำรอบ ${slot}:00 ล้ม`} ${failed.length} (${names(failed.map((f) => baseOfRefresh(f.report)))})` : '';
+  }).join('');
   if (v.failed.length === 0 && v.missing.length === 0) return `snapshot ครบ ${v.taken}/${v.total}${refresh}`;
   return (
     `snapshot ได้ ${v.taken}/${v.total}` +
@@ -468,8 +487,13 @@ function picturePart(v: PictureView, lost: boolean): string {
 }
 
 /** id รายงานเดิมจาก id ของผลถ่ายซ้ำ (`<รายงาน>@refresh`) — ข้อความที่คนอ่านไม่เปิดเผย id ภายใน */
-export const isRefreshId = (id: string): boolean => id.endsWith(REFRESH_SUFFIX);
-export const baseOfRefresh = (id: string): string => (id.endsWith(REFRESH_SUFFIX) ? id.slice(0, -REFRESH_SUFFIX.length) : id);
+export const isRefreshId = (id: string): boolean => parseRefreshId(id) !== null;
+export const baseOfRefresh = (id: string): string => parseRefreshId(id)?.base ?? id;
+/** Which re-take round a result id belongs to, for readers: `evening` (the 18:00 re-take) or the slot hour (`06`, `23`) · null = not a re-take id */
+export const retakeRound = (id: string): string | null => {
+  const r = parseRefreshId(id);
+  return r === null ? null : (r.slot ?? 'evening');
+};
 
 function dayLabel(day: string, now: Clock): string {
   if (day === now.today) return `วันนี้ ${day}`;

@@ -591,6 +591,26 @@ test('uploadFolder: snapshot ถ่ายซ้ำรอบเย็นที่
   }
 });
 
+// ADR-0013: the extra snapshot rounds (`<report>@refresh-<HH>`) follow the same rule as the 18:00 re-take
+test('uploadFolder: an empty snapshot of an extra round (id <report>@refresh-23) is not an "empty not announced" backlog either', async () => {
+  const entry: RawFileEntry = { ...ENTRY_BASE, file: 'arrivals.xlsx', report: 'arrivals' };
+  const folder = await makeFolder([entry], { emptyReports: ['departures@refresh-23', 'rooms@refresh-06'] });
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  const fake = await fakeUploader({
+    catalog: ['hoteltime_arrivals'],
+    ingest: () => ({ status: 200, body: { results: [{ index: 0, ok: true, file_id: 'f1' }] } }),
+  });
+  try {
+    const result = await uploadFolder({ folder, dataDir, config: configFor(fake.url), credentials: CREDENTIALS });
+    assert.deepEqual(result.emptyReports, []);
+    const state = await readUploadStateFile(dataDir, 'hoteltime');
+    assert.equal(state.empty['departures@refresh-23@2026-10-15'], undefined);
+    assert.equal(state.empty['rooms@refresh-06@2026-10-15'], undefined);
+  } finally {
+    await fake.close();
+  }
+});
+
 // ── ticket 11: ส่งประกาศ `empty` จริงเมื่อเปิด flag (sendEmpty) ──
 
 test('uploadFolder: flag ปิด (default) → ไม่ยิง request empty เลย แม้มีรายงานว่างจริง', async () => {
