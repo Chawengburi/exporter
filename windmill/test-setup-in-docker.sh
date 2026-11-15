@@ -113,4 +113,24 @@ api GET /configs/get/worker__custom | node -e '
   const t = JSON.parse(require("fs").readFileSync(0)).worker_tags; if (!(t.includes("chromium") && t.includes("extra-tag"))) process.exit(1)
 ' && pass "the tag the administrator added is still there" || fail "the added tag is gone"
 
+echo "== Data pipeline jobs: registered only when pipeline/.env exists (this check once let an invalid weekly cron through)"
+[ ! -e "$WORK/pipeline/.env" ] || fail "the fixture unexpectedly has a pipeline/.env already"
+api GET "/w/admins/schedules/exists/u/$WHO/ht_pipeline_daily" | grep -qx false \
+  && pass "no pipeline job exists while pipeline/.env is missing" || fail "pipeline jobs exist without pipeline/.env"
+mkdir -p "$WORK/pipeline" && echo "HT_D1_DATABASE=dummy" >"$WORK/pipeline/.env"
+node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/pipeline.out" || fail "setup run with pipeline/.env exit $?"
+check_pipeline_schedule() { # <name> <cron>
+  api GET "/w/admins/schedules/get/u/$WHO/$1" | node -e '
+    const [cron, who] = process.argv.slice(1); const s = JSON.parse(require("fs").readFileSync(0));
+    const ok = s.schedule === cron && s.timezone === "Asia/Bangkok" && s.script_path === "u/" + who + "/" + s.path.split("/").pop() && s.enabled === true && s.permissioned_as === "u/" + who;
+    if (!ok) { console.error(JSON.stringify(s)); process.exit(1); }
+  ' "$2" "$WHO"
+}
+check_pipeline_schedule ht_pipeline_daily "0 0 19 * * *" \
+  && pass "ht_pipeline_daily: 19:00 schedule is enabled" || fail "the ht_pipeline_daily schedule is wrong or missing"
+check_pipeline_schedule ht_pipeline_weekly_verify "0 0 20 * * SUN" \
+  && pass "ht_pipeline_weekly_verify: Sunday 20:00 schedule is accepted by Windmill and enabled" || fail "the ht_pipeline_weekly_verify schedule is wrong or missing"
+node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/pipeline-second.out" || fail "second setup run with pipeline/.env exit $?"
+grep -q "Nothing changed" "$WORK/pipeline-second.out" && pass "the re-run with the pipeline jobs reports that nothing changed" || fail "the re-run with the pipeline jobs is not idempotent"
+
 echo "ALL PASSED"

@@ -49,9 +49,10 @@ const JOBS = [
 // After installing the bundle later, run setup.mjs again to register them. 19:00 = after the 15:00/18:00 catch-up runs and the 18:30 status. Full Silver check: Sunday 20:00.
 // The chromium worker is a single one and jobs queue behind each other: if the 18:00 FoodStory run takes almost an hour, the pipeline may start a little after 19:00. That is fine.
 const PIPELINE_ENV = path.join(HERE, '..', 'pipeline', '.env');
+// Windmill's cron parser (the Rust `cron` crate) counts days of the week 1-7 with Sunday = 1, so a classic `0` is rejected with HTTP 400 — use names (SUN) to stay unambiguous
 const PIPELINE_JOBS = [
   { name: 'ht_pipeline_daily', summary: 'HotelTime data pipeline Bronze→Silver→Gold→D1 (19:00)', cron: '0 0 19 * * *', timeout: PIPELINE_TIMEOUT_S },
-  { name: 'ht_pipeline_weekly_verify', summary: 'Full check of Silver against every source xlsx (Sunday 20:00)', cron: '0 0 20 * * 0', timeout: PIPELINE_TIMEOUT_S },
+  { name: 'ht_pipeline_weekly_verify', summary: 'Full check of Silver against every source xlsx (Sunday 20:00)', cron: '0 0 20 * * SUN', timeout: PIPELINE_TIMEOUT_S },
 ];
 
 class SetupError extends Error {}
