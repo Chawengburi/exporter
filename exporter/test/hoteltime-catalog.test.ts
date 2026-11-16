@@ -12,11 +12,11 @@ const PER_DAY = [
   'invoices-advance', 'invoices-annul', 'invoices-closed-account', 'deposit-ledger', 'gift-certificate-ledger', 'invoices-report',
   'city-tax', 'guest-profiles', 'foreign-police-profiles',
   'manager-day-detail', 'manager-items', 'accounting-report', 'accounting-report-detail', 'deposit-journal',
-  'audit-trail', 'vat-output',
+  'audit-trail', 'vat-output', 'vat-inspection',
 ];
 
-test('ทุกรายงานของ HotelTime มีตระกูล และรายงานตามวันตรงกับตารางเทียบรายงาน (24 ตัว ที่เหลือเป็น snapshot 27 ตัว)', () => {
-  assert.equal(REPORTS.length, 51);
+test('ทุกรายงานของ HotelTime มีตระกูล และรายงานตามวันตรงกับตารางเทียบรายงาน (25 ตัว ที่เหลือเป็น snapshot 27 ตัว)', () => {
+  assert.equal(REPORTS.length, 52);
   for (const r of REPORTS) assert.ok(r.family === 'per-day' || r.family === 'picture', `${r.id} ไม่มีตระกูล`);
   assert.deepEqual(REPORTS.filter((r) => r.family === 'per-day').map((r) => r.id).sort(), [...PER_DAY].sort());
   assert.equal(REPORTS.filter((r) => r.family === 'picture').length, 27);

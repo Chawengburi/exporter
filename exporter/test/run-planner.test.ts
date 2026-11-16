@@ -395,7 +395,7 @@ test('audit-trail ในแคตตาล็อกจริง: ตระกู
   const a = REAL.find((r) => r.id === 'audit-trail');
   assert.equal(a?.family, 'per-day');
   assert.equal(a?.refreshAtHour, undefined);
-  assert.equal(REAL.filter((r) => r.family === 'per-day').length, 24);
+  assert.equal(REAL.filter((r) => r.family === 'per-day').length, 25);
 });
 
 test('audit-trail อยู่ในแผนรอบเที่ยง ของวัน D = เมื่อวาน · ยังไม่ถึงกำหนดก่อน 07:00 เหมือนรายงานตามวันอื่น', () => {

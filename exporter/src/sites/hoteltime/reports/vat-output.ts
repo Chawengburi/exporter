@@ -1,6 +1,6 @@
 import type { Page } from 'playwright';
 import { formatDMY, type DateRange } from '../../../core/order.ts';
-import { gridRowCount, setDateRange } from '../webforms.ts';
+import { assertCheckboxes, gridRowCount, setDateRange } from '../webforms.ts';
 import type { Report } from './_types.ts';
 
 /**
@@ -44,6 +44,8 @@ export const vatOutput: Report = {
   ],
 
   async applyFilters(page: Page, range: DateRange): Promise<void> {
+    // รายงานพึ่งค่าตั้งต้นที่ติ๊กชนิดเอกสารครบทั้ง 9 ชนิด — ถ้าค่าตั้งต้นเปลี่ยนเงียบ ๆ ต้องล้มดัง ๆ ไม่ใช่ได้ไฟล์ขาดชนิด (เหมือน accounting-documents / manager-reports)
+    await assertCheckboxes(page, 'ctl00$pc$cblDocType', true);
     await setDateRange(page, RANGE, formatDMY(range.from), formatDMY(range.to), ALLOWED_CONTROLS, REPORT_ID);
   },
   async hasResults(page: Page): Promise<boolean> {

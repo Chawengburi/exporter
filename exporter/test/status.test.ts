@@ -364,7 +364,7 @@ test('exporter status กับคลังปลอม: แคตตาล็�
   assert.equal(keyed.sites[1].mode, 'auto');
   assert.doesNotMatch(JSON.stringify(keyed), /secret-captcha-key/);
   const d13 = parsed.sites[0].days.find((d: { day: string }) => d.day === '2026-10-13');
-  assert.equal(d13.perDay.total, 24); // 22 + audit-trail (ADR-0012) + vat-output (gold-feed ticket 01)
+  assert.equal(d13.perDay.total, 25); // 22 + audit-trail (ADR-0012) + vat-output (gold-feed ticket 01) + vat-inspection (ticket 04)
   assert.equal(d13.perDay.data, 1); // postings เป็นรายงานตามวันจริงของ HotelTime
 
   await writeFolder(dataDir, 'hoteltime', { day: '2026-10-12', record: 'unreadable' });
