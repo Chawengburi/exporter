@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
-import { discordMessages, postDiscord, SECTION_BREAK } from '../src/core/discord.ts';
+import { DISCORD_COLOR, discordMessages, postDiscord, SECTION_BREAK, snapshotSlotAlert } from '../src/core/discord.ts';
 import type { PlannedReport } from '../src/core/run-planner.ts';
 import { loginFailureReason, type RunRecord } from '../src/core/run-record.ts';
 import { buildStatus, type Folder, type StatusSetup, type StoreSnapshot } from '../src/core/status.ts';
@@ -410,4 +410,39 @@ test('snapshot ถ่ายซ้ำรอบเย็นล้ม: สรุป
   assert.equal(ms.length, 1, all); // สรุปอย่างเดียว ไม่มีข้อความแจ้งเตือน
   assert.match(all, /snapshots 2\/2 · evening re-take failed: arrivals/);
   assert.doesNotMatch(all, /missing|arrivals@refresh/);
+});
+
+// ── ADR-0013: extra snapshot rounds ──
+test('an extra round failing for some reports: the summary names the round ("23:00 re-take failed") · no alert · the 18:00 wording is unchanged', () => {
+  const setup: StatusSetup = { ...SETUP, catalog: { ...SETUP.catalog, hoteltime: HT.map((r) => (r.family === 'picture' ? { ...r, refreshAtHour: 18 } : r)) } };
+  const s = healthy();
+  const bad: StoreSnapshot = {
+    ...s,
+    hoteltime: [...s.hoteltime.filter((f) => f.day !== '2026-10-14'),
+      folder('2026-10-14', undefined, {
+        arrivals: 'data', 'trial-balance': 'data', 'arrivals@refresh': ['failed', 'Timeout'], 'trial-balance@refresh': 'data',
+        'arrivals@refresh-23': ['failed', 'Timeout'], 'trial-balance@refresh-23': 'data',
+      })],
+  };
+  const ms = discordMessages(buildStatus(bad, thai('2026-10-14T23:30'), setup), { summary: true, alreadySent: NONE });
+  const all = ms.map((m) => m.content).join('\n');
+  assert.equal(ms.length, 1, all);
+  assert.match(all, /snapshots 2\/2 · evening re-take failed: arrivals · 23:00 re-take failed: arrivals/);
+  assert.doesNotMatch(all, /refresh-23/);
+});
+
+test('snapshotSlotAlert: only when every report of the round failed · login failure is told in one line · once per slot per day', () => {
+  const failed = [{ report: 'arrivals', error: 'Timeout' }, { report: 'departures', error: 'Timeout' }];
+  const AT = '2026-10-14 23:05';
+  assert.equal(snapshotSlotAlert({ slot: '23', day: '2026-10-14', at: AT, total: 3, failed }), null); // partly failed = no alert
+  assert.equal(snapshotSlotAlert({ slot: '23', day: '2026-10-14', at: AT, total: 0, failed: [] }), null);
+  const all = snapshotSlotAlert({ slot: '23', day: '2026-10-14', at: AT, total: 2, failed })!;
+  assert.match(all.content, /### HotelTime snapshot round 23:00 failed/);
+  assert.match(all.content, /all 2 reports failed/);
+  assert.match(all.content, /arrivals, departures/);
+  assert.deepEqual(all.keys, ['slot-failed@hoteltime@23@2026-10-14']);
+  assert.equal(all.accentColor, DISCORD_COLOR.problem);
+  const login = snapshotSlotAlert({ slot: '06', day: '2026-10-15', at: '2026-10-15 06:02', total: 1, failed: [{ report: 'arrivals', error: loginFailureReason('wrong password') }] })!;
+  assert.match(login.content, /login failed — wrong password/);
+  assert.deepEqual(login.keys, ['slot-failed@hoteltime@06@2026-10-15']);
 });

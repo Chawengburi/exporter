@@ -55,7 +55,7 @@ api GET /configs/get/worker__custom | node -e '
   const c = JSON.parse(require("fs").readFileSync(0)); if (JSON.stringify(c?.worker_tags) !== JSON.stringify(["chromium"])) process.exit(1)
 ' && pass "worker group custom listens on the tag chromium" || fail "the worker__custom config is wrong"
 
-for name in pms_export_daily pms_export_daily_catchup foodstory_export_daily foodstory_export_daily_catchup; do
+for name in pms_export_daily pms_export_daily_catchup foodstory_export_daily foodstory_export_daily_catchup pms_export_snapshot_0600 pms_export_snapshot_2300; do
   api GET "/w/admins/scripts/get/p/u/$WHO/$name" >"$WORK/$name.json"
   node -e '
     const [file, json] = process.argv.slice(1); const fs = require("fs");
@@ -113,24 +113,51 @@ api GET /configs/get/worker__custom | node -e '
   const t = JSON.parse(require("fs").readFileSync(0)).worker_tags; if (!(t.includes("chromium") && t.includes("extra-tag"))) process.exit(1)
 ' && pass "the tag the administrator added is still there" || fail "the added tag is gone"
 
-echo "== Data pipeline jobs: registered only when pipeline/.env exists (this check once let an invalid weekly cron through)"
+echo "== Extra HotelTime snapshot rounds (ADR-0013): the jobs are always registered, with a retry schedule 30 minutes later"
+check_schedule "u/$WHO/pms_export_snapshot_0600" "0 0 6 * * *" "u/$WHO/pms_export_snapshot_0600" \
+  && pass "06:00 snapshot round: schedule is enabled" || fail "the 06:00 snapshot round schedule is wrong"
+check_schedule "u/$WHO/pms_export_snapshot_0600_retry" "0 30 6 * * *" "u/$WHO/pms_export_snapshot_0600" \
+  && pass "06:30 retry schedule runs the same script" || fail "the 06:30 retry schedule is wrong"
+check_schedule "u/$WHO/pms_export_snapshot_2300" "0 0 23 * * *" "u/$WHO/pms_export_snapshot_2300" \
+  && pass "23:00 snapshot round: schedule is enabled" || fail "the 23:00 snapshot round schedule is wrong"
+check_schedule "u/$WHO/pms_export_snapshot_2300_retry" "0 30 23 * * *" "u/$WHO/pms_export_snapshot_2300" \
+  && pass "23:30 retry schedule runs the same script" || fail "the 23:30 retry schedule is wrong"
+
+echo "== Data pipeline jobs: registered only when pipeline/.env exists (this check once let an invalid weekly cron through) · one script, several schedules"
 [ ! -e "$WORK/pipeline/.env" ] || fail "the fixture unexpectedly has a pipeline/.env already"
-api GET "/w/admins/schedules/exists/u/$WHO/ht_pipeline_daily" | grep -qx false \
-  && pass "no pipeline job exists while pipeline/.env is missing" || fail "pipeline jobs exist without pipeline/.env"
+schedule_exists() { api GET "/w/admins/schedules/exists/u/$WHO/$1" | grep -qx true; }
+! schedule_exists ht_pipeline_daily && pass "no pipeline job exists while pipeline/.env is missing" || fail "pipeline jobs exist without pipeline/.env"
 mkdir -p "$WORK/pipeline" && echo "HT_D1_DATABASE=dummy" >"$WORK/pipeline/.env"
 node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/pipeline.out" || fail "setup run with pipeline/.env exit $?"
-check_pipeline_schedule() { # <name> <cron>
-  api GET "/w/admins/schedules/get/u/$WHO/$1" | node -e '
-    const [cron, who] = process.argv.slice(1); const s = JSON.parse(require("fs").readFileSync(0));
-    const ok = s.schedule === cron && s.timezone === "Asia/Bangkok" && s.script_path === "u/" + who + "/" + s.path.split("/").pop() && s.enabled === true && s.permissioned_as === "u/" + who;
-    if (!ok) { console.error(JSON.stringify(s)); process.exit(1); }
-  ' "$2" "$WHO"
+check_pipeline_schedule() { # <schedule name> <cron>  (always the script ht_pipeline_daily unless the name starts with ht_pipeline_weekly)
+  local script="${1%%_[0-9][0-9][0-9][0-9]}"
+  check_schedule "u/$WHO/$1" "$2" "u/$WHO/$script"
 }
 check_pipeline_schedule ht_pipeline_daily "0 0 19 * * *" \
   && pass "ht_pipeline_daily: 19:00 schedule is enabled" || fail "the ht_pipeline_daily schedule is wrong or missing"
-check_pipeline_schedule ht_pipeline_weekly_verify "0 0 20 * * SUN" \
-  && pass "ht_pipeline_weekly_verify: Sunday 20:00 schedule is accepted by Windmill and enabled" || fail "the ht_pipeline_weekly_verify schedule is wrong or missing"
+check_pipeline_schedule ht_pipeline_daily_1245 "0 45 12 * * *" \
+  && pass "ht_pipeline_daily_1245: the 12:45 schedule shares the script" || fail "the 12:45 pipeline schedule is wrong or missing"
+check_pipeline_schedule ht_pipeline_weekly_verify "0 30 0 * * SUN" \
+  && pass "ht_pipeline_weekly_verify: Sunday 00:30 schedule is accepted by Windmill and enabled" || fail "the ht_pipeline_weekly_verify schedule is wrong or missing"
+! schedule_exists ht_pipeline_daily_2320 && ! schedule_exists ht_pipeline_daily_0620 \
+  && pass "the 06:20 and 23:20 pipeline schedules are not registered while the snapshot rounds are off" || fail "pipeline schedules of rounds that are switched off were registered"
 node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/pipeline-second.out" || fail "second setup run with pipeline/.env exit $?"
 grep -q "Nothing changed" "$WORK/pipeline-second.out" && pass "the re-run with the pipeline jobs reports that nothing changed" || fail "the re-run with the pipeline jobs is not idempotent"
+
+echo "== Switching a snapshot round on (HOTELTIME_SNAPSHOT_SLOTS in exporter/.env) adds the pipeline schedule that follows it · one script, several schedules, no new script version"
+HASH_P1="$(api GET /w/admins/scripts/get/p/u/$WHO/ht_pipeline_daily | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0)).hash)')"
+echo "HOTELTIME_SNAPSHOT_SLOTS=23" >"$WORK/exporter/.env"
+node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/slot23.out" || fail "setup run with slot 23 exit $?"
+check_pipeline_schedule ht_pipeline_daily_2320 "0 20 23 * * *" \
+  && pass "ht_pipeline_daily_2320 follows the 23:00 round" || fail "the 23:20 pipeline schedule is wrong or missing"
+! schedule_exists ht_pipeline_daily_0620 && pass "the 06:20 schedule is still absent (slot 06 is off)" || fail "the 06:20 schedule exists although slot 06 is off"
+HASH_P2="$(api GET /w/admins/scripts/get/p/u/$WHO/ht_pipeline_daily | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0)).hash)')"
+[ "$HASH_P1" = "$HASH_P2" ] && pass "the shared pipeline script was not redeployed" || fail "adding a schedule created a new script version"
+echo 'HOTELTIME_SNAPSHOT_SLOTS="06,23"  # both rounds on' >"$WORK/exporter/.env"
+node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/slot0623.out" || fail "setup run with both slots exit $?"
+check_pipeline_schedule ht_pipeline_daily_0620 "0 20 6 * * *" \
+  && pass "ht_pipeline_daily_0620 follows the 06:00 round (quoted value with a comment in .env is understood)" || fail "the 06:20 pipeline schedule is wrong or missing"
+node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/slot-second.out" || fail "re-run with both slots exit $?"
+grep -q "Nothing changed" "$WORK/slot-second.out" && pass "re-run with both slots on reports that nothing changed" || fail "the re-run with both slots on is not idempotent"
 
 echo "ALL PASSED"

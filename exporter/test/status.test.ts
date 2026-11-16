@@ -567,3 +567,46 @@ test('🔴 รอบเย็นถ่ายซ้ำล้มทุกใบ (�
   const some = withRefresh({ 'arrivals@refresh': ['failed', 'Timeout'], 'trial-balance@refresh': 'data' });
   assert.equal(some.verdict, 'ok', text(some));
 });
+
+// ── ADR-0013: extra snapshot rounds (06 and 23) are judged like the 18:00 re-take, each on its own ──
+test('extra round 23:00 failed for some reports = not a problem, only said in the summary; "snapshot N/N" is not double counted', () => {
+  const s = healthy();
+  const r = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-14', { pictures: { ...PICS_HT, 'arrivals@refresh-23': ['failed', 'Timeout'], 'trial-balance@refresh-23': 'data' } })),
+  }, EVENING_14, WITH_REFRESH_SETUP);
+  assert.equal(r.verdict, 'ok', text(r));
+  assert.deepEqual(r.problems, []);
+  assert.match(text(r), /2026-10-14[^\n]*snapshot ครบ 2\/2[^\n]*ถ่ายซ้ำรอบ 23:00 ล้ม 1 \(arrivals\)/);
+});
+
+test('🔴 an extra round where every report failed (login/browser) = problem, even though the noon snapshots are fine', () => {
+  const s = healthy();
+  const all = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-14', { pictures: { ...PICS_HT, 'arrivals@refresh-06': ['failed', 'Timeout'], 'trial-balance@refresh-06': ['failed', 'Timeout'] } })),
+  }, EVENING_14, WITH_REFRESH_SETUP);
+  assert.equal(all.verdict, 'problem', text(all));
+});
+
+test('the rounds are judged separately: slot 23 half failed and slot 06 all ok stays ok; the 18:00 wording is unchanged', () => {
+  const s = healthy();
+  const r = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-14', {
+      pictures: { ...PICS_HT, 'arrivals@refresh': ['failed', 'Timeout'], 'arrivals@refresh-06': 'data', 'trial-balance@refresh-06': 'data', 'arrivals@refresh-23': ['failed', 'x'], 'trial-balance@refresh-23': 'data' },
+    })),
+  }, EVENING_14, WITH_REFRESH_SETUP);
+  assert.equal(r.verdict, 'ok', text(r));
+  assert.match(text(r), /ถ่ายซ้ำรอบเย็นล้ม 1 \(arrivals\)/);
+  assert.match(text(r), /ถ่ายซ้ำรอบ 23:00 ล้ม 1 \(arrivals\)/);
+  assert.doesNotMatch(text(r), /ถ่ายซ้ำรอบ 06:00/);
+});
+
+test('a slot-only run does not make the day look like the noon round ran (lastRunDay ignores it); a normal run does', () => {
+  const s = healthy();
+  const only = (pictures: Record<string, Result>): StoreSnapshot => ({ ...s, hoteltime: [folder('2026-10-14', { pictures })] });
+  const lastRun = (snap: StoreSnapshot) => buildStatus(snap, thai('2026-10-14T08:00'), WITH_REFRESH_SETUP).sites.find((x) => x.site === 'hoteltime')?.lastRunDay;
+  assert.equal(lastRun(only({ 'arrivals@refresh-06': 'data', 'trial-balance@refresh-06': 'data' })), null);
+  assert.equal(lastRun(only({ arrivals: 'data' })), '2026-10-14');
+});

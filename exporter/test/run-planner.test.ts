@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { RunRecord } from '../src/core/run-record.ts';
 import { plannedReports } from '../src/sites/hoteltime/reports/index.ts';
-import { daysToRead, planBaselineRun, planDailyRun, planDateRun, planWarnings, storeStateFrom, type PlannedReport, type StoreState } from '../src/core/run-planner.ts';
+import { daysToRead, isSnapshotSlot, parseRefreshId, parseSnapshotSlots, planBaselineRun, planSnapshotSlot, slotRefreshId, planDailyRun, planDateRun, planWarnings, storeStateFrom, type PlannedReport, type StoreState } from '../src/core/run-planner.ts';
 
 /**
  * ตัววางแผนรอบ (seam S1 ของ exporter-daily-per-day-raw) — ตอบว่า "รอบนี้ต้องทำอะไร" จากภาพรวมของที่เก็บข้อมูลอย่างเดียว ไม่แตะเบราว์เซอร์/ดิสก์
@@ -422,4 +422,103 @@ test('🔴 audit-trail ไม่อยู่ใน refreshes รอบเย็�
   const plan = planDailyRun({ now: AT_18, reports: REAL, state: EMPTY_STORE });
   assert.equal(plan.refreshes.some((p) => p.report === 'audit-trail'), false);
   assert.equal(plan.pictures.some((p) => p.report === 'audit-trail'), false);
+});
+
+// ── ADR-0013: extra snapshot rounds (slots 06 and 23) ──
+
+const SLOT_REPORTS: readonly PlannedReport[] = [
+  { id: 'reservations-search', family: 'per-day' },
+  { id: 'in-house-guests', family: 'picture', refreshAtHour: 18 },
+  { id: 'arrivals', family: 'picture', refreshAtHour: 18 },
+  { id: 'forecast-no-retake', family: 'picture' }, // a snapshot report that is not re-taken
+];
+const AT_23 = new Date('2026-10-14T16:00:00Z'); // 23:00 Thai time, 14 Oct
+const AT_06 = new Date('2026-10-13T23:00:00Z'); // 06:00 Thai time, 14 Oct
+const slotState = (...entries: [string, string][]): StoreState => new Map(entries as [string, 'data' | 'empty' | 'failed'][]);
+
+test('slot 23: inside its window it plans every re-takable snapshot report of today — and only those (no per-day, no normal-only snapshot)', () => {
+  const plan = planSnapshotSlot({ now: AT_23, reports: SLOT_REPORTS, state: EMPTY_STORE, slot: '23' });
+  assert.equal(plan.inWindow, true);
+  assert.deepEqual(plan.items, [{ report: 'in-house-guests', day: '2026-10-14' }, { report: 'arrivals', day: '2026-10-14' }]);
+});
+
+test('slot 06 belongs to the new Thai calendar day, slot 23 to the day that is ending', () => {
+  assert.equal(planSnapshotSlot({ now: AT_06, reports: SLOT_REPORTS, state: EMPTY_STORE, slot: '06' }).items[0]?.day, '2026-10-14');
+  assert.equal(planSnapshotSlot({ now: AT_23, reports: SLOT_REPORTS, state: EMPTY_STORE, slot: '23' }).items[0]?.day, '2026-10-14');
+});
+
+test('outside the window a slot plans nothing: 23 before 23:00 / after midnight, 06 at noon or at 05:59', () => {
+  const at = (iso: string) => new Date(iso);
+  const none = (slot: '06' | '23', now: Date) => {
+    const plan = planSnapshotSlot({ now, reports: SLOT_REPORTS, state: EMPTY_STORE, slot });
+    return [plan.inWindow, plan.items.length];
+  };
+  assert.deepEqual(none('23', at('2026-10-14T15:59:00Z')), [false, 0]); // 22:59
+  assert.deepEqual(none('23', at('2026-10-14T17:05:00Z')), [false, 0]); // 00:05 the next day — must not write slot 23 into the next day's folder
+  assert.deepEqual(none('06', at('2026-10-13T22:59:00Z')), [false, 0]); // 05:59
+  assert.deepEqual(none('06', at('2026-10-14T05:00:00Z')), [false, 0]); // 12:00 — the noon round takes the normal snapshot
+  assert.deepEqual(none('06', at('2026-10-14T04:59:00Z')), [true, 2]); // 11:59 is still inside the window
+});
+
+test('done / retry per slot id: a done report is not planned again, a failed one is, other slots and the plain 18:00 re-take do not count', () => {
+  const state = slotState(
+    [`${slotRefreshId('in-house-guests', '23')}@2026-10-14`, 'data'],
+    [`${slotRefreshId('arrivals', '23')}@2026-10-14`, 'failed'],
+  );
+  assert.deepEqual(planSnapshotSlot({ now: AT_23, reports: SLOT_REPORTS, state, slot: '23' }).items, [{ report: 'arrivals', day: '2026-10-14' }]);
+  const otherRounds = slotState(
+    ['in-house-guests@refresh-06@2026-10-14', 'data'],
+    ['in-house-guests@refresh@2026-10-14', 'data'],
+    ['in-house-guests@2026-10-14', 'data'],
+  );
+  assert.equal(planSnapshotSlot({ now: AT_23, reports: SLOT_REPORTS, state: otherRounds, slot: '23' }).items.length, 2);
+  const allDone = slotState(...SLOT_REPORTS.filter((r) => r.refreshAtHour !== undefined).map((r): [string, string] => [`${slotRefreshId(r.id, '23')}@2026-10-14`, 'empty']));
+  assert.deepEqual(planSnapshotSlot({ now: AT_23, reports: SLOT_REPORTS, state: allDone, slot: '23' }).items, []); // the retry cron finds nothing to do
+});
+
+test('an optional report list narrows the round (fewer logins)', () => {
+  const plan = planSnapshotSlot({ now: AT_23, reports: SLOT_REPORTS, state: EMPTY_STORE, slot: '23', only: ['arrivals'] });
+  assert.deepEqual(plan.items, [{ report: 'arrivals', day: '2026-10-14' }]);
+});
+
+test('🔴 slot results never change what the noon round or the 18:00 re-take plan', () => {
+  const withSlots = slotState(['in-house-guests@refresh-06@2026-10-14', 'data'], ['arrivals@refresh-23@2026-10-14', 'data'], ['arrivals@refresh-06@2026-10-14', 'failed']);
+  const reports: readonly PlannedReport[] = [
+    { id: 'reservations-search', family: 'per-day' },
+    { id: 'in-house-guests', family: 'picture', refreshAtHour: 18 },
+  ];
+  const plain = planDailyRun({ now: NOON_14, reports, state: EMPTY_STORE });
+  const withExtra = planDailyRun({ now: NOON_14, reports, state: withSlots });
+  assert.deepEqual(withExtra, plain); // the normal snapshot is still due at noon even though the 06:00 slot already took one
+  const at18 = new Date('2026-10-14T11:00:00Z');
+  const noonDone: StoreState = new Map([['reservations-search@2026-10-13', 'data'], ['in-house-guests@2026-10-14', 'data']]);
+  assert.deepEqual(
+    planDailyRun({ now: at18, reports, state: new Map([...noonDone, ...withSlots]) }).refreshes,
+    planDailyRun({ now: at18, reports, state: noonDone }).refreshes,
+  );
+});
+
+test('slot ids are read back as snapshot results of that day; ids of reports outside the catalogue are ignored', () => {
+  const ok = (rows: number) => ({ status: 'ok' as const, range: { from: '2026-10-14', to: '2026-10-14' }, rows, finishedAt: '2026-10-14T16:03:00.000Z', files: [] });
+  const record = {
+    site: 'hoteltime', kind: 'daily', dataThrough: '2026-10-14', runs: [], skipped: [],
+    reports: { 'in-house-guests@refresh-23': ok(15), 'arrivals@refresh-06': ok(0), 'no-such-report@refresh-23': ok(1) },
+  } as unknown as RunRecord;
+  const state = storeStateFrom([{ day: '2026-10-14', record }], SLOT_REPORTS);
+  assert.equal(state.get('in-house-guests@refresh-23@2026-10-14'), 'data');
+  assert.equal(state.get('arrivals@refresh-06@2026-10-14'), 'empty');
+  assert.equal(state.get('no-such-report@refresh-23@2026-10-14'), undefined);
+});
+
+test('parseRefreshId / parseSnapshotSlots / isSnapshotSlot', () => {
+  assert.deepEqual(parseRefreshId('arrivals@refresh'), { base: 'arrivals', slot: null });
+  assert.deepEqual(parseRefreshId('arrivals@refresh-23'), { base: 'arrivals', slot: '23' });
+  assert.equal(parseRefreshId('arrivals@period-close'), null);
+  assert.equal(parseRefreshId('arrivals@refresh-2'), null);
+  assert.equal(parseRefreshId('arrivals'), null);
+  assert.deepEqual(parseSnapshotSlots(undefined), { slots: [] });
+  assert.deepEqual(parseSnapshotSlots(' 06 , 23,06 '), { slots: ['06', '23'] });
+  assert.match((parseSnapshotSlots('06,24') as { error: string }).error, /unknown slot "24"/);
+  assert.equal(isSnapshotSlot('06'), true);
+  assert.equal(isSnapshotSlot('18'), false);
 });

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config as loadDotenv } from 'dotenv';
-import { GO_LIVE_ENV, parseGoLive } from '../../core/run-planner.ts';
+import { GO_LIVE_ENV, parseGoLive, parseSnapshotSlots, type SnapshotSlot } from '../../core/run-planner.ts';
 
 /**
  * รากของโปรเจกต์ — ไฟล์นี้อยู่ที่ src/sites/hoteltime/config.ts จึงถอยขึ้นสามชั้น
@@ -46,6 +46,13 @@ export type Config = {
    * ดึงแค่เมื่อวาน ไม่เดาวันย้อนหลัง · ค่าเดียวใช้ทั้งสอง Site จึงไม่มี prefix ของ Site · ตัวติดตั้งบน Ubuntu ตั้งเป็นวันที่ติดตั้ง
    */
   readonly goLive: string | null;
+  /**
+   * Extra snapshot rounds that are switched on (`HOTELTIME_SNAPSHOT_SLOTS`, e.g. `06,23` — ADR-0013). Empty/unset = off: `export --snapshot-slot` then exits
+   * immediately without logging in, so this is the kill switch that survives `setup.mjs` re-enabling a Windmill schedule
+   */
+  readonly snapshotSlots: readonly SnapshotSlot[];
+  /** Optional narrowing of the extra rounds to some snapshot reports (`HOTELTIME_SNAPSHOT_SLOT_REPORTS`, comma-separated ids) · null = every snapshot report */
+  readonly snapshotSlotReports: readonly string[] | null;
 };
 
 export type Credentials = {
@@ -83,6 +90,18 @@ function goLiveFromEnv(): string | null {
   return parsed.goLive;
 }
 
+function snapshotSlotsFromEnv(): readonly SnapshotSlot[] {
+  const parsed = parseSnapshotSlots(process.env.HOTELTIME_SNAPSHOT_SLOTS);
+  if ('error' in parsed) throw new ConfigError(parsed.error);
+  return parsed.slots;
+}
+
+function snapshotSlotReportsFromEnv(): readonly string[] | null {
+  const raw = process.env.HOTELTIME_SNAPSHOT_SLOT_REPORTS;
+  if (raw === undefined || raw.trim() === '') return null;
+  return raw.split(',').map((x) => x.trim()).filter((x) => x !== '');
+}
+
 export function loadConfig(): Config {
   const baseUrl = envStr('HOTELTIME_BASE_URL', DEFAULT_BASE_URL).replace(/\/+$/, '');
   const loginPath = envStr('HOTELTIME_LOGIN_PATH', DEFAULT_LOGIN_PATH);
@@ -98,6 +117,8 @@ export function loadConfig(): Config {
     dataDir: path.join(PROJECT_ROOT, 'data'),
     captureDir: path.join(PROJECT_ROOT, 'recon', 'captures'),
     goLive: goLiveFromEnv(),
+    snapshotSlots: snapshotSlotsFromEnv(),
+    snapshotSlotReports: snapshotSlotReportsFromEnv(),
   };
 }
 
