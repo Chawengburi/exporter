@@ -160,4 +160,27 @@ check_pipeline_schedule ht_pipeline_daily_0620 "0 20 6 * * *" \
 node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/slot-second.out" || fail "re-run with both slots exit $?"
 grep -q "Nothing changed" "$WORK/slot-second.out" && pass "re-run with both slots on reports that nothing changed" || fail "the re-run with both slots on is not idempotent"
 
+echo "== Names shown in the Windmill UI: every script and schedule is labelled '[Exporter] ...' or '[Pipeline] ...' and the list sorts by tool, system, then time"
+api GET "/w/admins/scripts/list?per_page=100" >"$WORK/scripts-list.json"
+api GET "/w/admins/schedules/list?per_page=100" >"$WORK/schedules-list.json"
+node -e '
+  const fs = require("fs");
+  const scripts = JSON.parse(fs.readFileSync(process.argv[1])).filter((s) => /^u\//.test(s.path) && !/\/hub_sync$/.test(s.path)); // hub_sync = Windmill'"'"'s own built-in job, not ours
+  const schedules = JSON.parse(fs.readFileSync(process.argv[2])).filter((s) => /^u\//.test(s.path) && !/\/hub_sync$/.test(s.path));
+  const bad = [];
+  for (const x of [...scripts.map((s) => [s.path, s.summary]), ...schedules.map((s) => [s.path, s.summary])]) {
+    if (!/^\[(Exporter|Pipeline)\] (HotelTime|FoodStory) \(.+\) \S/.test(x[1] ?? "")) bad.push(x.join(" => "));
+  }
+  if (bad.length) { console.error("badly named:", bad); process.exit(1); }
+  const names = scripts.map((s) => s.summary);
+  if (new Set(names).size !== names.length) { console.error("duplicate script names", names); process.exit(1); }
+  const sorted = [...names].sort();
+  const first = (n) => n.match(/^\[(\w+)\] (\w+)/).slice(1, 3).join(" ");
+  // sorted by name must keep every tool+system together (no interleaving)
+  const groups = sorted.map(first); const seen = new Set(); let prev = "";
+  for (const g of groups) { if (g !== prev && seen.has(g)) { console.error("a group is split in the sorted list", groups); process.exit(1); } seen.add(g); prev = g; }
+' "$WORK/scripts-list.json" "$WORK/schedules-list.json" \
+  && pass "every script and schedule has a '[Tool] System (times) what' name, no duplicates, and the sorted list keeps each tool+system together" \
+  || fail "the names in the Windmill UI do not follow the convention (or Windmill dropped a schedule summary — see above)"
+
 echo "ALL PASSED"

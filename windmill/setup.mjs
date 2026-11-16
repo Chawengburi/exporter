@@ -39,16 +39,29 @@ const PIPELINE_TIMEOUT_S = 3600;
 // Both Sites use the same times — status/Discord use a single set of time rules (core/status.ts: deadline 15:00 / the last run is evaluated at 18:30)
 const DAILY_CRON = '0 0 12 * * *';
 const CATCHUP_CRON = '0 0 15,18 * * *';
+// Naming of what the Windmill UI shows (the "summary" of a script and of its schedules): `[<tool>] <system> (<times>) <what it does>`.
+// The words come in that order on purpose: sorted by name, the list groups by tool, then by system, then by time of day (06.00 < 12.00 < 15.00 < 23.00),
+// so a person can see at a glance what runs when. Times are Thai time, written with a dot (12.00) like the reports. Change a summary here and run this script again:
+// only the display name changes — NEVER rename `name` (it is the path of the script and of its schedule: a new path would create a second copy and the old
+// schedule would keep running, which fetches and uploads everything twice).
 const JOBS = [
-  { name: 'pms_export_daily', summary: 'HotelTime daily run (noon)', cron: DAILY_CRON },
-  { name: 'pms_export_daily_catchup', summary: 'HotelTime catch-up run (15:00 / 18:00)', cron: CATCHUP_CRON },
-  { name: 'foodstory_export_daily', summary: 'FoodStory daily run (noon)', cron: DAILY_CRON, timeout: FOODSTORY_TIMEOUT_S },
-  { name: 'foodstory_export_daily_catchup', summary: 'FoodStory catch-up run (15:00 / 18:00)', cron: CATCHUP_CRON, timeout: FOODSTORY_TIMEOUT_S },
+  { name: 'pms_export_daily', summary: '[Exporter] HotelTime (12.00) Daily', cron: DAILY_CRON },
+  { name: 'pms_export_daily_catchup', summary: '[Exporter] HotelTime (15.00, 18.00) Catch-up', cron: CATCHUP_CRON },
+  { name: 'foodstory_export_daily', summary: '[Exporter] FoodStory (12.00) Daily', cron: DAILY_CRON, timeout: FOODSTORY_TIMEOUT_S },
+  { name: 'foodstory_export_daily_catchup', summary: '[Exporter] FoodStory (15.00, 18.00) Catch-up', cron: CATCHUP_CRON, timeout: FOODSTORY_TIMEOUT_S },
   // Extra HotelTime snapshot rounds (ADR-0013): snapshot reports only, no per-day reports, no back-fill. Always registered, but each run exits at once (no login) unless the slot is
   // listed in HOTELTIME_SNAPSHOT_SLOTS in exporter/.env — that setting is the on/off switch, because this script re-enables a schedule that was disabled in the web UI.
   // The second schedule 30 minutes later is the retry: it finds nothing to do (no browser) when the first one took every report.
-  { name: 'pms_export_snapshot_0600', summary: 'HotelTime extra snapshot round 06:00 (+ retry 06:30)', schedules: [{ cron: '0 0 6 * * *' }, { suffix: 'retry', cron: '0 30 6 * * *' }] },
-  { name: 'pms_export_snapshot_2300', summary: 'HotelTime extra snapshot round 23:00 (+ retry 23:30)', schedules: [{ cron: '0 0 23 * * *' }, { suffix: 'retry', cron: '0 30 23 * * *' }] },
+  {
+    name: 'pms_export_snapshot_0600',
+    summary: '[Exporter] HotelTime (06.00, 06.30) Extra snapshots',
+    schedules: [{ cron: '0 0 6 * * *', summary: '[Exporter] HotelTime (06.00) Extra snapshots' }, { suffix: 'retry', cron: '0 30 6 * * *', summary: '[Exporter] HotelTime (06.30) Extra snapshots, retry' }],
+  },
+  {
+    name: 'pms_export_snapshot_2300',
+    summary: '[Exporter] HotelTime (23.00, 23.30) Extra snapshots',
+    schedules: [{ cron: '0 0 23 * * *', summary: '[Exporter] HotelTime (23.00) Extra snapshots' }, { suffix: 'retry', cron: '0 30 23 * * *', summary: '[Exporter] HotelTime (23.30) Extra snapshots, retry' }],
+  },
 ];
 // Data pipeline (hoteltime-schema): registered only when the pipeline bundle is installed (../pipeline/.env exists); otherwise the jobs would fail red every day.
 // After installing the bundle later, run setup.mjs again to register them. 19:00 = after the 15:00/18:00 catch-up runs and the 18:30 status. Full Silver check: Sunday 20:00.
@@ -62,16 +75,16 @@ const PIPELINE_ENV = path.join(HERE, '..', 'pipeline', '.env');
 const PIPELINE_JOBS = [
   {
     name: 'ht_pipeline_daily',
-    summary: 'HotelTime data pipeline Bronze→Silver→Gold→D1 (follows each snapshot round)',
+    summary: '[Pipeline] HotelTime (12.45, 19.00) Bronze→Silver→Gold→D1',
     timeout: PIPELINE_TIMEOUT_S,
     schedules: [
-      { cron: '0 0 19 * * *' }, // after the 18:00 re-take (existing)
-      { suffix: '1245', cron: '0 45 12 * * *' }, // after the noon round, which can take up to about 10 minutes
-      { suffix: '0620', cron: '0 20 6 * * *', slot: '06' }, // 20 minutes after the 06:00 snapshot round
-      { suffix: '2320', cron: '0 20 23 * * *', slot: '23' }, // 20 minutes after the 23:00 snapshot round
+      { cron: '0 0 19 * * *', summary: '[Pipeline] HotelTime (19.00) Bronze→Silver→Gold→D1' }, // after the 18:00 re-take (existing)
+      { suffix: '1245', cron: '0 45 12 * * *', summary: '[Pipeline] HotelTime (12.45) Bronze→Silver→Gold→D1' }, // after the noon round, which can take up to about 10 minutes
+      { suffix: '0620', cron: '0 20 6 * * *', slot: '06', summary: '[Pipeline] HotelTime (06.20) Bronze→Silver→Gold→D1, after the 06.00 round' }, // 20 minutes after the 06:00 snapshot round
+      { suffix: '2320', cron: '0 20 23 * * *', slot: '23', summary: '[Pipeline] HotelTime (23.20) Bronze→Silver→Gold→D1, after the 23.00 round' }, // 20 minutes after the 23:00 snapshot round
     ],
   },
-  { name: 'ht_pipeline_weekly_verify', summary: 'Full check of Silver against every source xlsx (Sunday 00:30)', cron: '0 30 0 * * SUN', timeout: PIPELINE_TIMEOUT_S },
+  { name: 'ht_pipeline_weekly_verify', summary: '[Pipeline] HotelTime (Sun 00.30) Weekly full check of Silver', cron: '0 30 0 * * SUN', timeout: PIPELINE_TIMEOUT_S },
 ];
 
 /** HOTELTIME_SNAPSHOT_SLOTS of this machine: the environment first, then exporter/.env (same precedence as the exporter itself) */
@@ -90,7 +103,7 @@ function schedulesOf(job, scriptPath, slots) {
   const all = job.schedules ?? [{ cron: job.cron }];
   return all
     .filter((x) => x.slot === undefined || slots.includes(x.slot))
-    .map((x) => ({ path: x.suffix === undefined ? scriptPath : `${scriptPath}_${x.suffix}`, cron: x.cron }));
+    .map((x) => ({ path: x.suffix === undefined ? scriptPath : `${scriptPath}_${x.suffix}`, cron: x.cron, summary: x.summary ?? job.summary }));
 }
 
 class SetupError extends Error {}
@@ -193,19 +206,19 @@ async function ensureScript(token, scriptPath, job, report) {
   report(`Deployed a new version of the script ${scriptPath} (the content or summary in the repo changed)`);
 }
 
-async function ensureSchedule(token, schedulePath, scriptPath, cron, who, report) {
+async function ensureSchedule(token, schedulePath, scriptPath, cron, summary, who, report) {
   const exists = await json('GET', `/w/${WORKSPACE}/schedules/exists/${schedulePath}`, { token });
   if (!exists) {
     await call('POST', `/w/${WORKSPACE}/schedules/create`, {
       token,
-      body: { path: schedulePath, schedule: cron, timezone: TIMEZONE, script_path: scriptPath, is_flow: false, args: {}, enabled: true },
+      body: { path: schedulePath, schedule: cron, timezone: TIMEZONE, script_path: scriptPath, is_flow: false, args: {}, enabled: true, summary },
     });
     report(`Set the schedule of ${schedulePath}: ${cron} (${TIMEZONE})`);
     return;
   }
   const current = await json('GET', `/w/${WORKSPACE}/schedules/get/${schedulePath}`, { token });
-  if (current.schedule !== cron || current.timezone !== TIMEZONE || current.permissioned_as !== `u/${who}`) {
-    await call('POST', `/w/${WORKSPACE}/schedules/update/${schedulePath}`, { token, body: { schedule: cron, timezone: TIMEZONE, args: {} } });
+  if (current.schedule !== cron || current.timezone !== TIMEZONE || current.permissioned_as !== `u/${who}` || (current.summary ?? '') !== summary) {
+    await call('POST', `/w/${WORKSPACE}/schedules/update/${schedulePath}`, { token, body: { schedule: cron, timezone: TIMEZONE, args: {}, summary } });
     report(`Updated the schedule of ${schedulePath}: ${cron} (${TIMEZONE}) · bound to user ${who}`);
   }
   if (!current.enabled) {
@@ -232,7 +245,7 @@ async function main() {
     const scriptPath = `u/${who}/${job.name}`;
     await ensureScript(token, scriptPath, job, report);
     for (const schedule of schedulesOf(job, scriptPath, slots)) {
-      await ensureSchedule(token, schedule.path, scriptPath, schedule.cron, who, report);
+      await ensureSchedule(token, schedule.path, scriptPath, schedule.cron, schedule.summary, who, report);
     }
   }
   console.log(changes.length === 0 ? '   ✔ Nothing changed — everything is already set up' : `   Changed ${changes.length} thing(s)`);
