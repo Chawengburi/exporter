@@ -45,6 +45,7 @@ import { postMasterHistory, postMasters } from './paymaster.ts';
 import { postings } from './postings.ts';
 import { foreignPoliceProfiles, guestProfiles } from './profiles.ts';
 import { unchargedInvoices, unchargedInvoicesByCustomer } from './uncharged-invoices.ts';
+import { vatOutput } from './vat-output.ts';
 import { inHouseGuests } from './in-house-guests.ts';
 import { reservationsCancelled } from './reservations-cancelled.ts';
 import { reservationsRateCode } from './reservations-ratecode.ts';
@@ -116,6 +117,8 @@ export const REPORTS: readonly Report[] = [
   auditTrail,
   // ticket 02 ของ exporter-hoteltime-gold-feed — snapshot บัญชีที่ยังเปิดอยู่ (ย้อนดึงไม่ได้)
   accountsOpen,
+  // ticket 01 ของ exporter-hoteltime-gold-feed — VAT Output ตามวัน (recon สดยืนยันแล้ว 2026-11-16 ดูหมายเหตุใน vat-output.ts)
+  vatOutput,
 ];
 
 export function findReport(id: string): Report | undefined {

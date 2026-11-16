@@ -40,6 +40,8 @@ const entry = (overrides: Partial<RawFileEntry> = {}): RawFileEntry => ({
 
 test('documentTypeFor: สูตร hoteltime_ + ชื่อรายงาน (เปลี่ยน - เป็น _)', () => {
   assert.equal(documentTypeFor('hoteltime', 'reservation-stats-term'), 'hoteltime_reservation_stats_term');
+  assert.equal(documentTypeFor('hoteltime', 'vat-output'), 'hoteltime_vat_output'); // ticket 01 ของ gold-feed — ไม่ต้องมีข้อยกเว้น
+  assert.equal(documentTypeFor('hoteltime', 'accounts-open'), 'hoteltime_accounts_open');
   assert.equal(documentTypeFor('hoteltime', 'housekeeping-all-in-one'), 'hoteltime_housekeeping_all_in_one');
   assert.equal(documentTypeFor('hoteltime', 'arrivals'), 'hoteltime_arrivals');
 });

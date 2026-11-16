@@ -12,11 +12,11 @@ const PER_DAY = [
   'invoices-advance', 'invoices-annul', 'invoices-closed-account', 'deposit-ledger', 'gift-certificate-ledger', 'invoices-report',
   'city-tax', 'guest-profiles', 'foreign-police-profiles',
   'manager-day-detail', 'manager-items', 'accounting-report', 'accounting-report-detail', 'deposit-journal',
-  'audit-trail',
+  'audit-trail', 'vat-output',
 ];
 
-test('ทุกรายงานของ HotelTime มีตระกูล และรายงานตามวันตรงกับตารางเทียบรายงาน (23 ตัว ที่เหลือเป็น snapshot 27 ตัว)', () => {
-  assert.equal(REPORTS.length, 50);
+test('ทุกรายงานของ HotelTime มีตระกูล และรายงานตามวันตรงกับตารางเทียบรายงาน (24 ตัว ที่เหลือเป็น snapshot 27 ตัว)', () => {
+  assert.equal(REPORTS.length, 51);
   for (const r of REPORTS) assert.ok(r.family === 'per-day' || r.family === 'picture', `${r.id} ไม่มีตระกูล`);
   assert.deepEqual(REPORTS.filter((r) => r.family === 'per-day').map((r) => r.id).sort(), [...PER_DAY].sort());
   assert.equal(REPORTS.filter((r) => r.family === 'picture').length, 27);
@@ -53,4 +53,18 @@ test('ADR-0011: snapshot ถ่ายซ้ำรอบ 18:00 (ตรงกั�
   }
   for (const id of ['reservations-search', 'postings', 'manager-day-detail']) assert.equal(byId.get(id)?.refreshAtHour, undefined, id);
   assert.ok(plannedReports().filter((r) => r.family === 'picture').every((r) => r.refreshAtHour === 18));
+});
+
+test('vat-output (ticket 01 ของ exporter-hoteltime-gold-feed): รายงานตามวัน รายเดือน หัวตาราง 14 คอลัมน์ตามที่ Gold ของ hoteltime-schema รับ · ไม่ตัดคอลัมน์ PII', () => {
+  const r = REPORTS.find((x) => x.id === 'vat-output');
+  assert.ok(r, 'ยังไม่ลงทะเบียน vat-output');
+  assert.equal(r.family, 'per-day');
+  assert.equal(r.dailyOnly, false);
+  assert.equal(r.chunk.kind, 'monthly');
+  assert.equal(r.path, 'invoices/invoicesVatOutputReport.aspx');
+  assert.deepEqual(r.expectedColumns, [
+    'No.', 'Invoice number', 'Document type', 'Issue date', 'Tax effective date', 'Customer', 'Tax ID', 'Identity document no.',
+    'Currency', 'VAT base', 'VAT', 'Total', 'Status', 'Linked documents',
+  ]);
+  assert.ok(r.allowedControls.every((c) => c.startsWith('ctl00$pc')), 'ปุ่ม/ช่องที่อนุญาตต้องอยู่ใน panel ของฟอร์มเท่านั้น');
 });
