@@ -15,7 +15,7 @@
 |---|---|
 | Windmill ดึง HotelTime ทุกวันอยู่แล้วใช่ไหม | **ใช่** 12:00 ทุกวัน + รอบเก็บตก 15:00 / 18:00 — สามรอบรันคำสั่งเดียวกัน ทำเฉพาะที่ยังไม่สำเร็จ · ⚠️ ถ้า Mac หลับตอนเที่ยง รอบนั้นไปรันตอนเครื่องตื่น (§3.1) |
 | ได้ข้อมูลของวันไหน | **รายงานตามวัน** = **เมื่อวาน** (วันที่ปิดยอดแล้ว) ไฟล์ละวัน · **รายงาน snapshot** (สถานะห้อง สต็อก ยอดสะสม) = snapshot ณ ตอนที่ดึง · วันไหนขาด รอบถัดไปเติมให้เองตั้งแต่ **วันเริ่มใช้งาน** ครั้งละ 3 วัน |
-| FoodStory ดึงยังไง | ต้องมีคนกด reCAPTCHA ทุกครั้ง → Windmill ทำแทนไม่ได้ · **รายวัน**: พนักงานดับเบิลคลิกไอคอนบน Desktop · **รายเดือน**: ผู้ดูแลรันต้นเดือน (§4) |
+| FoodStory ดึงยังไง | ต้องมีคนกด captcha ทุกครั้ง → Windmill ทำแทนไม่ได้ · **รายวัน**: พนักงานดับเบิลคลิกไอคอนบน Desktop · **รายเดือน**: ผู้ดูแลรันต้นเดือน (§4) |
 | รู้ได้ยังไงว่าปกติ | `exporter status` สรุปหน้าเดียว · สรุปรอบ/แจ้งเตือนทาง Discord (ถ้าตั้ง `DISCORD_WEBHOOK_URL_EXPORT`) |
 | ดึงวันเดิมใหม่ยังไง | วันเดียว `--date` · หลายวัน `--baseline` (§3.2) |
 
@@ -48,7 +48,7 @@ npm link                  # ทำให้พิมพ์ `exporter` ได้�
 ```bash
 exporter --help                          # ต้องเห็นรายการคำสั่ง ไม่ใช่ "command not found"
 exporter login --check                   # HotelTime ล็อกอินได้ไหม (ไม่ต้องมีคนช่วย)
-exporter login --site foodstory --headful   # FoodStory (ต้องกด reCAPTCHA เอง)
+exporter login --site foodstory --headful   # FoodStory (ต้องกด captcha เอง)
 exporter status                          # ท้ายหน้าบอกว่าตั้งวันเริ่มใช้งาน/Discord แล้วหรือยัง
 ```
 
@@ -196,8 +196,8 @@ exporter export --report all --last-days 30
 
 ### ทำไมต้องรันเอง
 
-หน้าล็อกอินของ FoodStory มี **reCAPTCHA ทุกครั้ง** และเราตัดสินใจแล้วว่า**จะไม่หลบหรือแก้ captcha อัตโนมัติ**
-(เท่ากับหลบระบบกันบอทของเขาตรง ๆ) การเซฟ cookie ไว้ใช้รอบหน้าก็ลองแล้ว เซิร์ฟเวอร์ไม่ยอมรับ
+หน้าล็อกอินของ FoodStory มี **captcha ทุกครั้ง** (เดิม reCAPTCHA · ตั้งแต่ 2026-11-13 เป็น Cloudflare Turnstile) — ถ้าตั้ง `TWOCAPTCHA_API_KEY`
+ไว้ ระบบแก้ให้เองผ่าน 2captcha (ADR-0010 · เครื่อง Ubuntu ทำแบบนี้) ถ้าไม่ตั้งต้องมีคนกดเอง · การเซฟ cookie ไว้ใช้รอบหน้าก็ลองแล้ว เซิร์ฟเวอร์ไม่ยอมรับ
 ดังนั้นทุกครั้งที่รัน **ต้องมีคนนั่งหน้าจอเครื่องนี้** ตอนเริ่ม และ Windmill (ซึ่งรันใน Docker
 ไม่มีหน้าจอ) ทำแทนไม่ได้
 
@@ -226,7 +226,7 @@ exporter export --site foodstory --report all --headful
 สิ่งที่จะเกิดขึ้น:
 
 1. หน้าต่าง Chromium เปิดขึ้นมา อีเมลกับรหัสผ่านกรอกไว้ให้แล้ว
-2. **คุณกด reCAPTCHA** (ถ้ามีรูปให้เลือกก็เลือก) แล้วกด **เข้าสู่ระบบ** — มีเวลา 5 นาที
+2. **คุณกด captcha** (ถ้ามีรูปให้เลือกก็เลือก) แล้วกด **เข้าสู่ระบบ** — มีเวลา 5 นาที
 3. บน terminal ขึ้น `✔ login สำเร็จ — เริ่มตั้งช่วงวันที่ (…)` → จากนี้**ปล่อยมือ**
 4. โปรแกรมไล่ดึงทีละรายงานจนครบ 49 ใบ (รายงานจองโต๊ะเป็นใบสุดท้าย) แล้วปิดเบราว์เซอร์เอง
 
@@ -288,7 +288,7 @@ exporter export --report all --date 2026-10-12                      # ดึง�
 exporter export --report all --baseline --from 01/10/2026 --to 13/10/2026   # baseline ไฟล์ละวัน
 exporter export --report all --from 01/01/2025 --to 31/12/2025      # back-fill ก้อนหลายวัน
 
-# FoodStory (ต้องมีคนกด reCAPTCHA ทุกครั้ง)
+# FoodStory (ต้องมีคนกด captcha ทุกครั้ง)
 exporter export --site foodstory --report all --daily --headful     # รายวัน (สิ่งที่ไอคอนบน Desktop รัน)
 exporter export --site foodstory --report all --headful             # รายเดือน: เดือนที่แล้วทั้ง 49 ใบ
 exporter export --site foodstory --report salebysumdate --headful   # ใบเดียว

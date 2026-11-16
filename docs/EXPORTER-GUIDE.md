@@ -25,7 +25,7 @@
 | **นิยามรายงาน** | `src/sites/<site>/reports/*.ts` | **ไฟล์ที่คุณน่าจะต้องแตะถ้าอยากเพิ่มรายงานใหม่** — หนึ่งไฟล์ = หนึ่งรายงานที่ดึงได้ |
 | เครื่องมือกลาง | `src/core/*.ts` | ของที่ทุกระบบใช้ร่วมกัน (ตัววางแผนรอบ, ที่เก็บข้อมูล, ตรวจไฟล์, สถานะ, Discord ฯลฯ) — ปกติไม่ต้องแตะ |
 
-ตอนนี้ HotelTime ดึงได้ 50 รายงาน และ FoodStory 49 รายงาน ดูรายชื่อได้ด้วยคำสั่ง:
+ตอนนี้ HotelTime ดึงได้ 52 รายงาน และ FoodStory 49 รายงาน ดูรายชื่อได้ด้วยคำสั่ง:
 
 ```bash
 cd exporter
@@ -65,7 +65,7 @@ node src/index.ts login --check
 # ดึงรายงานหนึ่งใบ ช่วงที่กำหนดเอง
 node src/index.ts export --report reservations-search --from 01/01/2026 --to 31/01/2026
 
-# รอบรายวัน (ทั้ง 50 รายงาน) — รายงานตามวันของเมื่อวานไฟล์ละวัน + รายงาน snapshot ของวันนี้ + วันที่ขาดตั้งแต่วันเริ่มใช้งาน (ครั้งละ 3 วัน)
+# รอบรายวัน (ทั้ง 52 รายงาน) — รายงานตามวันของเมื่อวานไฟล์ละวัน + รายงาน snapshot ของวันนี้ + วันที่ขาดตั้งแต่วันเริ่มใช้งาน (ครั้งละ 3 วัน)
 # ทำเฉพาะที่ยังไม่สำเร็จ ไม่มีงาน = จบทันที — คำสั่งเดียวกับที่ Windmill รันทั้ง 12:00 / 15:00 / 18:00
 node src/index.ts export --report all --daily --json
 
@@ -75,10 +75,10 @@ node src/index.ts export --report all --date 2026-10-12
 # baseline: ดึงวันที่เคยดึงแล้วใหม่ ไฟล์ละวันของข้อมูล (เก็บการแก้ย้อนหลัง) — รายงาน snapshot ถูกข้าม (ดึงย้อนไม่ได้)
 node src/index.ts export --report all --baseline --from 01/10/2026 --to 13/10/2026
 
-# FoodStory รอบรายวัน (เมื่อวาน + วันที่ขาด + รายงาน snapshot ใน login เดียว) — ต้องมีคนแก้ reCAPTCHA (สิ่งที่ไอคอนบน Desktop รัน)
+# FoodStory รอบรายวัน (เมื่อวาน + วันที่ขาด + รายงาน snapshot ใน login เดียว) — ต้องมีคนแก้ captcha (สิ่งที่ไอคอนบน Desktop รัน)
 node src/index.ts export --site foodstory --report all --daily --headful
 
-# FoodStory ทั้ง 49 รายงานของเดือนที่แล้ว (รอบรายเดือน) — ต้องมีคนแก้ reCAPTCHA ตอน login (รันบน Windmill ไม่ได้)
+# FoodStory ทั้ง 49 รายงานของเดือนที่แล้ว (รอบรายเดือน) — ต้องมีคนแก้ captcha ตอน login (รันบน Windmill ไม่ได้)
 node src/index.ts export --site foodstory --report all --headful
 
 # สรุปว่าระบบปกติไหม (อ่านอย่างเดียว) · ดูข้อความ Discord ที่จะส่ง

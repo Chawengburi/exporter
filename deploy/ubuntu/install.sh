@@ -208,10 +208,10 @@ ask_webhook() { # ask_webhook <ENV_KEY> <leg label>
 }
 ask_webhook DISCORD_WEBHOOK_URL_EXPORT "export"
 ask_webhook DISCORD_WEBHOOK_URL_UPLOAD "upload"
-# ── 4c. 2captcha key (ADR-0010 · ticket 04 of exporter-foodstory-scheduled-daily) — with a key, the FoodStory login solves the reCAPTCHA itself, so it can run on a schedule
+# ── 4c. 2captcha key (ADR-0010 · ticket 04 of exporter-foodstory-scheduled-daily) — with a key, the FoodStory login solves the captcha itself, so it can run on a schedule
 # on Windmill · a secret + a paid service · a 2captcha key is 32 letters/digits (invalid format = not saved; it can always be added by hand with nano)
 ask_optional_secret TWOCAPTCHA_API_KEY '^[A-Za-z0-9]{32}$' \
-  "2captcha key so FoodStory can solve the reCAPTCHA itself" \
+  "2captcha key so FoodStory can solve the login captcha itself" \
   "The 2captcha key is already set, not touching it — FoodStory runs by itself every day on Windmill" \
   "Skipped for now — the scheduled FoodStory run on Windmill will fail immediately (Discord is told the key is missing) until a key is added · the FoodStory icon on the Desktop still works" \
   "Saved the 2captcha key (not shown on screen) — FoodStory runs by itself every day on Windmill" \

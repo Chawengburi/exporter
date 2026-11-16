@@ -2,7 +2,7 @@
 # Double-click from the Desktop (macOS: Finder · Ubuntu: the .desktop icon) -> pulls all of "yesterday's" FoodStory reports (ticket 11, ADR-0006)
 # and also fills in the days not yet pulled and takes today's snapshot reports in a single login (ticket 06 of exporter-daily-per-day-raw, ADR-0008/0009)
 #
-# The staff member solves the reCAPTCHA once, the rest runs by itself to the end and then prints a summary · can be placed on the Desktop as an alias/symlink — the script follows the
+# The staff member solves the captcha once, the rest runs by itself to the end and then prints a summary · can be placed on the Desktop as an alias/symlink — the script follows the
 # symlink back to the exporter folder itself, so it is not tied to any machine's path · guide: docs/FOODSTORY-DAILY-STAFF-GUIDE.md
 #
 # Does not rely on the Terminal's PATH: when opened from Finder, PATH may not have node (e.g. installed through nvm) — finds node >= 22.18 itself, in order

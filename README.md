@@ -1,7 +1,7 @@
 # exporter
 
 Pulls reports from websites that have no API, using Playwright, and stores them on disk — **HotelTime** (hotel PMS, runs automatically every day through Windmill) and
-**FoodStory** (restaurant POS, staff double-click an icon and solve the reCAPTCHA themselves once a day).
+**FoodStory** (restaurant POS, staff double-click an icon and solve the captcha themselves once a day).
 
 > This repo is the source of the project (developed and committed here directly) · the Ubuntu machine's administrator updates it with `git pull` as described in the guide.
 

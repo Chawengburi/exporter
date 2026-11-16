@@ -22,11 +22,11 @@ and for repairs when a website changes its pages. The origin of this architectur
 | `exporter login` — automatic login | ✅ Tested with real credentials, succeeded 2026-09-08 |
 | Phase A — menu map | ✅ Complete, see [`recon/MENU.md`](./recon/MENU.md) |
 | Phase A — filter/export exploration for the first 3 reports | ✅ Done, see [`recon/NOTES.md`](./recon/NOTES.md) |
-| `exporter export` — pull raw files + verify + `_manifest.json` | ✅ HotelTime 50 reports · FoodStory 49 reports |
+| `exporter export` — pull raw files + verify + `_manifest.json` | ✅ HotelTime 52 reports · FoodStory 49 reports |
 | Daily run with one file per data day + automatic back-fill of missing days + period-close snapshots + baseline | ✅ 2026-10-14 (tickets 01–09 of `exporter-daily-per-day-raw`) |
 | `exporter status` + Discord alerts | ✅ 2026-10-14 (tickets 07–08) |
 | File verification layer (`sites/hoteltime/verify.ts` + `core/verify.ts`) | ✅ Done — has caught 1 real bug |
-| Multi-site support (`src/sites/<site>/`) | ✅ HotelTime 50 reports + FoodStory 49 reports (FoodStory solves the reCAPTCHA itself with 2captcha when `TWOCAPTCHA_API_KEY` is set, so it can run on Windmill — ADR-0010 · no key = a person solves the captcha as before) · renamed to `exporter` on 2026-09-28 (ADR-0004) |
+| Multi-site support (`src/sites/<site>/`) | ✅ HotelTime 52 reports + FoodStory 49 reports (FoodStory solves the login captcha (Cloudflare Turnstile since 2026-11-13) itself with 2captcha when `TWOCAPTCHA_API_KEY` is set, so it can run on Windmill — ADR-0010 · no key = a person solves the captcha as before) · renamed to `exporter` on 2026-09-28 (ADR-0004) |
 | Upload leg into the uploader (`exporter upload`) | ✅ HotelTime + FoodStory (2026-10-24 runs on a schedule on Ubuntu) · announcing empty reports (`empty`) is still off (`UPLOADER_SEND_EMPTY`) — see ticket 14 |
 
 ## Install
@@ -48,7 +48,7 @@ After `npm link`, `exporter` can be called from any folder · output files are a
 
 ### Daily run `--daily` (both Sites — ADR-0008/0009)
 
-- **Per-day reports** (HotelTime 23 · FoodStory 42 — ledgers/totals for a single day) ask the Site for one **data day** at a time, giving one file per day
+- **Per-day reports** (HotelTime 25 · FoodStory 42 — ledgers/totals for a single day) ask the Site for one **data day** at a time, giving one file per day
   `<data day>__<id>.xlsx` (e.g. `2026-10-13__postings.xlsx`) in `data/<site>/daily/<YYYY-MM>/<data day>/` · the data day is normally
   **yesterday** (due from 07:00 Thai time — HotelTime's cancellation report cuts days by UTC)
 - **Snapshot reports** (HotelTime 27 · FoodStory 7 — room status, guests, stock, master data, running totals, forecasts) are taken once a day at the time of the run, named
@@ -57,7 +57,7 @@ After `npm link`, `exporter` can be called from any folder · output files are a
 - **Automatic back-fill of missing days**: every run re-pulls the (report, data day) pairs that have not succeeded since the **go-live date** (`EXPORTER_GO_LIVE` in `.env`), newest first,
   at most 3 days per run (a cap from Windmill's 15-minute timeout) · no go-live date = only yesterday is pulled · **empty** (the site has no rows) counts as success ·
   nothing to do = finishes immediately without opening a browser — so Windmill's 15:00/18:00 catch-up runs are the same command as the noon run
-- FoodStory: logs in once (solves the reCAPTCHA itself with 2captcha if a key exists, otherwise a person does) and then sets the date range one day at a time within the same run · Windmill runs it every day at 12:00 (+ catch-up 15:00/18:00) · the Desktop icon is a fallback
+- FoodStory: logs in once (solves the captcha itself with 2captcha if a key exists, otherwise a person does) and then sets the date range one day at a time within the same run · Windmill runs it every day at 12:00 (+ catch-up 15:00/18:00) · the Desktop icon is a fallback
   (`exporter/launchers/foodstory-daily.command` — place it with `bash exporter/launchers/install-desktop-launcher.sh`) guide:
   [`docs/FOODSTORY-DAILY-STAFF-GUIDE.md`](../docs/FOODSTORY-DAILY-STAFF-GUIDE.md)
 - After every daily run a Discord message is sent (below) · `data/<site>/daily/latest` points to today's folder
@@ -98,7 +98,7 @@ exporter login --check                       # check that the HotelTime credenti
 exporter reports                             # list the supported reports
 
 exporter export --report all --daily                          # HotelTime daily run — the same command Windmill runs at all 3 times
-exporter export --site foodstory --report all --daily --headful   # FoodStory daily run (no 2captcha key = a person solves the reCAPTCHA) — what the Desktop icon runs
+exporter export --site foodstory --report all --daily --headful   # FoodStory daily run (no 2captcha key = a person solves the captcha) — what the Desktop icon runs
 exporter export --report all --date 2026-10-12                # re-pull a single data day (HotelTime)
 exporter export --report all --baseline --from 01/10/2026 --to 13/10/2026   # baseline, one file per day (HotelTime)
 exporter export --report reservations-search --from 01/07/2026 --to 08/09/2026   # back-fill
@@ -200,8 +200,8 @@ src/
     sweep-classify.ts         classifier of sweep results (purely pure, but tied to ASP.NET control patterns)
     verify.ts                 the part tied to HotelTime's Report shape (verifyChunk/RowCapError)
     export.ts / login.ts / sweep.ts   the actual commands — invoked from index.ts
-    reports/                  one file per report — 50 reports, each stating its family (per-day/snapshot) and period
-  sites/foodstory/            FoodStory — config.ts (prefix FOODSTORY_*) · login solves the reCAPTCHA with 2captcha (or a person if there is no key) · daily.ts daily run in a single login
+    reports/                  one file per report — 52 reports, each stating its family (per-day/snapshot) and period
+  sites/foodstory/            FoodStory — config.ts (prefix FOODSTORY_*) · login solves the captcha with 2captcha (or a person if there is no key) · daily.ts daily run in a single login
                               reports/ 47 reports + salebychannel.ts + reservation-report.ts = 49 reports in --report all
   notify.ts                   Discord notification after a daily run / exporter notify (assembles status + discord + a record of what was sent)
 recon/NOTES.md          notes on paths/filters/traps found during exploration — the source of every value in the code

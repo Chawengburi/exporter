@@ -194,7 +194,7 @@ cd ~/chawengburi-exporter && git pull && bash deploy/ubuntu/install.sh
 
 Windmill รัน FoodStory **เวลาเดียวกับ HotelTime**: รอบรายวัน 12:00 และรอบเก็บตก 15:00 / 18:00 (job `foodstory_export_daily` และ
 `foodstory_export_daily_catchup` — ตัวติดตั้งตั้งให้เอง) · แต่ละรอบดึงรายงานรายวันของ FoodStory แล้วอัปโหลดเข้า uploader ต่อ · login แก้
-reCAPTCHA เองด้วยบริการ 2captcha (ADR-0010) จึงต้องมีคีย์ — ตัวติดตั้งถามให้ตอนติดตั้ง/อัปเดตถ้ายังไม่มี หรือใส่เอง:
+captcha (Cloudflare Turnstile ตั้งแต่ 2026-11-13) เองด้วยบริการ 2captcha (ADR-0010) จึงต้องมีคีย์ — ตัวติดตั้งถามให้ตอนติดตั้ง/อัปเดตถ้ายังไม่มี หรือใส่เอง:
 
 ```bash
 nano ~/chawengburi-exporter/exporter/.env

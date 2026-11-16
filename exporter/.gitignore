@@ -22,7 +22,7 @@ dist/
 .DS_Store
 
 # session ที่ login ค้างไว้ (storageState ของ Playwright) — เทียบเท่า credential ห้าม commit
-# ใช้ตอน FoodStory เพราะ login ผ่านฟอร์มธรรมดาไม่ได้ (บังคับ reCAPTCHA ทุกครั้ง — ต้องมีคนแก้เอง
+# ใช้ตอน FoodStory เพราะ login ผ่านฟอร์มธรรมดาไม่ได้ (บังคับ captcha ทุกครั้ง — ต้องมีคนแก้เอง
 # ครั้งแรกแล้วเซฟ session ไว้ใช้ซ้ำ ดู .scratch/exporter-multi-site/issues/02-...)
 .auth/
 
