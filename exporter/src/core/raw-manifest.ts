@@ -99,7 +99,26 @@ export function mergeRawManifest(
   );
 }
 
-async function readRawManifest(folder: string): Promise<RawManifest | null> {
+/**
+ * บรรทัดสรุป "per-day เปลี่ยนจากรอบก่อน" (ticket 09 ของ 4h-rounds) — จาก `superseded` ของ manifest (ไบต์ต่าง = ฉบับเก่าถูกแทน) ที่เกิดตั้งแต่ `since` ·
+ * นับเฉพาะ per-day ที่มี `was` · วันเดียวกันถูกแทนหลายครั้งนับครั้งเดียว · มีแต่ชื่อรายงานกับจำนวนวัน ไม่มีเนื้อหาไฟล์ · ไม่มีการเปลี่ยน = null
+ */
+export function perDayChangedNote(manifests: readonly RawManifest[], since: Date): string | null {
+  const days = new Map<string, Set<string>>();
+  for (const m of manifests) {
+    for (const s of m.superseded ?? []) {
+      if (s.was === null || s.was.family !== 'per-day' || new Date(s.supersededAt).getTime() < since.getTime()) continue;
+      const set = days.get(s.was.report) ?? new Set<string>();
+      set.add(s.was.range.from);
+      days.set(s.was.report, set);
+    }
+  }
+  if (days.size === 0) return null;
+  const parts = [...days].sort(([a], [b]) => a.localeCompare(b)).map(([report, set]) => `${report} ${set.size} วัน`);
+  return `per-day เปลี่ยนจากรอบก่อน: ${parts.join(', ')}`;
+}
+
+export async function readRawManifest(folder: string): Promise<RawManifest | null> {
   try {
     return JSON.parse(await readFile(path.join(folder, RAW_MANIFEST), 'utf8')) as RawManifest;
   } catch {

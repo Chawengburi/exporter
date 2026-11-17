@@ -56,6 +56,8 @@ export type RunRecordInput = {
   readonly latest?: string;
   /** คำเตือนของรอบนี้ที่คนต้องเห็น (เช่น วันที่ขาดเกินเพดาน, ยังไม่ได้ตั้งวันเริ่มใช้งาน) — บันทึกไว้ในรายการรอบและ `_summary.txt` */
   readonly warnings?: readonly string[];
+  /** บรรทัดข้อมูลของรอบนี้ (ไม่ใช่คำเตือน) เช่น "per-day เปลี่ยนจากรอบก่อน: …" — บันทึกในรายการรอบและ `_summary.txt` */
+  readonly notes?: readonly string[];
 };
 
 export type RecordedOutcome =
@@ -74,6 +76,7 @@ export type RunRecord = {
     readonly finishedAt: string;
     readonly reports: readonly string[];
     readonly warnings?: readonly string[];
+    readonly notes?: readonly string[];
   }[];
   /**
    * สถานะล่าสุดของแต่ละใบ · ใบที่ล้มในรอบนี้แต่เคยผ่านในโฟลเดอร์เดียวกันมาก่อน มี `previousOk` — ไฟล์ของ
@@ -145,6 +148,7 @@ export async function recordRun(folder: string, input: RunRecordInput): Promise<
         finishedAt,
         reports: input.outcomes.map((o) => o.report),
         ...(input.warnings !== undefined && input.warnings.length > 0 ? { warnings: input.warnings } : {}),
+        ...(input.notes !== undefined && input.notes.length > 0 ? { notes: input.notes } : {}),
       },
     ],
     reports,
@@ -235,6 +239,7 @@ function renderSummary(record: RunRecord): string {
       : `${SITE_LABEL[record.site]} · ${KIND_LABEL[record.kind]} · ข้อมูลถึง ${record.dataThrough}`,
     `รันล่าสุด ${localTime(last.finishedAt)} (รันในโฟลเดอร์นี้ ${record.runs.length} ครั้ง)`,
     ...(last.warnings ?? []).map((w) => `⚠ ${w}`),
+    ...(last.notes ?? []),
     '',
     `ผ่าน ${passed.length}/${all.length}` +
       (failedList.length > 0 ? ` · ล้ม ${failedList.length}` : '') +

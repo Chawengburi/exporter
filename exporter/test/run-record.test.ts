@@ -362,3 +362,14 @@ test('ดึงซ้ำไบต์เดิม: manifest ยังเก็บ
   assert.equal(m.superseded?.length, 1);
   assert.equal(m.superseded![0]!.was?.uploaded?.fileId, 'f1');
 });
+
+test('notes ของรอบ (เช่น per-day เปลี่ยนจากรอบก่อน) ขึ้นใน _summary.txt เป็นบรรทัดข้อมูล ไม่ใช่คำเตือน', async () => {
+  const { folder } = await dayFolder();
+  await recordRun(folder, { ...BASE, outcomes: [ok('postings')], notes: ['per-day เปลี่ยนจากรอบก่อน: postings 1 วัน'] });
+  const summary = await readFile(path.join(folder, '_summary.txt'), 'utf8');
+  assert.match(summary, /^per-day เปลี่ยนจากรอบก่อน: postings 1 วัน$/m);
+  assert.doesNotMatch(summary, /⚠ per-day/);
+  const second = await recordRun(folder, { ...BASE, outcomes: [ok('postings')] });
+  assert.equal(second.runs.at(-1)!.notes, undefined);
+  assert.doesNotMatch(await readFile(path.join(folder, '_summary.txt'), 'utf8'), /per-day เปลี่ยน/);
+});

@@ -17,7 +17,7 @@ import {
   type RunKind,
 } from '../../core/order.ts';
 import { dailyFolder, dataFileName, latestPointer, pictureFileName, runFolder } from '../../core/placement.ts';
-import { publishRawFiles, recordPublished, type RawFileEntry } from '../../core/raw-manifest.ts';
+import { perDayChangedNote, publishRawFiles, readRawManifest, recordPublished, type RawFileEntry } from '../../core/raw-manifest.ts';
 import { withBrowserRetry } from '../../core/retry.ts';
 import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
@@ -815,6 +815,7 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
   const outcomes: ReportOutcome[] = [];
   const outDirs: string[] = [];
   const itemDays = [...new Set(items.map((i) => i.day))].sort();
+  const roundStartedAt = new Date();
   for (const day of itemDays) {
     const date = parseISODate(day)!;
     const outDir = folderOf(date);
@@ -828,6 +829,11 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
       { first: total.done.length + total.failed.length, total: items.length },
     );
     const folderOutcomes = outcomesOf(result);
+    // per-day ที่ไบต์ต่างจากรอบก่อน (ฉบับเก่าไป _superseded/) — บรรทัดสรุปจาก manifest ของโฟลเดอร์นี้ (ticket 09)
+    const changed = perDayChangedNote(await readRawManifest(outDir).then((m) => (m === null ? [] : [m])), roundStartedAt);
+    if (changed !== null) {
+      if (!opts.json) console.log(chalk.cyan(changed));
+    }
     await recordRun(outDir, {
       site: 'hoteltime',
       kind: 'daily',
@@ -835,6 +841,7 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
       startedAt,
       finishedAt: new Date(),
       outcomes: folderOutcomes,
+      ...(changed !== null ? { notes: [changed] } : {}),
       ...(day === itemDays.at(-1) ? { warnings } : {}),
       // latest = โฟลเดอร์ของวันนี้ ขยับทุกรอบที่เขียนไฟล์ลงโฟลเดอร์นั้นอย่างน้อยหนึ่งไฟล์ (เหมือนรอบรายวันเดิม) — ขาอัปโหลดคำนวณโฟลเดอร์เมื่อวานเอง ไม่อ่านตัวชี้นี้
       ...(day === today && result.done.some((d) => d.files.length > 0) ? { latest: latestPointer(cfg.dataDir, 'hoteltime', 'daily') } : {}),
