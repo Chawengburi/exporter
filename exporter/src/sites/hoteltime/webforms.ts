@@ -364,16 +364,17 @@ export async function downloadExport(
   }
 
   const startedAt = Date.now();
-  const pending = page.waitForEvent('download', { timeout: timeoutMs });
-  await link.click();
-
+  // 🔴 ต้อง await ตัวดักกับ click พร้อมกันเสมอ — ถ้า await click ก่อนแล้วค่อย await ตัวดัก แล้ว click ค้างนานกว่า timeout
+  // ตัวดักจะ reject ตอนยังไม่มีใครรออยู่ → unhandled rejection ฆ่าทั้ง process (Node 24) ก่อน withRetry/_run.json ทำงาน (พังจริง 2026-11-17)
+  // Promise.all ผูก handler ให้ทั้งสองตัว: ตัวไหนล้มก่อนก็เข้า catch ด้านล่าง อีกตัวที่ล้มตามมาทีหลังก็ถูกดูดไว้
   let download;
   try {
-    download = await pending;
-  } catch {
+    [download] = await Promise.all([page.waitForEvent('download', { timeout: timeoutMs }), link.click()]);
+  } catch (err) {
     throw new WebFormsError(
       `กด export แล้วไม่มีไฟล์ส่งมาภายใน ${Math.round(timeoutMs / 1000)} วินาที (${page.url()})\n` +
-        `  สาเหตุที่พบมาแล้ว: ช่วงวันที่กว้างเกินไปจน HotelTime เงียบไปเฉย ๆ โดยไม่มี error\n` +
+        `  สาเหตุที่พบมาแล้ว: ช่วงวันที่กว้างเกินไปจน HotelTime เงียบไปเฉย ๆ โดยไม่มี error — หรือคลิกลิงก์ไม่สำเร็จ (โดนทับ/หน้าช้า)\n` +
+        `  ข้อผิดพลาดเดิม: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}\n` +
         `  ทางแก้: ซอยช่วงให้เล็กลงแล้วลองใหม่`,
     );
   }
