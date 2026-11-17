@@ -373,3 +373,23 @@ test('notes ของรอบ (เช่น per-day เปลี่ยนจา
   assert.equal(second.runs.at(-1)!.notes, undefined);
   assert.doesNotMatch(await readFile(path.join(folder, '_summary.txt'), 'utf8'), /per-day เปลี่ยน/);
 });
+
+// 4h-rounds ticket 07: as_of ต้องเป็นของรอบที่สร้างไฟล์ที่อยู่ในโฟลเดอร์จริง — ชื่อไฟล์ per-day ไม่มีเวลา ผลของหลายรอบจึงระบุไฟล์ชื่อเดียวกัน
+test('findOutcomeForFile: ไฟล์ per-day ชื่อเดียวกันหลายรอบ → ได้ผลของรอบที่ไบต์ตรง (sha256) · ไบต์เหมือนกันหลายรอบ → รอบแรกที่ทำให้เกิดไฟล์', async () => {
+  const { folder } = await dayFolder();
+  const file = '2026-10-07__postings.xlsx';
+  const outcome = (id: string, sha: string): ReportOutcome => ({
+    report: id, status: 'ok', rows: 1, range: { from: '2026-10-07', to: '2026-10-07' }, actualRange: null, files: [{ file, sha256: sha }], attempts: 1,
+  });
+  const at = (iso: string) => ({ ...BASE, startedAt: new Date(iso), finishedAt: new Date(iso) });
+  await recordRun(folder, { ...at('2026-10-07T01:00:00Z'), outcomes: [outcome('postings@round-08', 'aa'.repeat(32))] }); // D 08:00 (ตอนยังเป็นวันนี้)
+  await recordRun(folder, { ...at('2026-10-08T01:00:00Z'), outcomes: [outcome('postings', 'bb'.repeat(32))] }); // D+1 08:00 เก็บตก
+  await recordRun(folder, { ...at('2026-10-08T05:00:00Z'), outcomes: [outcome('postings@redo-12', 'cc'.repeat(32))] }); // D+1 12:00 ไบต์ใหม่
+  await recordRun(folder, { ...at('2026-10-08T05:30:00Z'), outcomes: [outcome('postings@redo-12-again', 'cc'.repeat(32))] }); // ไบต์เดิมซ้ำ
+  const record = (await readRunRecord(folder))!;
+  assert.equal(findOutcomeForFile(record, file, 'cc'.repeat(32))?.finishedAt, '2026-10-08T05:00:00.000Z'); // ไฟล์ปัจจุบัน = ฉบับ redo 12:00
+  assert.equal(findOutcomeForFile(record, file, 'bb'.repeat(32))?.finishedAt, '2026-10-08T01:00:00.000Z');
+  assert.equal(findOutcomeForFile(record, file, 'dd'.repeat(32)), undefined);
+  // ไม่ระบุ sha256 = ผลแรกที่เจอเหมือนเดิม (ผู้เรียกเก่า)
+  assert.ok(findOutcomeForFile(record, file) !== undefined);
+});
