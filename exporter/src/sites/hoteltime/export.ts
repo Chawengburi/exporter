@@ -22,7 +22,7 @@ import { withBrowserRetry } from '../../core/retry.ts';
 import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
 import {
-  PlanError, gateRound, isRoundHour, parseRoundId, planRound, roundId, ROUND_HOURS, ROUND_WINDOW, SNAPSHOT_SLOTS, SLOT_WINDOW, daysToRead, isSnapshotSlot, periodCloseId, planBaselineRun, planDailyRun, planSnapshotSlot, refreshId, planDateRun, planWarnings,
+  PlanError, gateRound, isRoundHour, planRound, redoId, roundId, ROUND_HOURS, ROUND_WINDOW, SNAPSHOT_SLOTS, SLOT_WINDOW, daysToRead, isSnapshotSlot, periodCloseId, planBaselineRun, planDailyRun, planSnapshotSlot, refreshId, planDateRun, planWarnings,
   slotRefreshId, storeStateFrom, type WorkPlan,
 } from '../../core/run-planner.ts';
 import { createRedactor, redactError, type Redactor } from '../../core/redact.ts';
@@ -804,7 +804,7 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
   if (!opts.json) for (const w of warnings) console.error(chalk.yellow(`⚠ ${w}`));
   const items = [
     ...plan.catchUp.map((i) => ({ ...i, recordId: i.report })),
-    ...plan.redoYesterday.map((i) => ({ ...i, recordId: roundId(i.report, round) })),
+    ...plan.redoYesterday.map((i) => ({ ...i, recordId: redoId(i.report, round) })),
     ...plan.today.map((i) => ({ ...i, recordId: roundId(i.report, round) })),
     ...plan.pictures.map((i) => ({ ...i, recordId: roundId(i.report, round) })),
   ];

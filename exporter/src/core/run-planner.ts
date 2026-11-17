@@ -111,6 +111,20 @@ export function parseRoundId(id: string): { readonly base: string; readonly roun
 }
 
 /**
+ * id ผลของ**ดึงซ้ำเมื่อวาน**ที่รอบ 08/12 — แยกจาก `roundId` เพราะโฟลเดอร์ของเมื่อวานมี `@round-08/12` ของวันนั้นเองอยู่แล้ว (ตอนเมื่อวานยังเป็น "วันนี้")
+ * ถ้าใช้ id เดียวกัน รอบดึงซ้ำจะเห็นว่าเสร็จแล้วและไม่ถูกดึง
+ */
+export function redoId(report: string, round: RoundHour): string {
+  return `${report}@redo-${round}`;
+}
+
+/** `<report>@redo-<HH>` → ส่วนประกอบ · อย่างอื่น = null */
+export function parseRedoId(id: string): { readonly base: string; readonly round: RoundHour } | null {
+  const m = /^(.+)@redo-(\d{2})$/.exec(id);
+  return m === null || !isRoundHour(m[2]!) ? null : { base: m[1]!, round: m[2] };
+}
+
+/**
  * Parse `HOTELTIME_ROUNDS` ("08,12,16,20,23") — ไม่ตั้ง/ว่าง = {@link DEFAULT_ROUNDS} (ลืมตั้งต้องไม่ทำให้ระบบเงียบ) · `off`/`none` = ปิดทุกรอบอย่างชัดเจน ·
  * ชั่วโมงที่ไม่ใช่รอบหรือรูปแบบผิด = error (พิมพ์ผิดต้องไม่ปิดรอบเงียบ ๆ) · ไม่อ่าน `HOTELTIME_SNAPSHOT_SLOTS` เดิม จึงไม่เปิดรอบใหม่โดยไม่ตั้งใจ
  */
@@ -403,7 +417,7 @@ export function storeStateFrom(
       // snapshot ถ่ายซ้ำก็เป็นแบบเดียวกัน (ADR-0011)
       const isClose = id.endsWith(PERIOD_CLOSE_SUFFIX);
       const retake = parseRefreshId(id); // `@refresh` and the extra rounds `@refresh-<HH>` (ADR-0013)
-      const round = parseRoundId(id); // `@round-<HH>` (ADR-0014): ผลต่อรอบ — family ตามรายงานต้นทาง
+      const round = parseRoundId(id) ?? parseRedoId(id); // `@round-<HH>` / `@redo-<HH>` (ADR-0014): ผลต่อรอบ — family ตามรายงานต้นทาง
       const baseId = isClose ? id.slice(0, -PERIOD_CLOSE_SUFFIX.length) : retake !== null ? retake.base : null;
       const f = round !== null ? family.get(round.base) : baseId !== null ? (family.has(baseId) ? 'picture' : undefined) : family.get(id);
       if (f === undefined) continue;
@@ -519,7 +533,7 @@ export function planRound(input: {
   const redo =
     REDO_YESTERDAY_ROUNDS.includes(input.round) && last === yesterday
       ? perDay
-          .filter((r) => ownPending(r, yesterday) && !catchUp.some((c) => c.report === r.id && c.day === yesterday))
+          .filter((r) => !isDone(input.state.get(stateKey(redoId(r.id, input.round), yesterday))) && !catchUp.some((c) => c.report === r.id && c.day === yesterday))
           .map((r) => ({ report: r.id, day: yesterday }))
       : [];
   return {

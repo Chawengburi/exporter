@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CATCH_UP_CAP_DAYS, DEFAULT_ROUNDS, planRound, roundId, ROUND_HOURS, type PlannedReport, type RoundHour, type StoreState } from '../src/core/run-planner.ts';
+import { CATCH_UP_CAP_DAYS, DEFAULT_ROUNDS, planRound, redoId, roundId, ROUND_HOURS, type PlannedReport, type RoundHour, type StoreState } from '../src/core/run-planner.ts';
 
 /** exporter-hoteltime-4h-rounds ticket 03: แผนต่อรอบ (seam 1 — ตัวผังรอบ) */
 
@@ -102,12 +102,27 @@ test('storeStateFrom อ่านผลต่อรอบ (@round-HH) ทั้�
   const record = {
     site: 'hoteltime', kind: 'daily', dataThrough: TODAY,
     runs: [{ startedAt: `${TODAY}T05:00:00.000Z`, finishedAt: `${TODAY}T05:05:00.000Z`, reports: [] }],
-    reports: { [roundId('postings', '12')]: out('x', 4), [roundId('arrivals', '12')]: out('x', 0), 'ghost@round-12': out('x', 1) },
+    reports: { [roundId('postings', '12')]: out('x', 4), [redoId('postings', '12')]: out('x', 2), [roundId('arrivals', '12')]: out('x', 0), 'ghost@round-12': out('x', 1) },
     skipped: [],
   } as unknown as Parameters<typeof storeStateFrom>[0][number]['record'];
   const state = storeStateFrom([{ day: TODAY, record }], REPORTS);
   assert.equal(state.get(`postings@round-12@${TODAY}`), 'data');
   assert.equal(state.get(`arrivals@round-12@${TODAY}`), 'empty');
+  assert.equal(state.get(`postings@redo-12@${TODAY}`), 'data');
   assert.equal(state.has(`postings@${TODAY}`), false);
   assert.equal(state.has(`ghost@round-12@${TODAY}`), false); // รายงานนอกแคตตาล็อกไม่นับ
+});
+
+test('🔴 ดึงซ้ำเมื่อวานที่ 08/12 ไม่ถูกกลบด้วยผล @round-HH ที่รอบเดียวกันบันทึกไว้ตอนเมื่อวานยังเป็น "วันนี้"', () => {
+  // เมื่อวาน (D) รอบ 08 และ 12 ดึง per-day ของ D ในฐานะวันนี้ → บันทึก @round-08/@round-12 ของ D · id ปกติของ D ถูกเติมโดยเก็บตกที่ 08 ของ D+1
+  const yesterdayAsToday = store(
+    ...['08', '12'].flatMap((h) => ['reservations-search', 'postings'].map((r): [string, 'data'] => [`${roundId(r, h as RoundHour)}@${YESTERDAY}`, 'data'])),
+    [`reservations-search@${YESTERDAY}`, 'data'], [`postings@${YESTERDAY}`, 'data'],
+  );
+  for (const [r, t] of [['08', '08:05'], ['12', '12:05']] as const) {
+    assert.deepEqual(days(plan(r, t, yesterdayAsToday).redoYesterday), [`reservations-search@${YESTERDAY}`, `postings@${YESTERDAY}`], r);
+  }
+  // รอบเดียวกันที่ดึงซ้ำสำเร็จแล้ว (id redo ของรอบนี้) ไม่ทำซ้ำ — cron สำรอง +30 นาที
+  const redone = store(...yesterdayAsToday, [`${redoId('reservations-search', '12')}@${YESTERDAY}`, 'data']);
+  assert.deepEqual(days(plan('12', '12:35', redone).redoYesterday), [`postings@${YESTERDAY}`]);
 });
