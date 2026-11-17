@@ -13,7 +13,7 @@ import {
 import { SCHEDULED_CATCHUP_DONE_MIN, buildStatus, defaultDataDir, readStoreSnapshot, readWebhookUrl, type Folder } from './core/status.ts';
 import { formatISO } from './core/order.ts';
 import { dailyFolder } from './core/placement.ts';
-import { parseRefreshId } from './core/run-planner.ts';
+import { parseRefreshId, parseRoundId } from './core/run-planner.ts';
 import { readRunRecord } from './core/run-record.ts';
 import { thaiClock, thaiToday } from './core/thai-time.ts';
 import { defaultEnvFile, statusSetup } from './status-setup.ts';
@@ -141,8 +141,11 @@ export async function notifyDiscord(opts: {
  * (the status-based alerts belong to the noon/catch-up rounds). It only reads today's `_run.json`, and posts one alert when every report of this slot failed
  * (login/browser trouble); a partly failed round is not an alert. Never throws and never changes the round's exit code, like `notifyDiscord`.
  */
-export async function notifySnapshotSlot(opts: {
+async function notifyWholeRoundFailed(opts: {
+  readonly kind: 'slot' | 'round';
   readonly slot: string;
+  /** results of this round: id → base report */
+  readonly baseOf: (id: string) => string | null;
   readonly now?: Date;
   readonly dataDir?: string;
   readonly envFile?: string;
@@ -158,11 +161,11 @@ export async function notifySnapshotSlot(opts: {
     if (url === null && !opts.dryRun) return { status: 'skipped', reason: 'DISCORD_WEBHOOK_URL_EXPORT is not set in exporter/.env — Discord skipped' };
     const day = formatISO(thaiToday(now));
     const record = await readRunRecord(dailyFolder(dataDir, 'hoteltime', { from: thaiToday(now), to: thaiToday(now) }));
-    const mine = Object.entries(record?.reports ?? {}).filter(([id]) => parseRefreshId(id)?.slot === opts.slot);
-    const failed = mine.flatMap(([id, o]) => (o.status === 'failed' ? [{ report: parseRefreshId(id)!.base, error: o.error }] : []));
+    const mine = Object.entries(record?.reports ?? {}).flatMap(([id, o]) => { const base = opts.baseOf(id); return base === null ? [] : [{ base, o }]; });
+    const failed = mine.flatMap(({ base, o }) => (o.status === 'failed' ? [{ report: base, error: o.error }] : []));
     const c = thaiClock(now);
     const p = (n: number) => String(n).padStart(2, '0');
-    const alert = snapshotSlotAlert({ slot: opts.slot, day, at: `${day} ${p(c.hour)}:${p(c.minute)}`, total: mine.length, failed });
+    const alert = snapshotSlotAlert({ slot: opts.slot, day, at: `${day} ${p(c.hour)}:${p(c.minute)}`, total: mine.length, failed, kind: opts.kind });
     if (alert === null) return { status: 'sent', messages: 0 };
     const log = await readNotifyLog(dataDir);
     const messages = alert.keys.every((k) => k in log.sent) ? [] : [alert];
@@ -173,6 +176,16 @@ export async function notifySnapshotSlot(opts: {
     return { status: 'failed', sent: 0, error: redact(`Discord notification failed — ${err instanceof Error ? err.message : String(err)}`) };
   }
 }
+
+export const notifySnapshotSlot = (opts: Omit<Parameters<typeof notifyWholeRoundFailed>[0], 'kind' | 'baseOf'>): Promise<NotifyResult> =>
+  notifyWholeRoundFailed({ ...opts, kind: 'slot', baseOf: (id) => (parseRefreshId(id)?.slot === opts.slot ? parseRefreshId(id)!.base : null) });
+
+/**
+ * Alert after an extraction round (ADR-0014, `export --round HH`): one alert when every report of this round failed (login/browser trouble), once per round per day;
+ * a partly failed round is not an alert. Reads only today's `_run.json` (`@round-HH` ids) — no status evaluation, never throws, never changes the exit code.
+ */
+export const notifyRound = (opts: Omit<Parameters<typeof notifyWholeRoundFailed>[0], 'kind' | 'baseOf'>): Promise<NotifyResult> =>
+  notifyWholeRoundFailed({ ...opts, kind: 'round', baseOf: (id) => (parseRoundId(id)?.round === opts.slot ? parseRoundId(id)!.base : null) });
 
 /**
  * แจ้งผลของ `exporter upload` หนึ่งรอบ (ticket 05 ของ `exporter-upload-to-uploader`) — เรียกทุกครั้งหลัง

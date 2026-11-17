@@ -412,19 +412,22 @@ export function snapshotSlotAlert(input: {
   readonly at: string;
   readonly total: number;
   readonly failed: readonly { readonly report: string; readonly error: string }[];
+  /** `round` = รอบดึง (ADR-0014, `export --round`) · ไม่ใส่ = snapshot round เดิม (ADR-0013) — คนละ key ไม่ชนกัน */
+  readonly kind?: 'slot' | 'round';
 }): DiscordMessage | null {
+  const kind = input.kind ?? 'slot';
   if (input.total === 0 || input.failed.length !== input.total) return null;
   const login = input.failed.find((f) => isLoginFailureReason(f.error));
   const reason = login !== undefined ? `login failed — ${firstLine(loginFailureDetail(login.error) ?? login.error)}` : firstLine(input.failed[0]!.error);
   const names = input.failed.slice(0, 3).map((f) => f.report).join(', ');
   const more = input.failed.length > 3 ? ` and ${input.failed.length - 3} more` : '';
   const content = [
-    `### HotelTime snapshot round ${input.slot}:00 failed`,
+    `### HotelTime ${kind === 'round' ? 'extraction round' : 'snapshot round'} ${input.slot}:00 failed`,
     subtext(input.at, undefined, [`all ${input.total} reports failed`]),
     `• ${reason}`,
     `• ${names}${more}`,
   ].join('\n');
-  return { keys: [`slot-failed@hoteltime@${input.slot}@${input.day}`], content, accentColor: DISCORD_COLOR.problem };
+  return { keys: [`${kind}-failed@hoteltime@${input.slot}@${input.day}`], content, accentColor: DISCORD_COLOR.problem };
 }
 
 // ── ticket 05 ของ exporter-upload-to-uploader: ข้อความ Discord ของขาอัปโหลด ──
