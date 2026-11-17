@@ -79,6 +79,65 @@ export function parseRefreshId(id: string): { readonly base: string; readonly sl
   return m === null ? null : { base: m[1]!, slot: m[2] ?? null };
 }
 
+/**
+ * **รอบดึง** (ADR-0014, exporter-hoteltime-4h-rounds) — ตารางเวลาเดียวของ HotelTime: 04, 08, 12, 16, 20, 23 น. เวลาไทย · แต่ละรอบมี id ผลของตัวเอง
+ * `<report>@round-<HH>` ใน `_run.json` (แยกจาก `@refresh*` เดิมที่ยังอ่านได้ในโฟลเดอร์ย้อนหลัง · `parseRefreshId` ไม่เห็น id นี้)
+ */
+export const ROUND_HOURS = ['04', '08', '12', '16', '20', '23'] as const;
+export type RoundHour = (typeof ROUND_HOURS)[number];
+/** ค่าเริ่มเมื่อไม่ตั้ง `HOTELTIME_ROUNDS` — 04:00 เปิดทีหลังเมื่อดูผลจริงแล้ว */
+export const DEFAULT_ROUNDS: readonly RoundHour[] = ['08', '12', '16', '20', '23'];
+
+/** ชั่วโมงเวลาไทย [from, to) ที่รอบรันได้ — เผื่อ retry +30 นาที · รอบ 23 ต้องจบก่อนเที่ยงคืน (ไม่ข้ามไปโฟลเดอร์วันถัดไป) · หน้าต่างไม่ทับกัน */
+export const ROUND_WINDOW: Readonly<Record<RoundHour, { readonly from: number; readonly to: number }>> = {
+  '04': { from: 4, to: 6 },
+  '08': { from: 8, to: 10 },
+  '12': { from: 12, to: 14 },
+  '16': { from: 16, to: 18 },
+  '20': { from: 20, to: 22 },
+  '23': { from: 23, to: 24 },
+};
+
+export const isRoundHour = (v: string): v is RoundHour => (ROUND_HOURS as readonly string[]).includes(v);
+
+export function roundId(report: string, round: RoundHour): string {
+  return `${report}@round-${round}`;
+}
+
+/** `<report>@round-<HH>` → ส่วนประกอบ · อย่างอื่น (รวม `@refresh*`) = null */
+export function parseRoundId(id: string): { readonly base: string; readonly round: RoundHour } | null {
+  const m = /^(.+)@round-(\d{2})$/.exec(id);
+  return m === null || !isRoundHour(m[2]!) ? null : { base: m[1]!, round: m[2] };
+}
+
+/**
+ * Parse `HOTELTIME_ROUNDS` ("08,12,16,20,23") — ไม่ตั้ง/ว่าง = {@link DEFAULT_ROUNDS} (ลืมตั้งต้องไม่ทำให้ระบบเงียบ) · `off`/`none` = ปิดทุกรอบอย่างชัดเจน ·
+ * ชั่วโมงที่ไม่ใช่รอบหรือรูปแบบผิด = error (พิมพ์ผิดต้องไม่ปิดรอบเงียบ ๆ) · ไม่อ่าน `HOTELTIME_SNAPSHOT_SLOTS` เดิม จึงไม่เปิดรอบใหม่โดยไม่ตั้งใจ
+ */
+export function parseRounds(raw: string | undefined): { readonly rounds: readonly RoundHour[] } | { readonly error: string } {
+  if (raw === undefined || raw.trim() === '') return { rounds: DEFAULT_ROUNDS };
+  if (['off', 'none'].includes(raw.trim().toLowerCase())) return { rounds: [] };
+  const picked = new Set<RoundHour>();
+  for (const part of raw.split(',').map((x) => x.trim()).filter((x) => x !== '')) {
+    const hh = /^\d$/.test(part) ? `0${part}` : part;
+    if (!isRoundHour(hh)) return { error: `HOTELTIME_ROUNDS has an unknown round ${JSON.stringify(part)} — allowed: ${ROUND_HOURS.join(', ')} or "off" (e.g. HOTELTIME_ROUNDS=08,12,16,20,23)` };
+    picked.add(hh);
+  }
+  return { rounds: ROUND_HOURS.filter((h) => picked.has(h)) };
+}
+
+/** ด่านแรกของรอบ: ไม่อยู่ในรายการที่เปิด หรือนอกหน้าต่างเวลาไทย → ไม่รัน (ผู้เรียกออกทันทีโดยไม่ login) */
+export function gateRound(input: {
+  readonly now: Date;
+  readonly round: RoundHour;
+  readonly enabled: readonly RoundHour[];
+}): { readonly run: boolean; readonly reason: 'disabled' | 'outside_window' | null } {
+  if (!input.enabled.includes(input.round)) return { run: false, reason: 'disabled' };
+  const hour = thaiClock(input.now).hour;
+  const w = ROUND_WINDOW[input.round];
+  return hour >= w.from && hour < w.to ? { run: true, reason: null } : { run: false, reason: 'outside_window' };
+}
+
 /** Parse `HOTELTIME_SNAPSHOT_SLOTS` ("06,23") — empty/unset = no extra rounds · an unknown slot is an error (a typo must not silently turn a round off) */
 export function parseSnapshotSlots(raw: string | undefined): { readonly slots: readonly SnapshotSlot[] } | { readonly error: string } {
   if (raw === undefined || raw.trim() === '') return { slots: [] };
