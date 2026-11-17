@@ -6,6 +6,7 @@ import { findOutcomeForFile, readRunRecord, type RecordedOutcome } from './core/
 import { parseRefreshId } from './core/run-planner.ts';
 import { defaultDataDir } from './core/status.ts';
 import {
+  asOfFromTakenAt,
   asOfStateKey,
   asRecord,
   buildEmptyPayload,
@@ -315,7 +316,7 @@ export async function readUploadBacklog(dataDir: string, site: SiteId): Promise<
     const runRecord = await readRunRecord(folder);
     for (const entry of selectPendingFiles(manifest.files)) {
       // หาจากชื่อไฟล์ เหมือนขาส่งจริง — key ของ _run.json ไม่ใช่ entry.report เสมอไป (snapshot ถ่ายซ้ำรอบเย็นใช้ `<รายงาน>@refresh` ADR-0011)
-      const asOf = runRecord === null ? undefined : findOutcomeForFile(runRecord, entry.file)?.finishedAt;
+      const asOf = (runRecord === null ? undefined : findOutcomeForFile(runRecord, entry.file)?.finishedAt) ?? asOfFromTakenAt(entry.takenAt);
       if (asOf !== undefined && isAsOfRegression(asOf, state.asOf[asOfStateKey(entry)])) blocked++;
       else pending++;
     }
@@ -460,7 +461,8 @@ export async function uploadFolder(opts: {
     }
     // key ของ _run.json ไม่ใช่ชื่อรายงานเสมอไป (baseline/snapshot ปิดงวดเก็บเป็น `<รายงาน>@<วัน>`/`<รายงาน>@period-close`)
     // หาจากชื่อไฟล์จริงแทน ไม่ใช่เทียบ key ตรงกับ entry.report (พบจาก production จริง 2026-10-19: 12 ไฟล์ถูกปฏิเสธผิด ๆ)
-    const asOf = findOutcomeForFile(runRecord, entry.file)?.finishedAt;
+    // ไม่มี outcome (รอบตายกลางทางก่อน recordRun) → ใช้เวลาที่ถ่ายไฟล์แทน ไม่ปฏิเสธ — ไฟล์ที่ถูกไฟล์ใหม่กว่าแทนที่แล้วเข้า guard as_of ย้อนหลังข้างล่าง
+    const asOf = findOutcomeForFile(runRecord, entry.file)?.finishedAt ?? asOfFromTakenAt(entry.takenAt);
     if (asOf === undefined) {
       results.push({ file: entry.file, report: entry.report, kind: 'rejected', reason: `หา as_of ของ "${entry.report}" จาก _run.json ไม่เจอ` });
       continue;

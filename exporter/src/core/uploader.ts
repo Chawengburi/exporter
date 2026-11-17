@@ -248,6 +248,16 @@ export function asOfStateKey(entry: { readonly report: string; readonly range: {
 }
 
 /**
+ * as_of สำรองของไฟล์ที่ไม่มี outcome ใน `_run.json` — เวลาที่ถ่ายไฟล์ (`takenAt` ใน manifest, เวลาไทยมี offset) แปลงเป็น UTC ISO
+ * รูปเดียวกับ `finishedAt` เพื่อเทียบเรียงตามตัวอักษรกับ state.asOf ได้ · เกิดเมื่อ process ตายกลางรอบ (`recordRun` เรียกครั้งเดียวหลังจบ
+ * ทั้งโฟลเดอร์ ส่วน manifest เขียนทันทีต่อไฟล์ — พบจริง 2026-11-17) · อ่านไม่ได้ = `undefined` (ไม่เดา ให้ผู้เรียกปฏิเสธ)
+ */
+export function asOfFromTakenAt(takenAt: string): string | undefined {
+  const t = new Date(takenAt);
+  return Number.isNaN(t.getTime()) ? undefined : t.toISOString();
+}
+
+/**
  * `as_of` ใหม่เก่ากว่าค่าล่าสุดที่เคยส่งสำเร็จของ (รายงาน, ช่วง) เดียวกันไหม (manual §5.3) — เทียบแบบ string เพราะ
  * `as_of` เป็น UTC ISO (`toISOString()`) เสมอ เรียงตามตัวอักษรตรงกับเรียงตามเวลาจริงพอดี · ไม่มีค่าเดิม (ยังไม่เคยส่ง)
  * หรือเท่ากันเป๊ะ (ส่งซ้ำ/retry) ไม่ถือเป็นย้อนหลัง

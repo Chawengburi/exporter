@@ -343,8 +343,10 @@ test('uploadFolder: rows_mismatch ถือเป็นสำเร็จ (บ�
   }
 });
 
-test('uploadFolder: ไม่มี as_of (รายงานไม่อยู่ใน _run.json) → rejected ไม่ยิง ingest', async () => {
-  const entry: RawFileEntry = { ...ENTRY_BASE, file: 'orphan.xlsx', report: 'no-such-report-in-run-json' };
+// ไม่มี outcome ใน _run.json และ takenAt ก็อ่านไม่ได้ → ไม่มีทางรู้ as_of จริง ๆ → ปฏิเสธ ไม่เดา
+// (กรณีมี takenAt อ่านได้ ใช้เป็น as_of สำรอง — ดูเทสต์ "ไม่มี outcome ใน _run.json" ด้านล่าง)
+test('uploadFolder: ไม่มี as_of (ไม่อยู่ใน _run.json และ takenAt อ่านไม่ได้) → rejected ไม่ยิง ingest', async () => {
+  const entry: RawFileEntry = { ...ENTRY_BASE, file: 'orphan.xlsx', report: 'no-such-report-in-run-json', takenAt: 'not-a-date' };
   const folder = await makeFolder([entry], { finishedReports: [] });
   const fake = await fakeUploader({ catalog: ['hoteltime_no_such_report_in_run_json'], ingest: () => ({ status: 200, body: {} }) });
   try {
@@ -1188,5 +1190,84 @@ test('🔴 audit-trail: document_type ยังไม่อยู่ใน catal
     }
   } finally {
     await fake.close().catch(() => undefined);
+  }
+});
+
+// ── ไฟล์กำพร้า: อยู่ใน manifest แต่ _run.json ไม่มี outcome อ้างถึง (พบจริง 2026-11-17) ──
+// รอบ snapshot ซ้ำ 18:00 ถ่ายไฟล์ลง manifest ไป 8 ไฟล์ แล้ว process ตาย (unhandled rejection ใน downloadExport) ก่อน `recordRun`
+// ซึ่งเรียกครั้งเดียวหลังจบทั้งโฟลเดอร์ → ขาอัปโหลดหา as_of ไม่เจอ ปฏิเสธซ้ำทุกรอบ การ์ดขึ้น "Upload finished with problems" ไม่หยุด
+// แก้: ใช้ `takenAt` ของ manifest เป็น as_of สำรอง — ไฟล์ที่ถูกไฟล์ใหม่กว่าแทนที่แล้วเข้า guard as_of ย้อนหลังเดิม (blocked ไม่ใช่ rejected)
+// ส่วนไฟล์ที่ไม่มีไฟล์ใหม่กว่าถูกส่งจริง ไม่ทิ้งข้อมูล
+
+test('uploadFolder: ไฟล์ที่ไม่มี outcome ใน _run.json (รอบตายกลางทาง) ส่งด้วย takenAt เป็น as_of แทนการปฏิเสธ', async () => {
+  const finished: RawFileEntry = { ...ENTRY_BASE, file: 'arrivals.xlsx', report: 'arrivals' };
+  const orphan: RawFileEntry = { ...ENTRY_BASE, file: 'departures.xlsx', report: 'departures', takenAt: '2026-10-15T18:01:36+07:00' };
+  const folder = await makeFolder([finished, orphan], { finishedReports: ['arrivals'] });
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  const fake = await fakeUploader({
+    catalog: ['hoteltime_arrivals', 'hoteltime_departures'],
+    ingest: (_entry, i) => ({ status: 200, body: { results: [{ index: 0, ok: true, file_id: `f${i}` }] } }),
+  });
+  try {
+    const result = await uploadFolder({ folder, dataDir, config: configFor(fake.url), credentials: CREDENTIALS });
+    assert.equal(result.rejected, 0);
+    assert.equal(result.sent, 2);
+    assert.equal((await readManifest(folder)).files.every((f) => f.uploaded !== undefined), true);
+    const state = await readUploadStateFile(dataDir, 'hoteltime');
+    // 18:01:36 เวลาไทย = 11:01:36Z — as_of ต้องเป็น UTC ISO แบบเดียวกับที่มาจาก _run.json (เทียบเรียงตามตัวอักษรได้)
+    assert.equal(state.asOf['departures@2026-10-15@2026-10-15'], '2026-10-15T11:01:36.000Z');
+  } finally {
+    await fake.close();
+  }
+});
+
+test('uploadFolder: ไฟล์ที่ไม่มี outcome แต่ถูกไฟล์ใหม่กว่าของรายงานเดียวกันส่งไปแล้ว → blocked-as-of ไม่ใช่ rejected และไม่ยิง ingest', async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  const fake = await fakeUploader({
+    catalog: ['hoteltime_departures'],
+    ingest: () => ({ status: 200, body: { results: [{ index: 0, ok: true, file_id: 'f1' }] } }),
+  });
+  try {
+    // รอบที่ถ่ายใหม่และบันทึกผลครบ ส่งสำเร็จก่อน (as_of 12:00Z)
+    const newer: RawFileEntry = { ...ENTRY_BASE, file: 'departures-new.xlsx', report: 'departures' };
+    const folderNew = await makeFolder([newer], { finishedAt: '2026-10-15T12:00:00.000Z' });
+    assert.equal((await uploadFolder({ folder: folderNew, dataDir, config: configFor(fake.url), credentials: CREDENTIALS })).sent, 1);
+
+    // ไฟล์กำพร้าจากรอบที่ตาย ถ่ายก่อนหน้า (11:01:36Z) ไม่มี outcome
+    const orphan: RawFileEntry = { ...ENTRY_BASE, file: 'departures.xlsx', report: 'departures', takenAt: '2026-10-15T18:01:36+07:00' };
+    const folderOld = await makeFolder([orphan], { finishedReports: [] });
+    const result = await uploadFolder({ folder: folderOld, dataDir, config: configFor(fake.url), credentials: CREDENTIALS });
+
+    assert.equal(result.rejected, 0);
+    assert.equal(result.blocked, 1);
+    assert.deepEqual(result.results[0], {
+      file: 'departures.xlsx', report: 'departures', kind: 'blocked-as-of',
+      asOf: '2026-10-15T11:01:36.000Z', lastKnownAsOf: '2026-10-15T12:00:00.000Z',
+    });
+    assert.equal(fake.ingestCalls.length, 1);
+  } finally {
+    await fake.close();
+  }
+});
+
+// ไฟล์กำพร้า (ไม่มี outcome ใน _run.json — รอบตายกลางทาง 2026-11-17): ตัวนับ backlog ต้องใช้ as_of สำรองเดียวกับขาส่งจริง
+// ไม่งั้นสถานะนับ "รอส่ง" ไฟล์ที่ขาส่งจะ blocked อยู่ (ไม่มีวันถูกส่ง) ค้างเป็น pending ตลอด
+test('readUploadBacklog: ไฟล์ที่ไม่มี outcome และถูกไฟล์ใหม่กว่าของรายงานเดียวกันส่งแทนไปแล้ว นับเป็น blocked ไม่ใช่ pending', async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'upload-state-'));
+  const fake = await fakeUploader({
+    catalog: ['hoteltime_departures'],
+    ingest: () => ({ status: 200, body: { results: [{ index: 0, ok: true, file_id: 'f1' }] } }),
+  });
+  try {
+    const newer: RawFileEntry = { ...ENTRY_BASE, file: 'departures-new.xlsx', report: 'departures' };
+    const folderNew = await makeFolderUnderSite(dataDir, 'hoteltime', '2026-10-15', [newer], { finishedAt: '2026-10-15T12:00:00.000Z' });
+    assert.equal((await uploadFolder({ folder: folderNew, dataDir, config: configFor(fake.url), credentials: CREDENTIALS })).sent, 1);
+
+    const orphan: RawFileEntry = { ...ENTRY_BASE, file: 'departures.xlsx', report: 'departures', takenAt: '2026-10-15T18:01:36+07:00' };
+    await makeFolderUnderSite(dataDir, 'hoteltime', '2026-10-16', [orphan], { finishedReports: [] });
+
+    assert.deepEqual(await readUploadBacklog(dataDir, 'hoteltime'), { site: 'hoteltime', pending: 0, blocked: 1, stuck: 0, empty: 0 });
+  } finally {
+    await fake.close();
   }
 });
