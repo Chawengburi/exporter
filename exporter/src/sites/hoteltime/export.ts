@@ -17,7 +17,7 @@ import {
   type RunKind,
 } from '../../core/order.ts';
 import { dailyFolder, dataFileName, latestPointer, pictureFileName, runFolder } from '../../core/placement.ts';
-import { perDayChangedNote, publishRawFiles, readRawManifest, recordPublished, type RawFileEntry } from '../../core/raw-manifest.ts';
+import { applyUploadPolicy, perDayChangedNote, publishRawFiles, readRawManifest, recordPublished, type RawFileEntry } from '../../core/raw-manifest.ts';
 import { withBrowserRetry } from '../../core/retry.ts';
 import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
@@ -829,6 +829,8 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
       { first: total.done.length + total.failed.length, total: items.length },
     );
     const folderOutcomes = outcomesOf(result);
+    // นโยบายอัปโหลดของไฟล์ที่รอบนี้แตะ (snapshot ที่ไม่ใช่ 23:00 = ไม่ส่ง · ของวันนี้ถือไว้ถึงพรุ่งนี้ · ของเมื่อวานปลด) — ticket 07
+    await applyUploadPolicy(outDir, result.done.flatMap((d) => d.files.map((f) => f.file)), today);
     // per-day ที่ไบต์ต่างจากรอบก่อน (ฉบับเก่าไป _superseded/) — บรรทัดสรุปจาก manifest ของโฟลเดอร์นี้ (ticket 09)
     const changed = perDayChangedNote(await readRawManifest(outDir).then((m) => (m === null ? [] : [m])), roundStartedAt);
     if (changed !== null) {

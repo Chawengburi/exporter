@@ -95,7 +95,7 @@ test('buildIngestPayload: ไม่มี rows (FoodStory ที่ผ่าห�
 test('selectPendingFiles: ข้ามไฟล์ที่มี uploaded แล้ว เอาแต่ไฟล์ที่ยังไม่มี', () => {
   const a = entry({ file: 'a.xlsx' });
   const b = entry({ file: 'b.xlsx', uploaded: { at: '2026-10-15T00:00:00Z', fileId: 'abc' } });
-  assert.deepEqual(selectPendingFiles([a, b]), [a]);
+  assert.deepEqual(selectPendingFiles([a, b], '2026-11-18'), [a]);
 });
 
 // ── classifyIngestResponse (ticket 02: retryable/non-retryable แยกกัน) ──

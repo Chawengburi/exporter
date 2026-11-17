@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { RunKind } from './order.ts';
+import { addDaysISO, type RunKind } from './order.ts';
 import { supersededPath, type SiteId } from './placement.ts';
 
 /**
@@ -55,6 +55,11 @@ export type RawFileEntry = {
    * network สำหรับไฟล์ที่ settled แล้ว
    */
   readonly uploaded?: { readonly at: string; readonly fileId: string };
+  /**
+   * นโยบายอัปโหลดของไฟล์ที่ได้จาก**รอบดึง** (ADR-0014 · ticket 07 ของ 4h-rounds) — `skip` = ไม่ส่งเลย (snapshot ที่ไม่ใช่ฉบับ 23:00) ·
+   * `{ notBefore }` = ถือไว้จนถึงวันนั้น (ไฟล์ของวันนี้ยังไม่ครบ) · ไม่มี = ส่งได้ (รวมไฟล์เก่าก่อนตารางใหม่ — ส่งตามเดิม) · ตั้งโดย `applyUploadPolicy`
+   */
+  readonly upload?: 'skip' | { readonly notBefore: string };
 };
 
 /**
@@ -158,6 +163,39 @@ export async function recordUploaded(folder: string, file: string, result: { rea
   const manifest = await readRawManifest(folder);
   if (manifest === null) throw new Error(`ไม่มี ${RAW_MANIFEST} ในโฟลเดอร์ ${folder} — บันทึกผลอัปโหลดไม่ได้`);
   await writeRawManifest(folder, { ...manifest, files: manifest.files.map((e) => (e.file === file ? { ...e, uploaded: result } : e)) });
+}
+
+/**
+ * นโยบายอัปโหลดของไฟล์หนึ่งจากรอบดึง ณ วัน `today` (เวลาไทย) — snapshot: เฉพาะฉบับ 23:00 ส่ง (ถือไว้ถึงวันถัดไป ขาอัปโหลดรันรอบ 12:00 ของวันถัดไป) ฉบับรอบอื่น `skip` ·
+ * snapshot ปิดงวดไม่ติดธง (ส่งตามเดิม รวมค้างโฟลเดอร์เก่า) · per-day: วันของข้อมูลถึงวันนี้ยังไม่ครบ ถือไว้ถึงวันถัดไปของข้อมูล · ของเมื่อวานหรือเก่ากว่า ส่งได้ (undefined)
+ */
+export function uploadPolicyFor(entry: RawFileEntry, today: string): RawFileEntry['upload'] {
+  if (entry.periodClose === true) return undefined;
+  if (entry.family === 'picture') {
+    const day = entry.takenAt.slice(0, 10);
+    return entry.takenAt.slice(11, 13) === '23' ? { notBefore: addDaysISO(day, 1) } : 'skip';
+  }
+  const day = entry.range.to;
+  return day >= today ? { notBefore: addDaysISO(day, 1) } : undefined;
+}
+
+/**
+ * ตั้ง/ล้างนโยบายอัปโหลดของไฟล์ที่รอบดึงนี้แตะ (ชื่อไฟล์ใน `files`) — รายการที่ส่งแล้ว (`uploaded`) ไม่แตะ · รายการที่นโยบายเป็น undefined ถูกล้างธงเดิม
+ * (ไฟล์ per-day ของเมื่อวานที่ดึงซ้ำรอบ 08/12 หลุดจากการถือไว้) · ไบต์เดิมที่ ticket 01 เก็บรายการเดิมไว้ก็ได้นโยบายตามวันนี้เช่นกัน
+ */
+export async function applyUploadPolicy(folder: string, touched: readonly string[], today: string): Promise<void> {
+  const manifest = await readRawManifest(folder);
+  if (manifest === null) return;
+  const set = new Set(touched);
+  await writeRawManifest(folder, {
+    ...manifest,
+    files: manifest.files.map((e) => {
+      if (!set.has(e.file) || e.uploaded !== undefined) return e;
+      const { upload: _old, ...rest } = e;
+      const policy = uploadPolicyFor(e, today);
+      return policy === undefined ? rest : { ...rest, upload: policy };
+    }),
+  });
 }
 
 /** เขียนไฟล์ชั่วคราวแล้ว rename ทับ — manifest เดิมไม่หายถ้าเขียนไม่สำเร็จ */

@@ -4,7 +4,9 @@ import { RAW_MANIFEST, recordUploaded, type RawFileEntry, type RawManifest } fro
 import type { SiteId } from './core/placement.ts';
 import { findOutcomeForFile, readRunRecord, type RecordedOutcome } from './core/run-record.ts';
 import { parseRefreshId } from './core/run-planner.ts';
+import { formatISO } from './core/order.ts';
 import { defaultDataDir } from './core/status.ts';
+import { thaiToday } from './core/thai-time.ts';
 import {
   asOfFromTakenAt,
   asOfStateKey,
@@ -314,7 +316,7 @@ export async function readUploadBacklog(dataDir: string, site: SiteId): Promise<
     // array ของ RawFileEntry — ไฟล์เก่าพวกนี้ยังอยู่บนดิสก์ตาม ADR-0005 (ไม่ลบไม่ทับ) ข้ามไปเงียบ ๆ ไม่ใช่ error
     if (!Array.isArray(manifest.files)) continue;
     const runRecord = await readRunRecord(folder);
-    for (const entry of selectPendingFiles(manifest.files)) {
+    for (const entry of selectPendingFiles(manifest.files, formatISO(thaiToday()))) {
       // หาจากชื่อไฟล์ เหมือนขาส่งจริง — key ของ _run.json ไม่ใช่ entry.report เสมอไป (snapshot ถ่ายซ้ำรอบเย็นใช้ `<รายงาน>@refresh` ADR-0011)
       const asOf = (runRecord === null ? undefined : findOutcomeForFile(runRecord, entry.file, entry.sha256)?.finishedAt) ?? asOfFromTakenAt(entry.takenAt);
       if (asOf !== undefined && isAsOfRegression(asOf, state.asOf[asOfStateKey(entry)])) blocked++;
@@ -449,7 +451,7 @@ export async function uploadFolder(opts: {
   }
 
   const results: UploadFileResult[] = [];
-  for (const entry of selectPendingFiles(manifest.files)) {
+  for (const entry of selectPendingFiles(manifest.files, formatISO(thaiToday()))) {
     const documentType = documentTypeFor(entry.site, entry.report);
     if (documentType === undefined) {
       results.push({ file: entry.file, report: entry.report, kind: 'rejected', reason: unresolvedDocumentTypeReason(entry.site, entry.report) });

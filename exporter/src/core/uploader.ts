@@ -161,8 +161,9 @@ export function buildIngestPayload(entry: RawFileEntry, asOf: string, documentTy
  * ไฟล์ที่ยังไม่เคยอัปโหลดสำเร็จ (ไม่มี `uploaded`) — ไม่กรอง `as_of` ย้อนหลัง (ticket 03 ทำที่ `upload.ts` เพราะต้อง
  * เทียบกับ state ข้ามโฟลเดอร์) และไม่เกี่ยวกับรายงานว่าง (ticket 04 — รายงานว่างไม่มี `RawFileEntry` ให้กรองอยู่แล้ว)
  */
-export function selectPendingFiles(files: readonly RawFileEntry[]): readonly RawFileEntry[] {
-  return files.filter((f) => f.uploaded === undefined);
+export function selectPendingFiles(files: readonly RawFileEntry[], today: string): readonly RawFileEntry[] {
+  // `upload` = นโยบายของไฟล์จากรอบดึง (ADR-0014): `skip` ไม่ส่งเลย · `notBefore` ถือไว้ถึงวันนั้น (เวลาไทย) · ไม่มี = ส่งได้
+  return files.filter((f) => f.uploaded === undefined && f.upload !== 'skip' && (f.upload === undefined || f.upload.notBefore <= today));
 }
 
 /** แคบ `unknown` ลงเป็น record ให้เช็ค field ต่อได้ — ใช้ร่วมกันที่นี่และใน `upload.ts` กันโค้ดแคบ JSON ซ้ำ ๆ แบบมือ */
