@@ -93,3 +93,21 @@ test('รอบนอกหน้าต่างหรือไม่อยู�
   }
   assert.equal(plan('08', '08:05', new Map(), { enabled: DEFAULT_ROUNDS }).run, true);
 });
+
+test('storeStateFrom อ่านผลต่อรอบ (@round-HH) ทั้ง per-day ของวันนี้และ snapshot · id รอบไม่ทำให้ id ปกติของวันนั้นเสร็จ', async () => {
+  const { storeStateFrom } = await import('../src/core/run-planner.ts');
+  const out = (report: string, rows: number, day = TODAY) => ({
+    report, status: 'ok' as const, rows, range: { from: day, to: day }, actualRange: null, files: [], attempts: 1, finishedAt: `${day}T05:00:00.000Z`,
+  });
+  const record = {
+    site: 'hoteltime', kind: 'daily', dataThrough: TODAY,
+    runs: [{ startedAt: `${TODAY}T05:00:00.000Z`, finishedAt: `${TODAY}T05:05:00.000Z`, reports: [] }],
+    reports: { [roundId('postings', '12')]: out('x', 4), [roundId('arrivals', '12')]: out('x', 0), 'ghost@round-12': out('x', 1) },
+    skipped: [],
+  } as unknown as Parameters<typeof storeStateFrom>[0][number]['record'];
+  const state = storeStateFrom([{ day: TODAY, record }], REPORTS);
+  assert.equal(state.get(`postings@round-12@${TODAY}`), 'data');
+  assert.equal(state.get(`arrivals@round-12@${TODAY}`), 'empty');
+  assert.equal(state.has(`postings@${TODAY}`), false);
+  assert.equal(state.has(`ghost@round-12@${TODAY}`), false); // รายงานนอกแคตตาล็อกไม่นับ
+});

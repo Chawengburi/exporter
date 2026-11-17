@@ -403,10 +403,12 @@ export function storeStateFrom(
       // snapshot ถ่ายซ้ำก็เป็นแบบเดียวกัน (ADR-0011)
       const isClose = id.endsWith(PERIOD_CLOSE_SUFFIX);
       const retake = parseRefreshId(id); // `@refresh` and the extra rounds `@refresh-<HH>` (ADR-0013)
+      const round = parseRoundId(id); // `@round-<HH>` (ADR-0014): ผลต่อรอบ — family ตามรายงานต้นทาง
       const baseId = isClose ? id.slice(0, -PERIOD_CLOSE_SUFFIX.length) : retake !== null ? retake.base : null;
-      const f = baseId !== null ? (family.has(baseId) ? 'picture' : undefined) : family.get(id);
+      const f = round !== null ? family.get(round.base) : baseId !== null ? (family.has(baseId) ? 'picture' : undefined) : family.get(id);
       if (f === undefined) continue;
-      if (f === 'per-day' && !isClose && fetchedOnOrBefore(record, id, day)) continue;
+      // ผลต่อรอบของ per-day ดึงวันของข้อมูลเมื่อไรก็ได้ (วันนี้ทุกรอบ) — กติกา "เริ่มในวันนั้นหรือก่อน" ใช้กับ id ปกติเท่านั้น
+      if (f === 'per-day' && !isClose && round === null && fetchedOnOrBefore(record, id, day)) continue;
       if (o.status === 'failed') {
         state.set(stateKey(id, day), 'failed');
         continue;

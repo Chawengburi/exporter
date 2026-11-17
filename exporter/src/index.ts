@@ -69,6 +69,10 @@ program
     'hoteltime: extra snapshot-only round at 06 or 23 Thai time (ADR-0013) — takes the snapshot reports again, no per-day reports, no back-fill · needs the slot in HOTELTIME_SNAPSHOT_SLOTS (exporter/.env), otherwise it does nothing · cannot be combined with other modes',
   )
   .option(
+    '--round <HH>',
+    'hoteltime: one extraction round (ADR-0014) at 04, 08, 12, 16, 20 or 23 Thai time — snapshot set + today\'s per-day reports + (08/12) a re-take of yesterday + capped catch-up · needs --report all and the round in HOTELTIME_ROUNDS (exporter/.env, default 08,12,16,20,23), otherwise it does nothing · cannot be combined with other modes',
+  )
+  .option(
     '--date <YYYY-MM-DD>',
     'hoteltime: ดึงรายงานตามวันของวันของข้อมูลนั้นวันเดียวใหม่ (ฉบับเก่าไม่หาย) · ไม่ถ่ายรายงาน snapshot · ใช้คู่กับ --daily/--from/--to/--last-days/--baseline ไม่ได้',
   )
@@ -91,7 +95,7 @@ program
   .option('--json', 'พิมพ์ผลเป็น JSON', false)
   .action(async (opts: {
     site: string; report: string; from?: string; to?: string; lastDays?: string;
-    daily: boolean; snapshotSlot?: string; date?: string; overlapDays?: string; retryFailed?: boolean; baseline: boolean; baselineIntervalDays?: string;
+    daily: boolean; snapshotSlot?: string; round?: string; date?: string; overlapDays?: string; retryFailed?: boolean; baseline: boolean; baselineIntervalDays?: string;
     format?: string; headful: boolean; slowMo?: string; json: boolean;
   }) => {
     if (opts.format !== undefined) {
@@ -119,6 +123,11 @@ program
     if (opts.site === 'foodstory') {
       // FoodStory มีรอบรายเดือน (ค่าเริ่มต้น / --from --to) กับรอบรายวัน --daily (ใบ 06: เมื่อวาน + รอบเก็บตก + รายงาน snapshot) — ไม่มี baseline/format/
       // เก็บตก · ปฏิเสธตรง ๆ แทนที่จะเงียบ ๆ เพิกเฉย flag ที่ผู้ใช้ตั้งใจส่งมา
+      if (opts.round !== undefined) {
+        console.error('--round is HotelTime only (FoodStory has no extraction rounds yet)');
+        process.exitCode = 1;
+        return;
+      }
       if (opts.snapshotSlot !== undefined) {
         console.error('--snapshot-slot is HotelTime only (FoodStory has no extra snapshot rounds)');
         process.exitCode = 1;
@@ -164,6 +173,7 @@ program
       daily: opts.daily,
       date: opts.date,
       snapshotSlot: opts.snapshotSlot,
+      round: opts.round,
       baseline: opts.baseline,
       baselineIntervalDays,
       headful: opts.headful,

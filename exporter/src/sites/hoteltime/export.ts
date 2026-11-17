@@ -22,7 +22,7 @@ import { withBrowserRetry } from '../../core/retry.ts';
 import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
 import {
-  PlanError, SNAPSHOT_SLOTS, SLOT_WINDOW, daysToRead, isSnapshotSlot, periodCloseId, planBaselineRun, planDailyRun, planSnapshotSlot, refreshId, planDateRun, planWarnings,
+  PlanError, gateRound, isRoundHour, parseRoundId, planRound, roundId, ROUND_HOURS, ROUND_WINDOW, SNAPSHOT_SLOTS, SLOT_WINDOW, daysToRead, isSnapshotSlot, periodCloseId, planBaselineRun, planDailyRun, planSnapshotSlot, refreshId, planDateRun, planWarnings,
   slotRefreshId, storeStateFrom, type WorkPlan,
 } from '../../core/run-planner.ts';
 import { createRedactor, redactError, type Redactor } from '../../core/redact.ts';
@@ -69,6 +69,8 @@ export type ExportOptions = {
    * no period-close); cannot be combined with any other mode. Optional so existing callers need not set it.
    */
   readonly snapshotSlot?: string | undefined;
+  /** `--round HH`: one extraction round (ADR-0014) — snapshot set + today's per-day + redo of yesterday at 08/12 + capped catch-up · cannot be combined with other modes */
+  readonly round?: string | undefined;
 };
 
 /**
@@ -760,6 +762,90 @@ async function runSnapshotSlot(opts: ExportOptions, cfg: Config, requested: read
 }
 
 /**
+ * **รอบดึง** (ADR-0014): `export --report all --round HH` — ทำตาม `planRound`: snapshot ครบชุด + per-day ของวันนี้ทุกรอบ, รอบ 08/12 ดึงซ้ำของเมื่อวาน, เก็บตกวันที่ขาด ·
+ * ผลของแต่ละรอบบันทึกใต้ id `<รายงาน>@round-<HH>` (เก็บตกใช้ id ปกติ) · per-day ของวัน D ลงโฟลเดอร์ D เสมอ (ADR-0005) snapshot ลงโฟลเดอร์ของวันนี้ ·
+ * ไบต์ต่างแทนชื่อเดิม = ฉบับเก่าไป `_superseded/` · ไบต์เหมือนเดิมไม่สร้างงานซ้ำ (ticket 01) · `daily/latest` ขยับเฉพาะรอบ 12 (รอบ "ปกติ" ที่ส่ง uploader)
+ * · ออกทันทีโดยไม่ login ถ้ารอบไม่ได้เปิดใน `HOTELTIME_ROUNDS` หรือนอกหน้าต่างเวลา หรือไม่มีงาน
+ */
+async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promise<number> {
+  const round = opts.round!;
+  if (!isRoundHour(round)) throw new ConfigError(`--round must be one of ${ROUND_HOURS.join(', ')} — got ${JSON.stringify(round)}`);
+  if (!many) throw new ConfigError('--round takes --report all — an extraction round is the whole set of reports');
+  const nothing = (code: string, text: string): number => {
+    if (opts.json) {
+      console.log(JSON.stringify({ ok: true, code, text, warnings: [], reports: [], failed: [], skipped: [], totalRows: 0, outDirs: [] }, null, 2));
+    } else {
+      console.log(`${chalk.green('✔')} ${text}`);
+    }
+    return 0;
+  };
+  const now = new Date();
+  const gate = gateRound({ now, round, enabled: cfg.rounds });
+  if (gate.reason === 'disabled') return nothing('round_disabled', `round ${round} is switched off — add ${round} to HOTELTIME_ROUNDS in exporter/.env to enable it`);
+  if (gate.reason === 'outside_window') {
+    const w = ROUND_WINDOW[round];
+    return nothing('round_window_passed', `round ${round} only runs between ${String(w.from).padStart(2, '0')}:00 and ${String(w.to).padStart(2, '0')}:00 Thai time — nothing done`);
+  }
+
+  const today = formatISO(thaiToday(now));
+  const folderOf = (date: Date) => dailyFolder(cfg.dataDir, 'hoteltime', { from: date, to: date });
+  const planned = REPORTS.map(toPlanned);
+  const warnings: string[] = [];
+  const folders = [];
+  for (const day of daysToRead({ now, goLive: cfg.goLive })) {
+    try {
+      const record = await readRunRecord(folderOf(parseISODate(day)!));
+      if (record !== null) folders.push({ day, record });
+    } catch (err) {
+      warnings.push(`อ่าน _run.json ของวัน ${day} ไม่ได้ (${(err as Error).message.split('\n')[0]}) — ถือว่าวันนั้นยังไม่ได้ดึง`);
+    }
+  }
+  const plan = planRound({ now, round, enabled: cfg.rounds, reports: planned, state: storeStateFrom(folders, planned), goLive: cfg.goLive });
+  if (!opts.json) for (const w of warnings) console.error(chalk.yellow(`⚠ ${w}`));
+  const items = [
+    ...plan.catchUp.map((i) => ({ ...i, recordId: i.report })),
+    ...plan.redoYesterday.map((i) => ({ ...i, recordId: roundId(i.report, round) })),
+    ...plan.today.map((i) => ({ ...i, recordId: roundId(i.report, round) })),
+    ...plan.pictures.map((i) => ({ ...i, recordId: roundId(i.report, round) })),
+  ];
+  if (items.length === 0) return nothing('nothing_to_do', `round ${round} of ${today}: nothing left to take — every report of this round is done`);
+
+  const ctx = runContext(opts, cfg);
+  const total: ReportResult = { done: [], failed: [], attempts: new Map() };
+  const outcomes: ReportOutcome[] = [];
+  const outDirs: string[] = [];
+  const itemDays = [...new Set(items.map((i) => i.day))].sort();
+  for (const day of itemDays) {
+    const date = parseISODate(day)!;
+    const outDir = folderOf(date);
+    outDirs.push(outDir);
+    if (!opts.json) console.log(`${chalk.dim('ผลรอบนี้')}  ${path.relative(cfg.projectRoot, outDir)}/  ${chalk.dim(`(รอบ ${round} · วัน ${day})`)}\n`);
+    const startedAt = new Date();
+    const result = await runReports(
+      ctx, outDir,
+      items.filter((i) => i.day === day).map((i) => ({ report: REPORT_BY_ID.get(i.report)!, job: oneDayJob(date, 'daily'), recordId: i.recordId })),
+      true,
+      { first: total.done.length + total.failed.length, total: items.length },
+    );
+    const folderOutcomes = outcomesOf(result);
+    await recordRun(outDir, {
+      site: 'hoteltime',
+      kind: 'daily',
+      dataThrough: day,
+      startedAt,
+      finishedAt: new Date(),
+      outcomes: folderOutcomes,
+      ...(day === itemDays.at(-1) ? { warnings } : {}),
+      ...(day === today && round === '12' ? { latest: latestPointer(cfg.dataDir, 'hoteltime', 'daily') } : {}),
+    });
+    total.done.push(...result.done);
+    total.failed.push(...result.failed);
+    outcomes.push(...folderOutcomes);
+  }
+  return finish(opts, true, total, [], outcomes, { outDirs }, warnings);
+}
+
+/**
  * **baseline** (ใบ 09, ADR-0008) — ดึงวันของข้อมูลในช่วงใหม่หมด ทีละวัน ไฟล์ละวัน `YYYY-MM-DD__<รายงาน>.xlsx` (ชื่อ/key เดียวกับรอบรายวัน) ลงโฟลเดอร์ของ
  * รอบนี้ `baseline/<วันที่รัน>/` (เจ้าของเลือก 2026-10-14): ฉบับรายวันกับฉบับ baseline อยู่คนละโฟลเดอร์ ไม่ลบไม่ทับ (ADR-0005) เทียบกันได้เลย · ตัววางแผนและ
  * status อ่านแค่โฟลเดอร์รายวัน — ผลของ baseline (รวมที่ล้ม) จึงไม่ทำให้รอบรายวันดึงวันนั้นซ้ำ · `_run.json` บันทึกด้วย id `<รายงาน>@<วัน>` ·
@@ -858,6 +944,13 @@ export async function runExport(opts: ExportOptions): Promise<number> {
     const cfg = loadConfig();
     const many = opts.reportId === ALL_REPORTS;
 
+    if (opts.round !== undefined) {
+      if (opts.snapshotSlot !== undefined || opts.daily || opts.baseline || opts.date !== undefined || opts.from !== undefined || opts.to !== undefined
+        || opts.lastDays !== undefined || opts.baselineIntervalDays !== undefined) {
+        throw new ConfigError('--round cannot be combined with --snapshot-slot/--daily/--date/--from/--to/--last-days/--baseline — it is its own extraction round');
+      }
+      return await runRound(opts, cfg, many);
+    }
     if (opts.snapshotSlot !== undefined) {
       if (opts.daily || opts.baseline || opts.date !== undefined || opts.from !== undefined || opts.to !== undefined || opts.lastDays !== undefined
         || opts.baselineIntervalDays !== undefined) {
