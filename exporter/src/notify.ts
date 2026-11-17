@@ -13,7 +13,7 @@ import {
 import { SCHEDULED_CATCHUP_DONE_MIN, buildStatus, defaultDataDir, readStoreSnapshot, readWebhookUrl, type Folder } from './core/status.ts';
 import { formatISO } from './core/order.ts';
 import { dailyFolder } from './core/placement.ts';
-import { parseRefreshId, parseRoundId } from './core/run-planner.ts';
+import { isRoundHour, parseRefreshId, parseRoundId } from './core/run-planner.ts';
 import { readRunRecord } from './core/run-record.ts';
 import { thaiClock, thaiToday } from './core/thai-time.ts';
 import { defaultEnvFile, statusSetup } from './status-setup.ts';
@@ -184,8 +184,10 @@ export const notifySnapshotSlot = (opts: Omit<Parameters<typeof notifyWholeRound
  * Alert after an extraction round (ADR-0014, `export --round HH`): one alert when every report of this round failed (login/browser trouble), once per round per day;
  * a partly failed round is not an alert. Reads only today's `_run.json` (`@round-HH` ids) — no status evaluation, never throws, never changes the exit code.
  */
-export const notifyRound = (opts: Omit<Parameters<typeof notifyWholeRoundFailed>[0], 'kind' | 'baseOf'>): Promise<NotifyResult> =>
-  notifyWholeRoundFailed({ ...opts, kind: 'round', baseOf: (id) => (parseRoundId(id)?.round === opts.slot ? parseRoundId(id)!.base : null) });
+export const notifyRound = async (opts: Omit<Parameters<typeof notifyWholeRoundFailed>[0], 'kind' | 'baseOf'>): Promise<NotifyResult> =>
+  !isRoundHour(opts.slot)
+    ? { status: 'skipped', reason: `unknown round ${JSON.stringify(opts.slot)} — no Discord alert` } // the export itself already refused it (exit 1); never a silent "nothing to report"
+    : notifyWholeRoundFailed({ ...opts, kind: 'round', baseOf: (id) => (parseRoundId(id)?.round === opts.slot ? parseRoundId(id)!.base : null) });
 
 /**
  * แจ้งผลของ `exporter upload` หนึ่งรอบ (ticket 05 ของ `exporter-upload-to-uploader`) — เรียกทุกครั้งหลัง

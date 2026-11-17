@@ -47,3 +47,12 @@ test('notifyRound: ทุกรายงานของรอบล้ม → �
   const otherRound = await dataDirWith(failed(roundId('arrivals', '08'), 'Timeout'));
   assert.deepEqual(await run(otherRound, '12'), { status: 'sent', messages: 0 }); // รอบ 12 ไม่มีผลเลย = ไม่เตือน (ยังไม่ถึงเวลา/ปิดไว้ไม่นับเป็นล้ม)
 });
+
+test('notifyRound: ชั่วโมงที่ไม่ใช่รอบ → skipped พร้อมเหตุผล ไม่เงียบ · redo ของเมื่อวานไม่ใช่เหตุเตือน', async () => {
+  const dir = await dataDirWith(failed(roundId('arrivals', '12'), 'Timeout'));
+  const r = await run(dir, '99');
+  assert.equal(r.status, 'skipped');
+  assert.match(r.status === 'skipped' ? r.reason : '', /unknown round "99"/);
+  const redoOnly = await dataDirWith(failed('arrivals@redo-12', 'Timeout'));
+  assert.deepEqual(await run(redoOnly, '12'), { status: 'sent', messages: 0 });
+});
