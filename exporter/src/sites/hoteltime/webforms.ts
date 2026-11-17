@@ -21,7 +21,12 @@ import type { Redactor } from '../../core/redact.ts';
 type AriaRole = Parameters<Page['getByRole']>[0];
 
 export class WebFormsError extends Error {
-  override readonly name = 'WebFormsError';
+  override readonly name: string = 'WebFormsError';
+}
+
+/** session หลุด — โดนเด้งกลับหน้า login กลางทาง (ASP.NET session หมดอายุเอง) · รอบที่ใช้ session ร่วมกัน login ใหม่หนึ่งครั้งแล้วลองงานนั้นซ้ำ (ticket 12 ของ 4h-rounds) */
+export class SessionLostError extends WebFormsError {
+  override readonly name = 'SessionLostError';
 }
 
 /** อยู่ที่หน้า login อยู่หรือเปล่า — ใช้ตรวจทั้งตอนเริ่มและตอนโดนเตะกลับกลางทาง */
@@ -93,7 +98,7 @@ export async function uniqueByRole(
 export async function assertStillLoggedIn(page: Page): Promise<void> {
   const url = page.url();
   if (isLoginPage(url)) {
-    throw new WebFormsError(
+    throw new SessionLostError(
       `session หลุดแล้ว — โดนเด้งกลับหน้า login ระหว่างทาง (${url})\n` +
         `  ASP.NET session เป็น server-side และหมดอายุเองได้ ต้องล็อกอินใหม่แล้วเริ่มรายงานนี้ใหม่`,
     );

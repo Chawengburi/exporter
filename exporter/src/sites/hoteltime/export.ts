@@ -18,7 +18,8 @@ import {
 } from '../../core/order.ts';
 import { dailyFolder, dataFileName, latestPointer, pictureFileName, runFolder } from '../../core/placement.ts';
 import { applyUploadPolicy, perDayChangedNote, publishRawFiles, readRawManifest, recordPublished, type RawFileEntry } from '../../core/raw-manifest.ts';
-import { withBrowserRetry } from '../../core/retry.ts';
+import { DEFAULT_RETRY_POLICY, isTransientBrowserError, withBrowserRetry } from '../../core/retry.ts';
+import { closeStrayPages, createSharedSession, runInSharedSession, type SessionProvider } from '../../core/shared-session.ts';
 import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
 import {
@@ -34,13 +35,14 @@ import {
   type Config,
   type Credentials,
 } from './config.ts';
-import { login, openSession, type Session } from './session.ts';
+import { LoginError, login, openSession, type Session } from './session.ts';
 import { RowCapError, verifyChunk } from './verify.ts';
 import {
   assertFormAccepted,
   clickAndSettle,
   downloadExport,
   readGridText,
+  SessionLostError,
 } from './webforms.ts';
 import { DAY_MINUTES, fetchSplitTable, type WindowFetcher } from '../../core/scraped-split.ts';
 import { ScrapeError, scrapedTableToRawFile } from '../../core/scraped-table.ts';
@@ -396,7 +398,7 @@ function runContext(opts: ExportOptions, cfg: Config): RunContext {
  * ให้ผู้เรียกไปประกอบ เพราะโหมด `--report all` ต้องรวมหลายรายงานเป็นก้อน JSON เดียว
  * ถ้าล้มก็โยน error ออกไปตรง ๆ ผู้เรียกเป็นคนถือ redactor และเป็นคนตัดสินว่าจะหยุดหรือไปต่อ
  */
-async function exportOne(ctx: RunContext, report: Report, outDir: string, job: ReportJob): Promise<ExportPayload> {
+async function exportOne(ctx: RunContext, report: Report, outDir: string, job: ReportJob, shared?: Session): Promise<ExportPayload> {
   const { opts, cfg, creds, redact } = ctx;
   const { range, runKind, baselineIntervalDays } = job;
 
@@ -430,20 +432,22 @@ async function exportOne(ctx: RunContext, report: Report, outDir: string, job: R
     console.log();
   }
 
-  const session = await openSession({
+  // รอบดึงใช้ session ร่วมกัน (`shared`): ไม่เปิด/login/ปิดเอง — ปิดแค่หน้าต่างที่ค้างจากงานนี้ (ทุกงานเริ่มจาก goto หน้ารายงานใหม่ใน fetchChunk อยู่แล้ว)
+  const session = shared ?? await openSession({
     ...cfg,
     headless: opts.headful ? false : cfg.headless,
     slowMoMs: opts.slowMoMs ?? cfg.slowMoMs,
   });
   let outcomes: ChunkOutcome[];
   try {
-    await login(session, cfg, creds, redact);
+    if (shared === undefined) await login(session, cfg, creds, redact);
     outcomes = await fetchAll(session, cfg, report, chunks, staging, log);
   } catch (err) {
     await dropStaging();
     throw err;
   } finally {
-    await session.close();
+    if (shared === undefined) await session.close();
+    else await closeStrayPages(session.context.pages(), session.page);
   }
 
   const dataChunks = outcomes.filter((o) => o.kind === 'data').length;
@@ -542,6 +546,7 @@ async function runReports(
   jobs: readonly { readonly report: Report; readonly job: () => ReportJob; readonly periodClose?: boolean; readonly recordId?: string }[],
   many: boolean,
   numbering: { readonly first: number; readonly total: number },
+  sessions?: SessionProvider<Session>,
 ): Promise<ReportResult> {
   const { opts, redact } = ctx;
   const result: ReportResult = { done: [], failed: [], attempts: new Map() };
@@ -554,11 +559,17 @@ async function runReports(
       console.log(chalk.bold(`${chalk.dim(`[${n + 1}/${numbering.total}]`)} ${recordId}`));
       console.log(chalk.dim('─'.repeat(72)));
     }
-    const outcome = await withBrowserRetry(() => exportOne(ctx, report, outDir, fixedId ? { ...job(), recordId: fixedId } : job()), {
-      label: report.id,
-      describe: (err) => failureOf(err, redact).text,
-      ...(opts.json ? {} : { log: (line: string) => console.error(chalk.yellow(line)) }),
-    });
+    const describe = (err: unknown) => failureOf(err, redact).text;
+    const log = opts.json ? undefined : (line: string) => console.error(chalk.yellow(line));
+    const jobOf = () => (fixedId ? { ...job(), recordId: fixedId } : job());
+    const outcome = sessions === undefined
+      ? await withBrowserRetry(() => exportOne(ctx, report, outDir, jobOf()), { label: report.id, describe, ...(log ? { log } : {}) })
+      : await runInSharedSession(sessions, (session) => exportOne(ctx, report, outDir, jobOf(), session), {
+          isSessionLost: (e) => e instanceof SessionLostError || /Target page, context or browser has been closed/.test(String((e as Error)?.message)),
+          isRetryable: isTransientBrowserError,
+          policy: DEFAULT_RETRY_POLICY,
+          onRetry: (err, n, waitMs) => log?.(`↻ ${report.id} ครั้งที่ ${n} ล้มชั่วคราว — รอ ${waitMs / 1000} วินาทีแล้วลองใหม่: ${describe(err).split('\n')[0]}`),
+        });
     result.attempts.set(recordId, outcome.attempts);
     if (outcome.ok) {
       result.done.push(outcome.value);
@@ -811,11 +822,27 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
   if (items.length === 0) return nothing('nothing_to_do', `round ${round} of ${today}: nothing left to take — every report of this round is done`);
 
   const ctx = runContext(opts, cfg);
+  // session เดียวต่อรอบ (ticket 12): เปิดเบราว์เซอร์ + login ครั้งเดียวตอนงานแรก (ไม่มีงาน = ไม่เปิด) · รหัสผิด (LoginError) = ทุกงานที่เหลือล้มทันทีโดยไม่ login ซ้ำ
+  const sessions = createSharedSession<Session>({
+    open: async () => {
+      const session = await openSession({ ...cfg, headless: opts.headful ? false : cfg.headless, slowMoMs: opts.slowMoMs ?? cfg.slowMoMs });
+      try {
+        await login(session, cfg, ctx.creds, ctx.redact);
+      } catch (err) {
+        await session.close();
+        throw err;
+      }
+      return session;
+    },
+    close: (session) => session.close(),
+    isFatal: (err) => err instanceof LoginError,
+  });
   const total: ReportResult = { done: [], failed: [], attempts: new Map() };
   const outcomes: ReportOutcome[] = [];
   const outDirs: string[] = [];
   const itemDays = [...new Set(items.map((i) => i.day))].sort();
   const roundStartedAt = new Date();
+  try {
   for (const day of itemDays) {
     const date = parseISODate(day)!;
     const outDir = folderOf(date);
@@ -827,6 +854,7 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
       items.filter((i) => i.day === day).map((i) => ({ report: REPORT_BY_ID.get(i.report)!, job: oneDayJob(date, 'daily'), recordId: i.recordId })),
       true,
       { first: total.done.length + total.failed.length, total: items.length },
+      sessions,
     );
     const folderOutcomes = outcomesOf(result);
     // นโยบายอัปโหลดของไฟล์ที่รอบนี้แตะ (snapshot ที่ไม่ใช่ 23:00 = ไม่ส่ง · ของวันนี้ถือไว้ถึงพรุ่งนี้ · ของเมื่อวานปลด) — ticket 07
@@ -851,6 +879,9 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
     total.done.push(...result.done);
     total.failed.push(...result.failed);
     outcomes.push(...folderOutcomes);
+  }
+  } finally {
+    await sessions.close();
   }
   return finish(opts, true, total, [], outcomes, { outDirs }, warnings);
 }
