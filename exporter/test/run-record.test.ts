@@ -320,3 +320,45 @@ test('publishRawFiles กับ CSV แบบ scrape: ดึงซ้ำไบ�
   assert.equal(await readFile(path.join(dir, 'hoteltime__2026-11-12__audit-trail.csv'), 'utf8'), 'a\nb\n');
   assert.equal(await readFile(path.join(dir, moved[0]!.to), 'utf8'), 'a\n');
 });
+
+// exporter-hoteltime-4h-rounds ticket 01: ดึงซ้ำ per-day แล้วไบต์เหมือนเดิม ต้องไม่ทำให้ไฟล์ที่ส่งแล้วกลับเป็น "ยังไม่ส่ง"
+test('ดึงซ้ำไบต์เดิม: manifest ยังเก็บ uploaded และ takenAt เดิม · ไม่มี _superseded/ · ไบต์ต่างยังเป็นพฤติกรรมเดิม', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'refetch-same-'));
+  const sha = (c: string) => createHash('sha256').update(c).digest('hex');
+  const mk = (content: string, takenAt: string): RawFileEntry => ({
+    file: '2026-11-16__arrivals.xlsx', site: 'hoteltime', report: 'arrivals', label: 'Arrivals', family: 'per-day', runKind: 'daily',
+    range: { from: '2026-11-16', to: '2026-11-16' }, actualRange: null, takenAt, sheets: ['export'], bytes: content.length,
+    sha256: sha(content), source: 'https://example.invalid', filterColumn: 'Date', filterNote: 'x',
+  });
+  const round = async (content: string, takenAt: string, at: Date) => {
+    const staged = path.join(dir, `staged-${takenAt}`);
+    await writeFile(staged, content, 'utf8');
+    const entry = mk(content, takenAt);
+    const moved = await publishRawFiles(dir, [{ staged, entry }], at);
+    await recordPublished(dir, [entry], moved, new Set([entry.file]), at.toISOString());
+    return moved;
+  };
+  const readManifest = async () => JSON.parse(await readFile(path.join(dir, RAW_MANIFEST), 'utf8')) as RawManifest;
+
+  await round('v1', '2026-11-16T08:00:00+07:00', new Date('2026-11-16T01:00:00Z'));
+  await recordUploaded(dir, '2026-11-16__arrivals.xlsx', { at: '2026-11-16T01:05:00.000Z', fileId: 'f1' });
+
+  // ดึงซ้ำ ไบต์เดิม
+  assert.deepEqual(await round('v1', '2026-11-16T12:00:00+07:00', new Date('2026-11-16T05:00:00Z')), []);
+  let m = await readManifest();
+  assert.equal(m.files.length, 1);
+  assert.deepEqual(m.files[0]!.uploaded, { at: '2026-11-16T01:05:00.000Z', fileId: 'f1' });
+  assert.equal(m.files[0]!.takenAt, '2026-11-16T08:00:00+07:00');
+  assert.equal((m.superseded ?? []).length, 0);
+
+  // ไบต์ต่าง: ฉบับเก่าไป _superseded/ รายการใหม่ ไม่มี uploaded
+  const moved = await round('v2', '2026-11-16T16:00:00+07:00', new Date('2026-11-16T09:00:00Z'));
+  assert.equal(moved.length, 1);
+  assert.equal(await readFile(path.join(dir, moved[0]!.to), 'utf8'), 'v1');
+  m = await readManifest();
+  assert.equal(m.files[0]!.uploaded, undefined);
+  assert.equal(m.files[0]!.sha256, sha('v2'));
+  assert.equal(m.files[0]!.takenAt, '2026-11-16T16:00:00+07:00');
+  assert.equal(m.superseded?.length, 1);
+  assert.equal(m.superseded![0]!.was?.uploaded?.fileId, 'f1');
+});

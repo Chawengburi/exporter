@@ -85,8 +85,16 @@ export function mergeRawManifest(
   added: readonly RawFileEntry[],
   filesInFolder: ReadonlySet<string>,
 ): RawFileEntry[] {
+  const prevByFile = new Map(previous.map((e) => [e.file, e]));
+  // ไบต์เดียวกันทุก byte (ดึงซ้ำ — publishRawFiles ทิ้งไฟล์ที่พักไว้ ไฟล์เดิมยังอยู่) = รายการเดิมต้องอยู่ต่อทั้งรายการ
+  // รวม `uploaded` และ `takenAt` เดิม ไม่งั้นไฟล์ที่ส่งแล้วจะกลับเป็น "ยังไม่ส่ง" แล้วถูกส่งซ้ำ
+  const unchanged = (e: RawFileEntry): RawFileEntry | undefined => {
+    const old = prevByFile.get(e.file);
+    return old !== undefined && old.sha256 === e.sha256 ? old : undefined;
+  };
+  const kept = added.map((e) => unchanged(e) ?? e);
   const replaced = new Set(added.map((e) => e.file));
-  return [...previous.filter((e) => filesInFolder.has(e.file) && !replaced.has(e.file)), ...added].sort(
+  return [...previous.filter((e) => filesInFolder.has(e.file) && !replaced.has(e.file)), ...kept].sort(
     (a, b) => a.report.localeCompare(b.report) || a.file.localeCompare(b.file),
   );
 }
