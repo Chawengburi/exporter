@@ -764,7 +764,7 @@ async function runSnapshotSlot(opts: ExportOptions, cfg: Config, requested: read
 /**
  * **รอบดึง** (ADR-0014): `export --report all --round HH` — ทำตาม `planRound`: snapshot ครบชุด + per-day ของวันนี้ทุกรอบ, รอบ 08/12 ดึงซ้ำของเมื่อวาน, เก็บตกวันที่ขาด ·
  * ผลของแต่ละรอบบันทึกใต้ id `<รายงาน>@round-<HH>` (เก็บตกใช้ id ปกติ) · per-day ของวัน D ลงโฟลเดอร์ D เสมอ (ADR-0005) snapshot ลงโฟลเดอร์ของวันนี้ ·
- * ไบต์ต่างแทนชื่อเดิม = ฉบับเก่าไป `_superseded/` · ไบต์เหมือนเดิมไม่สร้างงานซ้ำ (ticket 01) · `daily/latest` ขยับเฉพาะรอบ 12 (รอบ "ปกติ" ที่ส่ง uploader)
+ * ไบต์ต่างแทนชื่อเดิม = ฉบับเก่าไป `_superseded/` · ไบต์เหมือนเดิมไม่สร้างงานซ้ำ (ticket 01) · `daily/latest` ขยับทุกรอบที่เขียนไฟล์ลงโฟลเดอร์วันนี้
  * · ออกทันทีโดยไม่ login ถ้ารอบไม่ได้เปิดใน `HOTELTIME_ROUNDS` หรือนอกหน้าต่างเวลา หรือไม่มีงาน
  */
 async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promise<number> {
@@ -836,7 +836,8 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
       finishedAt: new Date(),
       outcomes: folderOutcomes,
       ...(day === itemDays.at(-1) ? { warnings } : {}),
-      ...(day === today && round === '12' ? { latest: latestPointer(cfg.dataDir, 'hoteltime', 'daily') } : {}),
+      // latest = โฟลเดอร์ของวันนี้ ขยับทุกรอบที่เขียนไฟล์ลงโฟลเดอร์นั้นอย่างน้อยหนึ่งไฟล์ (เหมือนรอบรายวันเดิม) — ขาอัปโหลดคำนวณโฟลเดอร์เมื่อวานเอง ไม่อ่านตัวชี้นี้
+      ...(day === today && result.done.some((d) => d.files.length > 0) ? { latest: latestPointer(cfg.dataDir, 'hoteltime', 'daily') } : {}),
     });
     total.done.push(...result.done);
     total.failed.push(...result.failed);
