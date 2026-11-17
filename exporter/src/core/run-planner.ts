@@ -465,3 +465,68 @@ export function planWarnings(plan: DailyPlan, goLive: string | null, site: { rea
   }
   return out;
 }
+
+/** แผนของรอบดึงหนึ่งรอบ (ADR-0014) — `run:false` = ไม่รัน ไม่ login */
+export type RoundPlan = {
+  readonly run: boolean;
+  readonly reason: 'disabled' | 'outside_window' | null;
+  /** per-day ของวันนี้ (ฉบับยังไม่ครบ) — ทุกรอบ ดึงซ้ำทุกรอบแม้รอบก่อนสำเร็จ · ผลเก็บใต้ `roundId` ของรอบนี้ */
+  readonly today: readonly PlannedItem[];
+  /** snapshot ครบชุดของวันนี้ */
+  readonly pictures: readonly PlannedItem[];
+  /** ดึงซ้ำ per-day ของเมื่อวาน (เฉพาะรอบ 08/12 · แม้สถานะสำเร็จแล้ว) */
+  readonly redoYesterday: readonly PlannedItem[];
+  /** เก็บตกวันที่ per-day ยังขาด (สถานะ id ปกติ · cap · เก่า→ใหม่) */
+  readonly catchUp: readonly PlannedItem[];
+  readonly backlogDays: number;
+};
+
+/** รอบที่ดึงซ้ำ per-day ของเมื่อวาน — 08:00 (ฉบับครบแรกหลังพ้น 07:00) และ 12:00 (ฉบับยืนยันที่ส่ง uploader) · หลังนั้นไม่ดึง D อีกจนกว่า baseline */
+export const REDO_YESTERDAY_ROUNDS: readonly RoundHour[] = ['08', '12'];
+
+/**
+ * แผนของ **รอบดึง** (ADR-0014): snapshot ครบชุด + per-day ของวันนี้ทุกรอบ + เก็บตกวัน per-day ที่ขาด (cap) · รอบ 08/12 เพิ่มดึงซ้ำของเมื่อวาน ·
+ * รอบ 04 ไม่มีเมื่อวาน (ยังไม่ถึง `PER_DAY_DUE_HOUR` · `lastDueDay` กติกาเดียวกับ `exporter status`) · ผลต่อรอบอยู่ใต้ `roundId` จึงรอบเดียวกันที่สำเร็จแล้ว
+ * ไม่ทำซ้ำ (cron สำรอง +30 นาที) แต่รอบถัดไปดึงของวันนี้ใหม่ · ไม่รวม snapshot ปิดงวด (ยังเป็นของ `planDailyRun`)
+ */
+export function planRound(input: {
+  readonly now: Date;
+  readonly round: RoundHour;
+  readonly enabled: readonly RoundHour[];
+  readonly reports: readonly PlannedReport[];
+  readonly state: StoreState;
+  readonly goLive?: string | null;
+  readonly cap?: number;
+}): RoundPlan {
+  const gate = gateRound(input);
+  if (!gate.run) return { run: false, reason: gate.reason, today: [], pictures: [], redoYesterday: [], catchUp: [], backlogDays: 0 };
+  const today = formatISO(thaiToday(input.now));
+  const yesterday = addDaysISO(today, -1);
+  const ownPending = (r: PlannedReport, day: string) => !isDone(input.state.get(stateKey(roundId(r.id, input.round), day)));
+  const perDay = input.reports.filter((r) => r.family === 'per-day');
+
+  const last = lastDueDay(input.now);
+  const first = input.goLive ?? yesterday;
+  const missing: string[] = []; // ใหม่ไปเก่า
+  for (let day = last; day >= first; day = addDaysISO(day, -1)) {
+    if (perDay.some((r) => !isDone(input.state.get(stateKey(r.id, day))))) missing.push(day);
+  }
+  const taken = missing.slice(0, input.cap ?? CATCH_UP_CAP_DAYS);
+  const catchUp = [...taken].sort().flatMap((day) => perDay.filter((r) => !isDone(input.state.get(stateKey(r.id, day)))).map((r) => ({ report: r.id, day })));
+
+  const redo =
+    REDO_YESTERDAY_ROUNDS.includes(input.round) && last === yesterday
+      ? perDay
+          .filter((r) => ownPending(r, yesterday) && !catchUp.some((c) => c.report === r.id && c.day === yesterday))
+          .map((r) => ({ report: r.id, day: yesterday }))
+      : [];
+  return {
+    run: true,
+    reason: null,
+    today: perDay.filter((r) => ownPending(r, today)).map((r) => ({ report: r.id, day: today })),
+    pictures: input.reports.filter((r) => r.family === 'picture' && ownPending(r, today)).map((r) => ({ report: r.id, day: today })),
+    redoYesterday: redo,
+    catchUp,
+    backlogDays: missing.length - taken.length,
+  };
+}
