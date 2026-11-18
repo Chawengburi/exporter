@@ -74,6 +74,8 @@ export type ExportOptions = {
   readonly snapshotSlot?: string | undefined;
   /** `--round HH`: one extraction round (ADR-0014) — snapshot set + today's per-day + redo of yesterday at 08/12 + capped catch-up · cannot be combined with other modes */
   readonly round?: string | undefined;
+  /** `--round`: เรียกเมื่อรอบนี้ได้ทำงานจริง (ไม่ใช่ออกเพราะปิด/นอกหน้าต่าง/ไม่มีงาน) — ผู้เรียกใช้ตัดสินว่าจะส่งสรุป Discord ไหม */
+  readonly onRoundDone?: () => void;
 };
 
 /**
@@ -891,7 +893,9 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
   } finally {
     await sessions.close();
   }
-  return finish(opts, true, total, [], outcomes, { outDirs }, warnings);
+  const code = finish(opts, true, total, [], outcomes, { outDirs }, warnings);
+  opts.onRoundDone?.();
+  return code;
 }
 
 /**

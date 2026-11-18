@@ -98,6 +98,12 @@ export const ROUND_WINDOW: Readonly<Record<RoundHour, { readonly from: number; r
   '23': { from: 23, to: 24 },
 };
 
+/**
+ * รอบที่ส่ง**สรุป Discord รายวัน** (ADR-0014) — 12:00: เมื่อวานครบแล้ว (per-day ฉบับยืนยัน + snapshot 23:00 ของเมื่อวาน, ขั้นอัปโหลดตามหลัง) · 23:00: snapshot ของวันนี้ครบ (ฉบับสิ้นวัน)
+ * ไม่ส่งทุกรอบ (6 ข้อความต่อวันเกินจำเป็น — ช่องนี้เคยได้ 3 ข้อความ) · รอบล้มทั้งชุดมีแจ้งเตือนของตัวเองทุกรอบ (`notifyRound`)
+ */
+export const SUMMARY_ROUNDS: readonly RoundHour[] = ['12', '23'];
+
 export const isRoundHour = (v: string): v is RoundHour => (ROUND_HOURS as readonly string[]).includes(v);
 
 export function roundId(report: string, round: RoundHour): string {

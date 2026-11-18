@@ -4,6 +4,7 @@ import { ALL_REPORTS, runExport } from './sites/hoteltime/export.ts';
 import { runLoginCheck } from './sites/hoteltime/login.ts';
 import { runSweep } from './sites/hoteltime/sweep.ts';
 import { DEFAULT_BASELINE_INTERVAL_DAYS } from './core/order.ts';
+import { SUMMARY_ROUNDS } from './core/run-planner.ts';
 import { reportIds } from './sites/hoteltime/reports/index.ts';
 import { ALL_REPORTS as FOODSTORY_ALL_REPORTS, runFoodStoryExport } from './sites/foodstory/export.ts';
 import { runFoodStoryLoginCheck } from './sites/foodstory/login.ts';
@@ -165,6 +166,7 @@ program
     const lastDays = opts.lastDays === undefined ? undefined : Number(opts.lastDays);
     const baselineIntervalDays =
       opts.baselineIntervalDays === undefined ? undefined : Number(opts.baselineIntervalDays);
+    let roundRan = false;
     process.exitCode = await runExport({
       reportId: opts.report,
       from: opts.from,
@@ -174,6 +176,9 @@ program
       date: opts.date,
       snapshotSlot: opts.snapshotSlot,
       round: opts.round,
+      onRoundDone: () => {
+        roundRan = true;
+      },
       baseline: opts.baseline,
       baselineIntervalDays,
       headful: opts.headful,
@@ -189,6 +194,8 @@ program
       const line = describeNotify(await notifyRound({ slot: opts.round }));
       if (opts.json) console.error(line);
       else console.log(line);
+      // the daily summary comes from rounds 12 and 23 only, and only when the round really did work (not switched off / out of window / nothing left — e.g. the :30 retry)
+      if (roundRan && (SUMMARY_ROUNDS as readonly string[]).includes(opts.round)) await notifyAfterDaily('hoteltime-round', opts.json);
     }
     if (opts.snapshotSlot !== undefined) {
       const { describeNotify, notifySnapshotSlot } = await import('./notify.ts');
@@ -201,7 +208,7 @@ program
 /**
  * แจ้งผลผ่าน Discord หลังรอบรายวัน (ใบ 08) · ระยะเวลาในข้อความ = เวลาตั้งแต่โปรเซสเริ่ม (หนึ่งโปรเซสต่อหนึ่งรอบ) — ไม่เปลี่ยน exit code ของรอบไม่ว่าส่งได้หรือไม่ · โหมด --json พิมพ์ลง stderr (stdout เป็น JSON ของรอบ)
  */
-async function notifyAfterDaily(trigger: 'hoteltime-daily' | 'foodstory-daily', json: boolean): Promise<void> {
+async function notifyAfterDaily(trigger: 'hoteltime-daily' | 'hoteltime-round' | 'foodstory-daily', json: boolean): Promise<void> {
   const { describeNotify, notifyCaptchaBalance, notifyDiscord } = await import('./notify.ts');
   const line = describeNotify(await notifyDiscord({ trigger, durationMs: Math.round(performance.now()) }));
   if (json) console.error(line);

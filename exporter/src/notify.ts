@@ -34,7 +34,7 @@ import type { UploadRunResult } from './core/uploader.ts';
  * vs `DISCORD_WEBHOOK_URL_UPLOAD` (ขา upload, `notifyUpload`)
  */
 
-export type NotifyTrigger = 'hoteltime-daily' | 'foodstory-daily' | 'manual';
+export type NotifyTrigger = 'hoteltime-daily' | 'hoteltime-round' | 'foodstory-daily' | 'manual';
 export type NotifyResult =
   | { readonly status: 'skipped'; readonly reason: string }
   | { readonly status: 'dry-run'; readonly messages: readonly DiscordMessage[] }
@@ -42,7 +42,7 @@ export type NotifyResult =
   | { readonly status: 'failed'; readonly sent: number; readonly error: string };
 
 const FINAL_RUN_HOUR = 18;
-const TRIGGER_LABEL: Readonly<Record<NotifyTrigger, string>> = { 'hoteltime-daily': 'HotelTime daily run', 'foodstory-daily': 'FoodStory run', manual: 'manual' };
+const TRIGGER_LABEL: Readonly<Record<NotifyTrigger, string>> = { 'hoteltime-daily': 'HotelTime daily run', 'hoteltime-round': 'HotelTime round', 'foodstory-daily': 'FoodStory run', manual: 'manual' };
 
 /**
  * รอบรายวันของ Site ที่รันตามเวลาที่จบหลัง 18:00 = รอบสุดท้ายของวัน → ประเมินเหมือนเป็น 18:30 (ไม่ถอยเวลา ถ้าเลย 18:30 แล้ว) · FoodStory นับเฉพาะเมื่อ
@@ -50,7 +50,7 @@ const TRIGGER_LABEL: Readonly<Record<NotifyTrigger, string>> = { 'hoteltime-dail
  */
 function evaluationTime(now: Date, trigger: NotifyTrigger, foodstoryScheduled: boolean): Date {
   const c = thaiClock(now);
-  const scheduledRun = trigger === 'hoteltime-daily' || (trigger === 'foodstory-daily' && foodstoryScheduled);
+  const scheduledRun = trigger === 'hoteltime-daily' || trigger === 'hoteltime-round' || (trigger === 'foodstory-daily' && foodstoryScheduled);
   if (!scheduledRun || c.hour < FINAL_RUN_HOUR || c.hour * 60 + c.minute >= SCHEDULED_CATCHUP_DONE_MIN) return now;
   return new Date(now.getTime() + (SCHEDULED_CATCHUP_DONE_MIN - (c.hour * 60 + c.minute)) * 60_000 - c.second * 1000);
 }

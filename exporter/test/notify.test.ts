@@ -363,3 +363,15 @@ test('🔴 audit-trail ล้ม (exporter-audit-trail ticket 03, story 32): แ
     await discord.close();
   }
 });
+
+// ADR-0014 / 4h-rounds: the daily summary comes from rounds 12 and 23 (yesterday complete + upload at 12 · the day's snapshots at 23), not from every round
+test('รอบดึง: trigger hoteltime-round ส่งสรุปเหมือนรอบรายวัน (label "HotelTime round") · รอบ 12/23 เท่านั้นที่เรียกสรุป', async () => {
+  const { SUMMARY_ROUNDS } = await import('../src/core/run-planner.ts');
+  assert.deepEqual([...SUMMARY_ROUNDS], ['12', '23']);
+  const s = await fakeStore();
+  const r = await notifyDiscord({ trigger: 'hoteltime-round', now: thai('2026-10-14T12:20'), dataDir: s.dataDir, envFile: await s.envFile(null), dryRun: true });
+  assert.equal(r.status, 'dry-run');
+  const text = r.status === 'dry-run' ? r.messages.map((m) => m.content).join('\n') : '';
+  assert.match(text, /HotelTime round/);
+  assert.match(text, /postings/); // รายงานที่ล้มของเมื่อวานยังถูกบอก
+});
