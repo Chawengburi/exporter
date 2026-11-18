@@ -1,5 +1,7 @@
 # HotelTime snapshots are also taken at 06:00 and 23:00 (supersedes the "one re-take at 18:00" part of ADR-0011)
 
+> **Superseded by [ADR-0014](./0014-hoteltime-extraction-rounds-every-4-hours.md)** (decided 2026-11-17) — the 06:00/23:00 snapshot slots and `--snapshot-slot` are replaced by six extraction rounds (`--round`, `HOTELTIME_ROUNDS`). **Takes effect when the new Windmill schedule is deployed** (4h-rounds ticket 10, `HOTELTIME_ROUNDS` not `off`); until then this ADR is in force. The window rule, the 30-minute retry and the pipeline-follows-by-20-minutes rule carry over; `@refresh-06`/`@refresh-23` in past folders stay readable.
+
 2026-11-15 · In-house state in the consumer's Gold layer (`hoteltime-schema`) is only as fresh as the last snapshot: the noon round and the 18:00 re-take of ADR-0011. A guest who
 checks out at 21:41, or at 05:48 the next morning, still shows as in-house until the next noon snapshot reaches Gold (the pipeline runs at 19:00 the day after), 13 to 21 hours later.
 The audit-trail document type (ADR-0012) is not accepted by the uploader yet, and the consumer accepts that snapshots give state, not event time.

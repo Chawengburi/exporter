@@ -27,6 +27,8 @@ PG="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG|" -e "s|^DATABASE_URL=postgres://postgres:[^@]*@|DATABASE_URL=postgres://postgres:$PG@|" \
   "$SRC/.env.example" >"$WM/.env"
 echo "WM_PORT=$PORT" >>"$WM/.env"
+# the old regime (ADR-0013) is what the sections below check; the extraction-round regime (ADR-0014) has its own section near the end
+echo "HOTELTIME_ROUNDS=off" >"$WORK/exporter/.env"
 
 echo "== Starting the test Windmill (project wmtest, port $PORT)"
 compose up -d db windmill_server caddy >/dev/null 2>&1 || { compose logs --tail 30; fail "could not start the test stack"; }
@@ -130,7 +132,7 @@ schedule_exists() { api GET "/w/admins/schedules/exists/u/$WHO/$1" | grep -qx tr
 mkdir -p "$WORK/pipeline" && echo "HT_D1_DATABASE=dummy" >"$WORK/pipeline/.env"
 node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/pipeline.out" || fail "setup run with pipeline/.env exit $?"
 check_pipeline_schedule() { # <schedule name> <cron>  (always the script ht_pipeline_daily unless the name starts with ht_pipeline_weekly)
-  local script="${1%%_[0-9][0-9][0-9][0-9]}"
+  local script="${1%%_[0-9][0-9][0-9][0-9]}"; script="${script%%_r[0-9][0-9]}" # `_1245` / `_r12` suffixes
   check_schedule "u/$WHO/$1" "$2" "u/$WHO/$script"
 }
 check_pipeline_schedule ht_pipeline_daily "0 0 19 * * *" \
@@ -146,19 +148,53 @@ grep -q "Nothing changed" "$WORK/pipeline-second.out" && pass "the re-run with t
 
 echo "== Switching a snapshot round on (HOTELTIME_SNAPSHOT_SLOTS in exporter/.env) adds the pipeline schedule that follows it · one script, several schedules, no new script version"
 HASH_P1="$(api GET /w/admins/scripts/get/p/u/$WHO/ht_pipeline_daily | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0)).hash)')"
-echo "HOTELTIME_SNAPSHOT_SLOTS=23" >"$WORK/exporter/.env"
+printf 'HOTELTIME_ROUNDS=off\nHOTELTIME_SNAPSHOT_SLOTS=23\n' >"$WORK/exporter/.env"
 node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/slot23.out" || fail "setup run with slot 23 exit $?"
 check_pipeline_schedule ht_pipeline_daily_2320 "0 20 23 * * *" \
   && pass "ht_pipeline_daily_2320 follows the 23:00 round" || fail "the 23:20 pipeline schedule is wrong or missing"
 ! schedule_exists ht_pipeline_daily_0620 && pass "the 06:20 schedule is still absent (slot 06 is off)" || fail "the 06:20 schedule exists although slot 06 is off"
 HASH_P2="$(api GET /w/admins/scripts/get/p/u/$WHO/ht_pipeline_daily | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0)).hash)')"
 [ "$HASH_P1" = "$HASH_P2" ] && pass "the shared pipeline script was not redeployed" || fail "adding a schedule created a new script version"
-echo 'HOTELTIME_SNAPSHOT_SLOTS="06,23"  # both rounds on' >"$WORK/exporter/.env"
+printf 'HOTELTIME_ROUNDS=off\nHOTELTIME_SNAPSHOT_SLOTS="06,23"  # both rounds on\n' >"$WORK/exporter/.env"
 node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/slot0623.out" || fail "setup run with both slots exit $?"
 check_pipeline_schedule ht_pipeline_daily_0620 "0 20 6 * * *" \
   && pass "ht_pipeline_daily_0620 follows the 06:00 round (quoted value with a comment in .env is understood)" || fail "the 06:20 pipeline schedule is wrong or missing"
 node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/slot-second.out" || fail "re-run with both slots exit $?"
 grep -q "Nothing changed" "$WORK/slot-second.out" && pass "re-run with both slots on reports that nothing changed" || fail "the re-run with both slots on is not idempotent"
+
+
+echo "== Extraction rounds (ADR-0014): HOTELTIME_ROUNDS lists the hours that are on · the old schedules are switched off (not deleted) · switching back re-enables them"
+sched_enabled() { api GET "/w/admins/schedules/get/u/$WHO/$1" | node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(0)).enabled))'; }
+printf 'HOTELTIME_ROUNDS=08,12,16,20,23\n' >"$WORK/exporter/.env"
+node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/rounds.out" || fail "setup run with rounds on exit $?"
+check_schedule "u/$WHO/pms_export_round" "0 0 4 * * *" "u/$WHO/pms_export_round" \
+  && pass "round 04:00 is registered on the shared round script" || fail "the 04:00 round schedule is wrong or missing"
+check_schedule "u/$WHO/pms_export_round_r12" "0 0 12 * * *" "u/$WHO/pms_export_round" \
+  && pass "round 12:00 schedule runs the shared script" || fail "the 12:00 round schedule is wrong or missing"
+check_schedule "u/$WHO/pms_export_round_r23retry" "0 30 23 * * *" "u/$WHO/pms_export_round" \
+  && pass "23:30 retry schedule runs the shared script" || fail "the 23:30 round retry is wrong or missing"
+check_pipeline_schedule ht_pipeline_daily_r12 "0 20 12 * * *" \
+  && pass "the pipeline follows round 12 by 20 minutes" || fail "the 12:20 pipeline schedule is wrong or missing"
+! schedule_exists ht_pipeline_daily_r04 && pass "no pipeline schedule for round 04 (it is off)" || fail "a pipeline schedule exists for a round that is off"
+[ "$(sched_enabled pms_export_daily)" = false ] && [ "$(sched_enabled pms_export_daily_catchup)" = false ] && [ "$(sched_enabled ht_pipeline_daily)" = false ] \
+  && pass "the old noon / catch-up / 19:00 schedules are switched off while rounds are on" || fail "an old schedule is still enabled next to the rounds"
+node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/rounds-second.out" || fail "re-run with rounds on exit $?"
+grep -q "Nothing changed" "$WORK/rounds-second.out" && pass "the re-run with rounds on reports that nothing changed" || fail "the re-run with rounds on is not idempotent"
+printf 'HOTELTIME_ROUNDS=08,12,16,20,23,04\n' >"$WORK/exporter/.env"
+node "$WM/setup.mjs" --base "$BASE" >/dev/null || fail "setup run adding round 04 exit $?"
+check_pipeline_schedule ht_pipeline_daily_r04 "0 20 4 * * *" \
+  && pass "adding round 04 adds its pipeline schedule" || fail "the 04:20 pipeline schedule was not added"
+printf 'HOTELTIME_ROUNDS=08,12,16,20,23\n' >"$WORK/exporter/.env"
+node "$WM/setup.mjs" --base "$BASE" >/dev/null || fail "setup run removing round 04 exit $?"
+[ "$(sched_enabled ht_pipeline_daily_r04)" = false ] && pass "removing round 04 switches its pipeline schedule off (does not leave it running)" || fail "the 04:20 pipeline schedule is still enabled"
+printf 'HOTELTIME_ROUNDS=off\n' >"$WORK/exporter/.env"
+node "$WM/setup.mjs" --base "$BASE" >/dev/null || fail "setup run switching back exit $?"
+[ "$(sched_enabled pms_export_daily)" = true ] && [ "$(sched_enabled ht_pipeline_daily)" = true ] && [ "$(sched_enabled ht_pipeline_daily_r12)" = false ] \
+  && pass "HOTELTIME_ROUNDS=off brings the old schedules back and switches the round pipeline off" || fail "switching back to the old schedule did not work"
+printf 'HOTELTIME_ROUNDS=09\n' >"$WORK/exporter/.env"
+if node "$WM/setup.mjs" --base "$BASE" >"$WORK/rounds-typo.out" 2>&1; then fail "a typo in HOTELTIME_ROUNDS was accepted"; fi
+grep -q "unknown round" "$WORK/rounds-typo.out" && pass "a typo in HOTELTIME_ROUNDS stops the setup with a clear message" || fail "no clear message for a typo in HOTELTIME_ROUNDS"
+printf 'HOTELTIME_ROUNDS=off\n' >"$WORK/exporter/.env"
 
 echo "== Names shown in the Windmill UI: every script and schedule is labelled '[Exporter] ...' or '[Pipeline] ...' and the list sorts by tool, system, then time"
 api GET "/w/admins/scripts/list?per_page=100" >"$WORK/scripts-list.json"

@@ -12,7 +12,7 @@
  *  2. the worker group "custom" listens on the tag `chromium` (the worker that has Chromium + the exporter/ mount)
  *  3. the scripts `u/<who set it up>/pms_export_daily`, `foodstory_export_daily` and the `..._catchup` ones for each Site — content from windmill/scripts/*.sh
  *     (edit the file in the repo and re-run = a new version is deployed)
- *  4. schedules at noon and 15:00/18:00 (Asia/Bangkok) — the same times for both Sites (there is a single chromium worker, so jobs queue one after another) — permissioned_as is always the user who runs this script (a trap noted in INSTALL.md §6: if the original user
+ *  4. schedules (Asia/Bangkok) — what runs and which are enabled is decided in plan.mjs from HOTELTIME_ROUNDS (rounds) / HOTELTIME_SNAPSHOT_SLOTS (old regime); FoodStory: noon and 15:00/18:00 — the same times for both Sites (there is a single chromium worker, so jobs queue one after another) — permissioned_as is always the user who runs this script (a trap noted in INSTALL.md §6: if the original user
  *     was deleted the schedule fails silently — re-running fixes it)
  *
  * Never prints tokens/passwords to the screen
@@ -21,6 +21,7 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { desiredSchedules, JOBS, parseRoundsRaw, PIPELINE_JOBS } from './plan.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PASSWORD_FILE = path.join(HERE, '.admin-password');
@@ -31,79 +32,29 @@ const WORKSPACE = 'admins';
 const WORKER_GROUP = 'worker__custom';
 const TAG = 'chromium';
 const TIMEZONE = 'Asia/Bangkok';
-// Time cap of the FoodStory job (seconds), set on the script itself rather than relying on Windmill's default: a normal run takes about 5 minutes + about 3 minutes per missing day (at most 3 days) +
-// login/captcha solving (3 retries) — about 20 minutes in the heavy case, 1 hour allowed · HotelTime takes under 15 minutes and sets none (the existing behaviour)
-const FOODSTORY_TIMEOUT_S = 3600;
-// Data pipeline (hoteltime-schema) timeout: 1 hour. Normally a few minutes; not yet measured against the real D1.
-const PIPELINE_TIMEOUT_S = 3600;
-// Both Sites use the same times — status/Discord use a single set of time rules (core/status.ts: deadline 15:00 / the last run is evaluated at 18:30)
-const DAILY_CRON = '0 0 12 * * *';
-const CATCHUP_CRON = '0 0 15,18 * * *';
-// Naming of what the Windmill UI shows (the "summary" of a script and of its schedules): `[<tool>] <system> (<times>) <what it does>`.
-// The words come in that order on purpose: sorted by name, the list groups by tool, then by system, then by time of day (06.00 < 12.00 < 15.00 < 23.00),
-// so a person can see at a glance what runs when. Times are Thai time, written with a dot (12.00) like the reports. Change a summary here and run this script again:
-// only the display name changes — NEVER rename `name` (it is the path of the script and of its schedule: a new path would create a second copy and the old
-// schedule would keep running, which fetches and uploads everything twice).
-const JOBS = [
-  { name: 'pms_export_daily', summary: '[Exporter] HotelTime (12.00) Daily', cron: DAILY_CRON },
-  { name: 'pms_export_daily_catchup', summary: '[Exporter] HotelTime (15.00, 18.00) Catch-up', cron: CATCHUP_CRON },
-  { name: 'foodstory_export_daily', summary: '[Exporter] FoodStory (12.00) Daily', cron: DAILY_CRON, timeout: FOODSTORY_TIMEOUT_S },
-  { name: 'foodstory_export_daily_catchup', summary: '[Exporter] FoodStory (15.00, 18.00) Catch-up', cron: CATCHUP_CRON, timeout: FOODSTORY_TIMEOUT_S },
-  // Extra HotelTime snapshot rounds (ADR-0013): snapshot reports only, no per-day reports, no back-fill. Always registered, but each run exits at once (no login) unless the slot is
-  // listed in HOTELTIME_SNAPSHOT_SLOTS in exporter/.env — that setting is the on/off switch, because this script re-enables a schedule that was disabled in the web UI.
-  // The second schedule 30 minutes later is the retry: it finds nothing to do (no browser) when the first one took every report.
-  {
-    name: 'pms_export_snapshot_0600',
-    summary: '[Exporter] HotelTime (06.00, 06.30) Extra snapshots',
-    schedules: [{ cron: '0 0 6 * * *', summary: '[Exporter] HotelTime (06.00) Extra snapshots' }, { suffix: 'retry', cron: '0 30 6 * * *', summary: '[Exporter] HotelTime (06.30) Extra snapshots, retry' }],
-  },
-  {
-    name: 'pms_export_snapshot_2300',
-    summary: '[Exporter] HotelTime (23.00, 23.30) Extra snapshots',
-    schedules: [{ cron: '0 0 23 * * *', summary: '[Exporter] HotelTime (23.00) Extra snapshots' }, { suffix: 'retry', cron: '0 30 23 * * *', summary: '[Exporter] HotelTime (23.30) Extra snapshots, retry' }],
-  },
-];
-// Data pipeline (hoteltime-schema): registered only when the pipeline bundle is installed (../pipeline/.env exists); otherwise the jobs would fail red every day.
-// After installing the bundle later, run setup.mjs again to register them. 19:00 = after the 15:00/18:00 catch-up runs and the 18:30 status. Full Silver check: Sunday 20:00.
-// The chromium worker is a single one and jobs queue behind each other: if the 18:00 FoodStory run takes almost an hour, the pipeline may start a little after 19:00. That is fine.
+// What to run (scripts, schedules, which are enabled) is plain data in plan.mjs — tested without Windmill
 const PIPELINE_ENV = path.join(HERE, '..', 'pipeline', '.env');
-// Windmill's cron parser (the Rust `cron` crate) counts days of the week 1-7 with Sunday = 1, so a classic `0` is rejected with HTTP 400 — use names (SUN) to stay unambiguous
-// One pipeline script, several schedules (the script is the same; only the time differs). The first schedule of a job keeps the script's own path (so the existing 19:00 schedule is
-// not recreated); the others get `<script path>_<suffix>`. A schedule with `slot` is registered only while that extra snapshot round is enabled in exporter/.env
-// (HOTELTIME_SNAPSHOT_SLOTS): the pipeline should follow each round about 20 minutes later, and has nothing new to ingest from a round that is switched off.
-// After switching a round on or off, run this script again.
-const PIPELINE_JOBS = [
-  {
-    name: 'ht_pipeline_daily',
-    summary: '[Pipeline] HotelTime (12.45, 19.00) Bronze→Silver→Gold→D1',
-    timeout: PIPELINE_TIMEOUT_S,
-    schedules: [
-      { cron: '0 0 19 * * *', summary: '[Pipeline] HotelTime (19.00) Bronze→Silver→Gold→D1' }, // after the 18:00 re-take (existing)
-      { suffix: '1245', cron: '0 45 12 * * *', summary: '[Pipeline] HotelTime (12.45) Bronze→Silver→Gold→D1' }, // after the noon round, which can take up to about 10 minutes
-      { suffix: '0620', cron: '0 20 6 * * *', slot: '06', summary: '[Pipeline] HotelTime (06.20) Bronze→Silver→Gold→D1, after the 06.00 round' }, // 20 minutes after the 06:00 snapshot round
-      { suffix: '2320', cron: '0 20 23 * * *', slot: '23', summary: '[Pipeline] HotelTime (23.20) Bronze→Silver→Gold→D1, after the 23.00 round' }, // 20 minutes after the 23:00 snapshot round
-    ],
-  },
-  { name: 'ht_pipeline_weekly_verify', summary: '[Pipeline] HotelTime (Sun 00.30) Weekly full check of Silver', cron: '0 30 0 * * SUN', timeout: PIPELINE_TIMEOUT_S },
-];
 
-/** HOTELTIME_SNAPSHOT_SLOTS of this machine: the environment first, then exporter/.env (same precedence as the exporter itself) */
-function enabledSnapshotSlots() {
-  let raw = process.env.HOTELTIME_SNAPSHOT_SLOTS;
+/** The value of a setting of this machine: the environment first, then exporter/.env (same precedence as the exporter itself) */
+function envSetting(name) {
+  let raw = process.env[name];
   const envFile = path.join(HERE, '..', 'exporter', '.env');
   if (raw === undefined && existsSync(envFile)) {
-    raw = /^(?:export\s+)?HOTELTIME_SNAPSHOT_SLOTS=(.*)$/m.exec(readFileSync(envFile, 'utf8'))?.[1];
+    raw = new RegExp(`^(?:export\\s+)?${name}=(.*)$`, 'm').exec(readFileSync(envFile, 'utf8'))?.[1];
   }
-  const value = (raw ?? '').replace(/\s+#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2');
-  return value.split(',').map((x) => x.trim()).filter((x) => x !== '');
+  return raw === undefined ? undefined : raw.replace(/\s+#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2');
 }
 
-/** The schedules of a job: `schedules`, or the single `cron` · each as { path, cron } · those tied to a slot only while the slot is enabled */
-function schedulesOf(job, scriptPath, slots) {
-  const all = job.schedules ?? [{ cron: job.cron }];
-  return all
-    .filter((x) => x.slot === undefined || slots.includes(x.slot))
-    .map((x) => ({ path: x.suffix === undefined ? scriptPath : `${scriptPath}_${x.suffix}`, cron: x.cron, summary: x.summary ?? job.summary }));
+/** HOTELTIME_SNAPSHOT_SLOTS (the old regime) */
+function enabledSnapshotSlots() {
+  return (envSetting('HOTELTIME_SNAPSHOT_SLOTS') ?? '').split(',').map((x) => x.trim()).filter((x) => x !== '');
+}
+
+/** HOTELTIME_ROUNDS (ADR-0014) — same rules as the exporter: unset = default rounds, `off` = none, a typo stops the setup (better than silently running the wrong regime) */
+function enabledRounds() {
+  const parsed = parseRoundsRaw(envSetting('HOTELTIME_ROUNDS'));
+  if ('error' in parsed) throw new SetupError(`${parsed.error} — fix exporter/.env and run again`);
+  return parsed.rounds;
 }
 
 class SetupError extends Error {}
@@ -206,14 +157,15 @@ async function ensureScript(token, scriptPath, job, report) {
   report(`Deployed a new version of the script ${scriptPath} (the content or summary in the repo changed)`);
 }
 
-async function ensureSchedule(token, schedulePath, scriptPath, cron, summary, who, report) {
+async function ensureSchedule(token, schedulePath, scriptPath, cron, summary, who, enabled, create, report) {
   const exists = await json('GET', `/w/${WORKSPACE}/schedules/exists/${schedulePath}`, { token });
   if (!exists) {
+    if (!create) return; // off and never registered: nothing to do
     await call('POST', `/w/${WORKSPACE}/schedules/create`, {
       token,
-      body: { path: schedulePath, schedule: cron, timezone: TIMEZONE, script_path: scriptPath, is_flow: false, args: {}, enabled: true, summary },
+      body: { path: schedulePath, schedule: cron, timezone: TIMEZONE, script_path: scriptPath, is_flow: false, args: {}, enabled, summary },
     });
-    report(`Set the schedule of ${schedulePath}: ${cron} (${TIMEZONE})`);
+    report(`Set the schedule of ${schedulePath}: ${cron} (${TIMEZONE})${enabled ? '' : ' — switched off'}`);
     return;
   }
   const current = await json('GET', `/w/${WORKSPACE}/schedules/get/${schedulePath}`, { token });
@@ -221,9 +173,10 @@ async function ensureSchedule(token, schedulePath, scriptPath, cron, summary, wh
     await call('POST', `/w/${WORKSPACE}/schedules/update/${schedulePath}`, { token, body: { schedule: cron, timezone: TIMEZONE, args: {}, summary } });
     report(`Updated the schedule of ${schedulePath}: ${cron} (${TIMEZONE}) · bound to user ${who}`);
   }
-  if (!current.enabled) {
-    await call('POST', `/w/${WORKSPACE}/schedules/setenabled/${schedulePath}`, { token, body: { enabled: true } });
-    report(`Enabled the schedule of ${schedulePath}`);
+  // the desired state wins in both directions: a schedule that must run is re-enabled (as before), one that belongs to the other regime / a round that is off is switched off
+  if (Boolean(current.enabled) !== enabled) {
+    await call('POST', `/w/${WORKSPACE}/schedules/setenabled/${schedulePath}`, { token, body: { enabled } });
+    report(`${enabled ? 'Enabled' : 'Switched off'} the schedule of ${schedulePath}`);
   }
 }
 
@@ -241,16 +194,24 @@ async function main() {
   const pipelineInstalled = existsSync(PIPELINE_ENV);
   if (!pipelineInstalled) console.log('   - skipping the data pipeline jobs (pipeline/.env not found: install the pipeline bundle, then run this command again)');
   const slots = enabledSnapshotSlots();
+  const rounds = enabledRounds();
+  const wanted = desiredSchedules({ rounds, slots, pipelineInstalled });
   for (const job of [...JOBS, ...(pipelineInstalled ? PIPELINE_JOBS : [])]) {
     const scriptPath = `u/${who}/${job.name}`;
     await ensureScript(token, scriptPath, job, report);
-    for (const schedule of schedulesOf(job, scriptPath, slots)) {
-      await ensureSchedule(token, schedule.path, scriptPath, schedule.cron, schedule.summary, who, report);
+    // the first schedule of a job keeps the script's own path; the others get `<script path>_<suffix>`
+    for (const d of wanted.filter((x) => x.job === job)) {
+      await ensureSchedule(token, d.suffix === undefined ? scriptPath : `${scriptPath}_${d.suffix}`, scriptPath, d.cron, d.summary, who, d.enabled, d.create, report);
     }
   }
   console.log(changes.length === 0 ? '   ✔ Nothing changed — everything is already set up' : `   Changed ${changes.length} thing(s)`);
-  console.log(`   HotelTime and FoodStory will run by themselves every day at 12:00 (catch-up 15:00 / 18:00) · see the run history at ${BASE}/runs (log in as ${ADMIN_EMAIL})`);
-  console.log(`   HotelTime extra snapshot rounds switched on in exporter/.env: ${slots.length === 0 ? 'none' : slots.map((x) => `${x}:00`).join(', ')}`);
+  console.log(`   FoodStory runs by itself every day at 12:00 (catch-up 15:00 / 18:00) · see the run history at ${BASE}/runs (log in as ${ADMIN_EMAIL})`);
+  if (rounds.length > 0) {
+    console.log(`   HotelTime runs in ROUNDS (ADR-0014): ${rounds.map((x) => `${x}:00`).join(', ')} — the old noon/15:00/18:00 and snapshot-slot schedules are switched off`);
+  } else {
+    console.log('   HotelTime runs the OLD schedule (noon, catch-up 15:00 / 18:00, extra snapshot slots) because HOTELTIME_ROUNDS=off · the round schedules are registered but every run exits at once');
+    console.log(`   HotelTime extra snapshot rounds switched on in exporter/.env: ${slots.length === 0 ? 'none' : slots.map((x) => `${x}:00`).join(', ')}`);
+  }
 }
 
 try {
