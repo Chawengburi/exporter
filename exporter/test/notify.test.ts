@@ -375,3 +375,10 @@ test('รอบดึง: trigger hoteltime-round ส่งสรุปเหม
   assert.match(text, /HotelTime round/);
   assert.match(text, /postings/); // รายงานที่ล้มของเมื่อวานยังถูกบอก
 });
+
+test('รอบดึง: label ของสรุปบอกชั่วโมงของรอบ (12:00 กับ 23:00 แยกออกจากกัน)', async () => {
+  const s = await fakeStore();
+  const r = await notifyDiscord({ trigger: 'hoteltime-round', label: 'HotelTime round 23:00', now: thai('2026-10-14T23:20'), dataDir: s.dataDir, envFile: await s.envFile(null), dryRun: true });
+  const text = r.status === 'dry-run' ? r.messages.map((m) => m.content).join('\n') : '';
+  assert.match(text, /HotelTime round 23:00/);
+});

@@ -101,6 +101,8 @@ export async function notifyDiscord(opts: {
   readonly dryRun?: boolean;
   /** ระยะเวลาของรอบ export (ms) สำหรับ subtext ของสรุป */
   readonly durationMs?: number;
+  /** แทนชื่อของ trigger ในสรุป (เช่น `HotelTime round 12:00`) */
+  readonly label?: string;
 }): Promise<NotifyResult> {
   const now = opts.now ?? new Date();
   const dataDir = opts.dataDir ?? defaultDataDir();
@@ -122,7 +124,7 @@ export async function notifyDiscord(opts: {
     const p = (n: number) => String(n).padStart(2, '0');
     const run = {
       at: `${formatISO(thaiToday(now))} ${p(c.hour)}:${p(c.minute)}`,
-      label: TRIGGER_LABEL[opts.trigger],
+      label: opts.label ?? TRIGGER_LABEL[opts.trigger],
       ...(opts.durationMs !== undefined ? { durationMs: opts.durationMs } : {}),
       ...(since !== undefined ? { files: { hoteltime: filesOfRun(snapshot.hoteltime, since), foodstory: filesOfRun(snapshot.foodstoryDaily, since) } } : {}),
     };

@@ -104,6 +104,15 @@ export const ROUND_WINDOW: Readonly<Record<RoundHour, { readonly from: number; r
  */
 export const SUMMARY_ROUNDS: readonly RoundHour[] = ['12', '23'];
 
+/**
+ * ส่งสรุปรายวันหลังรอบนี้ไหม — เฉพาะรอบใน {@link SUMMARY_ROUNDS} · ครั้งแรกของรอบ หรือ retry ที่ซ่อมจนไม่เหลือรายงานที่ล้ม (retry ที่ยังล้มอยู่ไม่ส่งซ้ำ) ·
+ * ไม่ส่งเมื่อล้มทุกรายงาน (มีแจ้งเตือน "รอบล้มทั้งชุด" แล้ว สรุปจะซ้ำเรื่องเดียวกัน) · ไม่มีงานจริง = ไม่ส่ง
+ */
+export function shouldSendRoundSummary(r: { readonly round: string; readonly firstRun: boolean; readonly total: number; readonly failed: number }): boolean {
+  if (!(SUMMARY_ROUNDS as readonly string[]).includes(r.round) || r.total === 0 || r.failed === r.total) return false;
+  return r.firstRun || r.failed === 0;
+}
+
 export const isRoundHour = (v: string): v is RoundHour => (ROUND_HOURS as readonly string[]).includes(v);
 
 export function roundId(report: string, round: RoundHour): string {

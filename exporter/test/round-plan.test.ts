@@ -126,3 +126,16 @@ test('🔴 ดึงซ้ำเมื่อวานที่ 08/12 ไม่�
   const redone = store(...yesterdayAsToday, [`${redoId('reservations-search', '12')}@${YESTERDAY}`, 'data']);
   assert.deepEqual(days(plan('12', '12:35', redone).redoYesterday), [`postings@${YESTERDAY}`]);
 });
+
+test('shouldSendRoundSummary: รอบ 12/23 เท่านั้น · ครั้งแรกของรอบ หรือ retry ที่ซ่อมจนไม่เหลือที่ล้ม · ไม่ส่งเมื่อล้มทุกรายงาน (แจ้งเตือนรอบล้มแทน) · retry ที่ยังล้มอยู่ไม่ส่งซ้ำ', async () => {
+  const { shouldSendRoundSummary } = await import('../src/core/run-planner.ts');
+  const ok = { round: '12', firstRun: true, total: 52, failed: 0 };
+  assert.equal(shouldSendRoundSummary(ok), true);
+  assert.equal(shouldSendRoundSummary({ ...ok, round: '23' }), true);
+  for (const r of ['04', '08', '16', '20']) assert.equal(shouldSendRoundSummary({ ...ok, round: r }), false, r);
+  assert.equal(shouldSendRoundSummary({ ...ok, failed: 3 }), true); // ครั้งแรก ล้มบางรายงาน = สรุปบอกชื่อ
+  assert.equal(shouldSendRoundSummary({ ...ok, failed: 52 }), false); // ล้มทุกรายงาน = ไม่ซ้ำกับแจ้งเตือนรอบล้ม
+  assert.equal(shouldSendRoundSummary({ ...ok, firstRun: false, failed: 2 }), false); // retry ที่ยังล้มอยู่
+  assert.equal(shouldSendRoundSummary({ ...ok, firstRun: false, total: 3, failed: 0 }), true); // retry ที่ซ่อมสำเร็จ
+  assert.equal(shouldSendRoundSummary({ ...ok, total: 0, failed: 0 }), false); // ไม่มีงานจริง
+});

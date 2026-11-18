@@ -23,7 +23,7 @@ import { closeStrayPages, createSharedSession, runInSharedSession, type SessionP
 import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
 import {
-  PlanError, gateRound, isRoundHour, planRound, redoId, roundId, ROUND_HOURS, ROUND_WINDOW, SNAPSHOT_SLOTS, SLOT_WINDOW, daysToRead, isSnapshotSlot, periodCloseId, planBaselineRun, planDailyRun, planSnapshotSlot, refreshId, planDateRun, planWarnings,
+  PlanError, gateRound, isRoundHour, parseRoundId, planRound, redoId, roundId, ROUND_HOURS, ROUND_WINDOW, SNAPSHOT_SLOTS, SLOT_WINDOW, daysToRead, isSnapshotSlot, periodCloseId, planBaselineRun, planDailyRun, planSnapshotSlot, refreshId, planDateRun, planWarnings,
   slotRefreshId, storeStateFrom, type WorkPlan,
 } from '../../core/run-planner.ts';
 import { createRedactor, redactError, type Redactor } from '../../core/redact.ts';
@@ -75,7 +75,7 @@ export type ExportOptions = {
   /** `--round HH`: one extraction round (ADR-0014) — snapshot set + today's per-day + redo of yesterday at 08/12 + capped catch-up · cannot be combined with other modes */
   readonly round?: string | undefined;
   /** `--round`: เรียกเมื่อรอบนี้ได้ทำงานจริง (ไม่ใช่ออกเพราะปิด/นอกหน้าต่าง/ไม่มีงาน) — ผู้เรียกใช้ตัดสินว่าจะส่งสรุป Discord ไหม */
-  readonly onRoundDone?: () => void;
+  readonly onRoundDone?: (result: { readonly firstRun: boolean; readonly total: number; readonly failed: number }) => void;
 };
 
 /**
@@ -821,6 +821,8 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
       warnings.push(`อ่าน _run.json ของวัน ${day} ไม่ได้ (${(err as Error).message.split('\n')[0]}) — ถือว่าวันนั้นยังไม่ได้ดึง`);
     }
   }
+  // ครั้งแรกของรอบนี้ในวันนี้ = ยังไม่มีผลต่อรอบ (`@round-<HH>`) ในโฟลเดอร์ของวันนี้ก่อนรอบนี้ — retry :30 ไม่ใช่ครั้งแรก (ใช้ตัดสินว่าจะส่งสรุป Discord ซ้ำไหม)
+  const firstRun = !Object.keys(folders.find((f) => f.day === today)?.record.reports ?? {}).some((id) => parseRoundId(id)?.round === round);
   const plan = planRound({ now, round, enabled: cfg.rounds, reports: planned, state: storeStateFrom(folders, planned), goLive: cfg.goLive });
   if (!opts.json) for (const w of warnings) console.error(chalk.yellow(`⚠ ${w}`));
   const items = [
@@ -894,7 +896,7 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
     await sessions.close();
   }
   const code = finish(opts, true, total, [], outcomes, { outDirs }, warnings);
-  opts.onRoundDone?.();
+  opts.onRoundDone?.({ firstRun, total: total.done.length + total.failed.length, failed: total.failed.length });
   return code;
 }
 
