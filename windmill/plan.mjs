@@ -74,7 +74,7 @@ export const JOBS = [
 
 /**
  * Data pipeline (hoteltime-schema): registered only when the pipeline bundle is installed. One script, several schedules; the first schedule keeps the script's own path.
- * Legacy: 19:00 (after the 18:00 re-take), 12:45, and the slot ones 06:20 / 23:20. Rounds: 20 minutes after each enabled round (the pipeline has nothing new to ingest from a round that is off).
+ * Legacy: 19:00 (after the 18:00 re-take), 12:45, and the slot ones 06:20 / 23:20. Rounds: 20 and 50 minutes after each enabled round — the second covers the :30 retry (the pipeline has nothing new to ingest from a round that is off).
  * Windmill's cron parser counts days of the week 1-7 with Sunday = 1, so a classic `0` is rejected — use names (SUN).
  */
 export const PIPELINE_JOBS = [
@@ -87,7 +87,11 @@ export const PIPELINE_JOBS = [
       { suffix: '1245', cron: '0 45 12 * * *', legacy: true, summary: '[Pipeline] HotelTime (12.45) Bronze→Silver→Gold→D1' },
       { suffix: '0620', cron: '0 20 6 * * *', legacy: true, slot: '06', summary: '[Pipeline] HotelTime (06.20) Bronze→Silver→Gold→D1, after the 06.00 round' },
       { suffix: '2320', cron: '0 20 23 * * *', legacy: true, slot: '23', summary: '[Pipeline] HotelTime (23.20) Bronze→Silver→Gold→D1, after the 23.00 round' },
-      ...ROUND_HOURS.map((hh) => ({ suffix: `r${hh}`, cron: cronAt(hh, 20), round: hh, summary: `[Pipeline] HotelTime (${hh}.20) Bronze→Silver→Gold→D1, after the ${hh}.00 round` })),
+      // +20 minutes after each round, and again at +50 (after the :30 retry): a round whose first run failed and whose retry succeeded would otherwise wait for the next round's pipeline
+      ...ROUND_HOURS.flatMap((hh) => [
+        { suffix: `r${hh}`, cron: cronAt(hh, 20), round: hh, summary: `[Pipeline] HotelTime (${hh}.20) Bronze→Silver→Gold→D1, after the ${hh}.00 round` },
+        { suffix: `r${hh}b`, cron: cronAt(hh, 50), round: hh, summary: `[Pipeline] HotelTime (${hh}.50) Bronze→Silver→Gold→D1, after the ${hh}.30 retry` },
+      ]),
     ],
   },
   { name: 'ht_pipeline_weekly_verify', summary: '[Pipeline] HotelTime (Sun 00.30) Weekly full check of Silver', timeout: PIPELINE_TIMEOUT_S, schedules: [{ cron: '0 30 0 * * SUN' }] },

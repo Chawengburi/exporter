@@ -32,6 +32,10 @@ test('รอบเปิด: 6 รอบ + retry ลงทะเบียนแ�
     const pipe = find(s, 'ht_pipeline_daily', `r${hh}`)!;
     assert.equal(pipe.cron, `0 20 ${Number(hh)} * * *`);
     assert.equal(pipe.enabled, ALL.includes(hh), `pipeline ${hh}`);
+    // อีกครั้งที่ :50 หลัง retry :30 — รอบที่ login ล้มแล้ว retry สำเร็จ D1 ไม่ต้องรอรอบ pipeline ถัดไป
+    const after = find(s, 'ht_pipeline_daily', `r${hh}b`)!;
+    assert.equal(after.cron, `0 50 ${Number(hh)} * * *`);
+    assert.equal(after.enabled, ALL.includes(hh), `pipeline ${hh}:50`);
   }
   assert.equal(find(s, 'pms_export_daily')!.enabled, false);
   assert.equal(find(s, 'pms_export_daily_catchup')!.enabled, false);
@@ -56,6 +60,8 @@ test('HOTELTIME_ROUNDS=off: ตารางเดิมทำงานเหม�
   assert.equal(find(s, 'pms_export_round', 'r12')!.enabled, true); // ลงทะเบียนเสมอ — รันแล้วออกทันทีเพราะ HOTELTIME_ROUNDS ไม่มีรอบนี้
   assert.equal(find(s, 'ht_pipeline_daily', 'r12')!.enabled, false);
   assert.equal(find(s, 'ht_pipeline_daily', 'r12')!.create, false); // ปิดและไม่เคยลงทะเบียน = ไม่สร้าง
+  assert.equal(find(s, 'ht_pipeline_daily', 'r12b')!.enabled, false);
+  assert.equal(find(s, 'ht_pipeline_daily', 'r12b')!.create, false);
 });
 
 test('FoodStory และ weekly verify ไม่เปลี่ยนตามโหมด · weekly verify (อาทิตย์ 00:30) ไม่ชนเวลาใดของรอบหรือ pipeline', () => {

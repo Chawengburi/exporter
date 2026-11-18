@@ -132,7 +132,7 @@ schedule_exists() { api GET "/w/admins/schedules/exists/u/$WHO/$1" | grep -qx tr
 mkdir -p "$WORK/pipeline" && echo "HT_D1_DATABASE=dummy" >"$WORK/pipeline/.env"
 node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/pipeline.out" || fail "setup run with pipeline/.env exit $?"
 check_pipeline_schedule() { # <schedule name> <cron>  (always the script ht_pipeline_daily unless the name starts with ht_pipeline_weekly)
-  local script="${1%%_[0-9][0-9][0-9][0-9]}"; script="${script%%_r[0-9][0-9]}" # `_1245` / `_r12` suffixes
+  local script="${1%%_[0-9][0-9][0-9][0-9]}"; script="${script%%_r[0-9][0-9]}"; script="${script%%_r[0-9][0-9]b}" # `_1245` / `_r12` / `_r12b` suffixes
   check_schedule "u/$WHO/$1" "$2" "u/$WHO/$script"
 }
 check_pipeline_schedule ht_pipeline_daily "0 0 19 * * *" \
@@ -175,7 +175,9 @@ check_schedule "u/$WHO/pms_export_round_r23retry" "0 30 23 * * *" "u/$WHO/pms_ex
   && pass "23:30 retry schedule runs the shared script" || fail "the 23:30 round retry is wrong or missing"
 check_pipeline_schedule ht_pipeline_daily_r12 "0 20 12 * * *" \
   && pass "the pipeline follows round 12 by 20 minutes" || fail "the 12:20 pipeline schedule is wrong or missing"
-! schedule_exists ht_pipeline_daily_r04 && pass "no pipeline schedule for round 04 (it is off)" || fail "a pipeline schedule exists for a round that is off"
+check_pipeline_schedule ht_pipeline_daily_r12b "0 50 12 * * *" \
+  && pass "a second pipeline run at 12:50 follows the 12:30 retry" || fail "the 12:50 pipeline schedule is wrong or missing"
+! schedule_exists ht_pipeline_daily_r04 && ! schedule_exists ht_pipeline_daily_r04b && pass "no pipeline schedules for round 04 (it is off)" || fail "a pipeline schedule exists for a round that is off"
 [ "$(sched_enabled pms_export_daily)" = false ] && [ "$(sched_enabled pms_export_daily_catchup)" = false ] && [ "$(sched_enabled ht_pipeline_daily)" = false ] \
   && pass "the old noon / catch-up / 19:00 schedules are switched off while rounds are on" || fail "an old schedule is still enabled next to the rounds"
 node "$WM/setup.mjs" --base "$BASE" | tee "$WORK/rounds-second.out" || fail "re-run with rounds on exit $?"
@@ -183,13 +185,14 @@ grep -q "Nothing changed" "$WORK/rounds-second.out" && pass "the re-run with rou
 printf 'HOTELTIME_ROUNDS=08,12,16,20,23,04\n' >"$WORK/exporter/.env"
 node "$WM/setup.mjs" --base "$BASE" >/dev/null || fail "setup run adding round 04 exit $?"
 check_pipeline_schedule ht_pipeline_daily_r04 "0 20 4 * * *" \
-  && pass "adding round 04 adds its pipeline schedule" || fail "the 04:20 pipeline schedule was not added"
+  && check_pipeline_schedule ht_pipeline_daily_r04b "0 50 4 * * *" \
+  && pass "adding round 04 adds its pipeline schedules" || fail "the 04:20 pipeline schedule was not added"
 printf 'HOTELTIME_ROUNDS=08,12,16,20,23\n' >"$WORK/exporter/.env"
 node "$WM/setup.mjs" --base "$BASE" >/dev/null || fail "setup run removing round 04 exit $?"
-[ "$(sched_enabled ht_pipeline_daily_r04)" = false ] && pass "removing round 04 switches its pipeline schedule off (does not leave it running)" || fail "the 04:20 pipeline schedule is still enabled"
+[ "$(sched_enabled ht_pipeline_daily_r04)" = false ] && [ "$(sched_enabled ht_pipeline_daily_r04b)" = false ] && pass "removing round 04 switches both its pipeline schedules off (does not leave it running)" || fail "the 04:20 pipeline schedule is still enabled"
 printf 'HOTELTIME_ROUNDS=off\n' >"$WORK/exporter/.env"
 node "$WM/setup.mjs" --base "$BASE" >/dev/null || fail "setup run switching back exit $?"
-[ "$(sched_enabled pms_export_daily)" = true ] && [ "$(sched_enabled ht_pipeline_daily)" = true ] && [ "$(sched_enabled ht_pipeline_daily_r12)" = false ] \
+[ "$(sched_enabled pms_export_daily)" = true ] && [ "$(sched_enabled ht_pipeline_daily)" = true ] && [ "$(sched_enabled ht_pipeline_daily_r12)" = false ] && [ "$(sched_enabled ht_pipeline_daily_r12b)" = false ] \
   && pass "HOTELTIME_ROUNDS=off brings the old schedules back and switches the round pipeline off" || fail "switching back to the old schedule did not work"
 printf 'HOTELTIME_ROUNDS=09\n' >"$WORK/exporter/.env"
 if node "$WM/setup.mjs" --base "$BASE" >"$WORK/rounds-typo.out" 2>&1; then fail "a typo in HOTELTIME_ROUNDS was accepted"; fi
