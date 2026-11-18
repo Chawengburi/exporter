@@ -17,15 +17,16 @@ const snapshot = (takenAt: string, over: Partial<RawFileEntry> = {}) => base({ f
 const TODAY = '2026-11-18';
 
 test('นโยบายอัปโหลดของไฟล์จากรอบดึง: per-day ของวันนี้ถือไว้ถึงพรุ่งนี้ · ของเมื่อวานส่งได้', () => {
-  assert.deepEqual(uploadPolicyFor(perDay('2026-11-18'), TODAY), { notBefore: '2026-11-19' });
-  assert.equal(uploadPolicyFor(perDay('2026-11-17'), TODAY), undefined);
+  assert.deepEqual(uploadPolicyFor(perDay('2026-11-18'), TODAY, '12'), { notBefore: '2026-11-19' });
+  assert.equal(uploadPolicyFor(perDay('2026-11-17'), TODAY, '12'), undefined);
 });
 
-test('นโยบาย snapshot: เฉพาะฉบับ 23:00 ส่ง (ถือไว้ถึงพรุ่งนี้) · ฉบับรอบอื่นไม่ส่ง · snapshot ปิดงวดไม่ติดธงเลย', () => {
-  assert.deepEqual(uploadPolicyFor(snapshot('2026-11-18T23:00:05+07:00'), TODAY), { notBefore: '2026-11-19' });
-  assert.equal(uploadPolicyFor(snapshot('2026-11-18T12:00:05+07:00'), TODAY), 'skip');
-  assert.equal(uploadPolicyFor(snapshot('2026-11-18T08:00:05+07:00'), TODAY), 'skip');
-  assert.equal(uploadPolicyFor(snapshot('2026-11-18T08:00:05+07:00', { periodClose: true }), TODAY), undefined);
+test('นโยบาย snapshot ตามหมายเลขรอบ ไม่ใช่นาฬิกาตอนดาวน์โหลด: รอบ 23 ส่ง (ถือไว้ถึงวันถัดไป) แม้ snapshot ท้ายรอบเสร็จหลังเที่ยงคืน · รอบอื่น skip · ปิดงวดไม่ติดธง', () => {
+  assert.deepEqual(uploadPolicyFor(snapshot('2026-11-18T23:00:05+07:00'), TODAY, '23'), { notBefore: '2026-11-19' });
+  assert.deepEqual(uploadPolicyFor(snapshot('2026-11-19T00:07:40+07:00'), TODAY, '23'), { notBefore: '2026-11-19' }); // ถ่ายหลังเที่ยงคืนแต่ยังเป็นรอบ 23 ของวัน 18
+  assert.equal(uploadPolicyFor(snapshot('2026-11-18T12:00:05+07:00'), TODAY, '12'), 'skip');
+  assert.equal(uploadPolicyFor(snapshot('2026-11-18T23:10:00+07:00'), TODAY, '20'), 'skip'); // รอบ 20 ที่ช้าจนเลย 23:00 ก็ยัง skip
+  assert.equal(uploadPolicyFor(snapshot('2026-11-18T08:00:05+07:00', { periodClose: true }), TODAY, '08'), undefined);
 });
 
 test('selectPendingFiles: ไม่ส่งไฟล์ที่ไม่ส่ง/ยังถือไว้ · ไฟล์เก่าที่ไม่มีนโยบาย (ก่อนตารางใหม่) ส่งตามเดิม · ที่ส่งแล้วไม่ส่งซ้ำ', () => {
@@ -45,7 +46,8 @@ test('applyUploadPolicy: ตั้ง/ล้างธงบนรายการ
   const snap23 = snapshot('2026-11-18T23:00:05+07:00', { file: 'n23.xlsx', report: 'arrivals' });
   await recordPublished(folder, [today, snapNoon, snap23], [], new Set(['today.xlsx', 'noon.xlsx', 'n23.xlsx']), '2026-11-18T05:00:00.000Z');
   await recordUploaded(folder, 'today.xlsx', { at: 'x', fileId: 'y' });
-  await applyUploadPolicy(folder, ['today.xlsx', 'noon.xlsx', 'n23.xlsx'], '2026-11-18');
+  await applyUploadPolicy(folder, ['today.xlsx', 'n23.xlsx'], '2026-11-18', '23');
+  await applyUploadPolicy(folder, ['noon.xlsx'], '2026-11-18', '12');
   const read = async () => (JSON.parse(await readFile(path.join(folder, RAW_MANIFEST), 'utf8')) as RawManifest).files;
   let files = await read();
   const by = (n: string) => files.find((f) => f.file === n)!;
@@ -55,10 +57,10 @@ test('applyUploadPolicy: ตั้ง/ล้างธงบนรายการ
   // วันถัดไป รอบที่แตะไฟล์ n23 อีก (ไบต์เดิม) ได้ธงใหม่ตามวัน — per-day ของเมื่อวานที่ถูกดึงซ้ำถูกปลด
   const d = perDay('2026-11-18', { file: 'd.xlsx', report: 'invoices' });
   await recordPublished(folder, [d], [], new Set(['today.xlsx', 'noon.xlsx', 'n23.xlsx', 'd.xlsx']), '2026-11-18T05:00:00.000Z');
-  await applyUploadPolicy(folder, ['d.xlsx'], '2026-11-18');
+  await applyUploadPolicy(folder, ['d.xlsx'], '2026-11-18', '12');
   files = await read();
   assert.deepEqual(by('d.xlsx').upload, { notBefore: '2026-11-19' });
-  await applyUploadPolicy(folder, ['d.xlsx'], '2026-11-19');
+  await applyUploadPolicy(folder, ['d.xlsx'], '2026-11-19', '08');
   files = await read();
   assert.equal(files.find((f) => f.file === 'd.xlsx')!.upload, undefined);
 });

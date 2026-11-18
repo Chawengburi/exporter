@@ -197,12 +197,15 @@ export async function currentBaselineFor(baselineDir: string, reportId: string, 
  * พบจากของจริง 2026-10-19: 12 ไฟล์ของ baseline/snapshot ปิดงวดถูกปฏิเสธเพราะโค้ดเดิมเทียบ key ตรงกับชื่อรายงาน)
  * เฉพาะ entry ที่ `status: 'ok'` เท่านั้นที่มี `files[]` ให้เทียบ (`'failed'` ไม่มี field นี้ตาม type อยู่แล้ว)
  */
-export function findOutcomeForFile(runRecord: RunRecord, file: string, sha256?: string): RecordedOutcome | undefined {
+export function findOutcomeForFile(runRecord: RunRecord, file: string, sha256?: string, takenAt?: string): RecordedOutcome | undefined {
   const matches = Object.values(runRecord.reports).filter((o) => o.status === 'ok' && o.files.some((f) => f.file === file && (sha256 === undefined || f.sha256 === sha256)));
   if (sha256 === undefined) return matches[0];
   // ชื่อไฟล์ per-day ไม่มีเวลา — หลายรอบ (@round-HH ตอนยังเป็นวันนี้, เก็บตก, @redo-HH) ระบุไฟล์เดียวกันได้ · ไบต์ที่อยู่ในโฟลเดอร์ตอนนี้เกิดจากรอบแรกที่ให้ sha256 นี้
-  // (รอบหลังที่ไบต์เหมือนเดิมถูกทิ้งตอนวางไฟล์) — `as_of` ต้องเป็นเวลาของรอบนั้น
-  return matches.sort((a, b) => a.finishedAt.localeCompare(b.finishedAt))[0];
+  // **หลังจากถ่ายฉบับนี้** (`takenAt` ของรายการใน manifest — ไบต์ที่ย้อนกลับเป็นฉบับเดิม A → B → A ต้องไม่ไปเจอรอบเก่าที่ให้ A ก่อนหน้า) แล้ว `as_of` ต้องเป็นเวลาของรอบนั้น
+  // (รอบหลังที่ไบต์เหมือนเดิมถูกทิ้งตอนวางไฟล์ รายการเดิมกับ takenAt เดิมถูกเก็บไว้)
+  const since = takenAt === undefined ? Number.NEGATIVE_INFINITY : Date.parse(takenAt);
+  const after = Number.isNaN(since) ? matches : matches.filter((o) => Date.parse(o.finishedAt) >= since);
+  return (after.length > 0 ? after : matches).sort((a, b) => a.finishedAt.localeCompare(b.finishedAt))[0];
 }
 
 /** รายการที่ข้ามสะสมข้ามรอบเหมือนผลรายใบ — ใบที่รอบนี้รันจริงหลุดออกจากรายการ ใบที่ข้ามใหม่แทนเหตุผลเดิม */

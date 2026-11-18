@@ -166,15 +166,13 @@ export async function recordUploaded(folder: string, file: string, result: { rea
 }
 
 /**
- * นโยบายอัปโหลดของไฟล์หนึ่งจากรอบดึง ณ วัน `today` (เวลาไทย) — snapshot: เฉพาะฉบับ 23:00 ส่ง (ถือไว้ถึงวันถัดไป ขาอัปโหลดรันรอบ 12:00 ของวันถัดไป) ฉบับรอบอื่น `skip` ·
+ * นโยบายอัปโหลดของไฟล์หนึ่งจากรอบดึง ณ วัน `today` (เวลาไทย) — snapshot: เฉพาะฉบับของรอบ 23 ส่ง (ถือไว้ถึงวันถัดไป ขาอัปโหลดรันรอบ 12:00 ของวันถัดไป) ฉบับรอบอื่น `skip` (ตัดสินจากหมายเลขรอบ) ·
  * snapshot ปิดงวดไม่ติดธง (ส่งตามเดิม รวมค้างโฟลเดอร์เก่า) · per-day: วันของข้อมูลถึงวันนี้ยังไม่ครบ ถือไว้ถึงวันถัดไปของข้อมูล · ของเมื่อวานหรือเก่ากว่า ส่งได้ (undefined)
  */
-export function uploadPolicyFor(entry: RawFileEntry, today: string): RawFileEntry['upload'] {
+export function uploadPolicyFor(entry: RawFileEntry, today: string, round: string): RawFileEntry['upload'] {
   if (entry.periodClose === true) return undefined;
-  if (entry.family === 'picture') {
-    const day = entry.takenAt.slice(0, 10);
-    return entry.takenAt.slice(11, 13) === '23' ? { notBefore: addDaysISO(day, 1) } : 'skip';
-  }
+  // snapshot ตัดสินด้วย**หมายเลขรอบ** ไม่ใช่ชั่วโมงของเวลาถ่าย — รอบ 23 ที่ช้าจน snapshot ท้ายรอบถ่ายหลังเที่ยงคืนยังเป็นฉบับของวัน `today` (โฟลเดอร์วันเริ่มรอบ)
+  if (entry.family === 'picture') return round === '23' ? { notBefore: addDaysISO(today, 1) } : 'skip';
   const day = entry.range.to;
   return day >= today ? { notBefore: addDaysISO(day, 1) } : undefined;
 }
@@ -183,7 +181,7 @@ export function uploadPolicyFor(entry: RawFileEntry, today: string): RawFileEntr
  * ตั้ง/ล้างนโยบายอัปโหลดของไฟล์ที่รอบดึงนี้แตะ (ชื่อไฟล์ใน `files`) — รายการที่ส่งแล้ว (`uploaded`) ไม่แตะ · รายการที่นโยบายเป็น undefined ถูกล้างธงเดิม
  * (ไฟล์ per-day ของเมื่อวานที่ดึงซ้ำรอบ 08/12 หลุดจากการถือไว้) · ไบต์เดิมที่ ticket 01 เก็บรายการเดิมไว้ก็ได้นโยบายตามวันนี้เช่นกัน
  */
-export async function applyUploadPolicy(folder: string, touched: readonly string[], today: string): Promise<void> {
+export async function applyUploadPolicy(folder: string, touched: readonly string[], today: string, round: string): Promise<void> {
   const manifest = await readRawManifest(folder);
   if (manifest === null) return;
   const set = new Set(touched);
@@ -192,7 +190,7 @@ export async function applyUploadPolicy(folder: string, touched: readonly string
     files: manifest.files.map((e) => {
       if (!set.has(e.file) || e.uploaded !== undefined) return e;
       const { upload: _old, ...rest } = e;
-      const policy = uploadPolicyFor(e, today);
+      const policy = uploadPolicyFor(e, today, round);
       return policy === undefined ? rest : { ...rest, upload: policy };
     }),
   });

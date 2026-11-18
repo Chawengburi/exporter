@@ -76,13 +76,18 @@ test('session หลุดซ้ำหลัง login ใหม่ → บัน
   assert.equal(log.opened, 2);
 });
 
-test('ความผิดพลาดชั่วคราว (ไม่ใช่ session หลุด): ลองซ้ำใน session เดิมตามนโยบาย ไม่ login ใหม่', async () => {
+test('ความผิดพลาดชั่วคราว (ไม่ใช่ session หลุด): login ใหม่ก่อนลองซ้ำทุกครั้ง (หน้าเดิมอาจค้างใน modal/postback) · ความผิดพลาดอื่นไม่ login ใหม่', async () => {
   const { provider, log } = fakeProvider();
+  const seen: number[] = [];
   let calls = 0;
-  const r = await run(provider, async () => { if (++calls < 3) throw new Slow('timeout'); return 'done'; });
+  const r = await run(provider, async (s) => { seen.push(s.id); if (++calls < 3) throw new Slow('timeout'); return 'done'; });
   assert.equal(r.ok, true);
   assert.equal(r.attempts, 3);
-  assert.equal(log.opened, 1);
+  assert.deepEqual(seen, [1, 2, 3]); // แต่ละครั้งที่ลองซ้ำเป็น session ใหม่
+  assert.equal(log.opened, 3);
+  const before = log.opened;
+  await run(provider, async () => { throw new Error('boom'); }); // ไม่ชั่วคราว: ไม่ renew
+  assert.equal(log.opened, before);
 });
 
 test('login ล้มแบบถาวร (รหัสผิด) → งานนั้นล้ม · งานที่เหลือล้มทันทีโดยไม่ login ซ้ำ (กันบัญชีถูกล็อก)', async () => {
@@ -95,6 +100,16 @@ test('login ล้มแบบถาวร (รหัสผิด) → งาน
   assert.ok(b.ok === false && (b.error as Error).message === 'wrong password');
 });
 
+test('fatal ล็อกเฉพาะตอนยังไม่เคยเปิดสำเร็จ — login ใหม่กลางรอบล้มด้วย error แบบ fatal ไม่ล็อกทั้งรอบ (อาจเป็นหน้าช้า ไม่ใช่รหัสผิด)', async () => {
+  const { provider, log } = fakeProvider({ openFails: (n) => (n === 2 ? new Fatal('unexpected login page') : undefined) });
+  assert.equal((await run(provider, async () => 'warm')).ok, true); // เปิดสำเร็จครั้งที่ 1
+  const lost = await run(provider, async () => { throw new Lost('login page'); }); // renew → open ครั้งที่ 2 ล้ม (Fatal)
+  assert.equal(lost.ok, false);
+  const next = await run(provider, async (s) => s.id); // ไม่ล็อก: งานถัดไปเปิดใหม่ได้ (open ครั้งที่ 3)
+  assert.equal(next.ok, true);
+  assert.equal(log.opened, 3);
+});
+
 test('login ล้มชั่วคราว (ไม่ใช่ fatal) → งานถัดไปลองเปิดใหม่ได้', async () => {
   const { provider, log } = fakeProvider({ openFails: (n) => (n === 1 ? new Slow('net') : undefined) });
   assert.equal((await run(provider, async () => 'x')).ok, true); // ลองซ้ำตามนโยบาย → เปิดสำเร็จครั้งที่ 2
@@ -104,6 +119,10 @@ test('login ล้มชั่วคราว (ไม่ใช่ fatal) → ง
 test('closeStrayPages: ปิดหน้าต่างอื่นที่ค้าง เหลือหน้าหลัก (กันดาวน์โหลด/popup ค้างรั่วไปงานถัดไป)', async () => {
   const mk = () => ({ closed: false, close: async function (this: { closed: boolean }) { this.closed = true; } });
   const main = mk(), popup = mk(), other = mk();
-  await closeStrayPages([main, popup, other], main);
+  await closeStrayPages(() => [main, popup, other], main);
   assert.deepEqual([main.closed, popup.closed, other.closed], [false, true, true]);
+});
+
+test('closeStrayPages: เบราว์เซอร์ตายจน pages() โยน error → กลืนไว้ ไม่บังคลุม error เดิมของงาน', async () => {
+  await assert.doesNotReject(closeStrayPages(() => { throw new Error('browser has been closed'); }, {}));
 });

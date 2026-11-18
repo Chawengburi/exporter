@@ -14,7 +14,7 @@ export type SessionProvider<S> = {
 };
 
 /**
- * `open` = เปิดเบราว์เซอร์ + login · `isFatal` = ความผิดพลาดที่ลองใหม่ไม่ช่วย และลองซ้ำอาจแย่ลง (รหัสผิด = บัญชีถูกล็อก): พอเกิดแล้ว provider จำไว้ และ
+ * `open` = เปิดเบราว์เซอร์ + login · `isFatal` = ความผิดพลาดที่ลองใหม่ไม่ช่วย และลองซ้ำอาจแย่ลง (รหัสผิด = บัญชีถูกล็อก): พอเกิดในการเปิดครั้งแรก provider จำไว้ และ
  * ทุกการเรียกถัดไปล้มด้วย error เดิมทันทีโดยไม่เปิด/login ซ้ำ — งานที่เหลือของรอบล้มเร็วและบันทึกเป็นล้มต่องาน (เก็บตกรอบถัดไป ADR-0009)
  */
 export function createSharedSession<S>(opts: {
@@ -24,14 +24,22 @@ export function createSharedSession<S>(opts: {
 }): SessionProvider<S> {
   let current: Promise<S> | undefined;
   let fatal: { readonly error: unknown } | undefined;
+  let everOpened = false;
 
   const open = (): Promise<S> => {
     if (fatal !== undefined) return Promise.reject(fatal.error);
-    const p = opts.open().catch((error: unknown) => {
-      current = undefined;
-      if (opts.isFatal(error)) fatal = { error };
-      throw error;
-    });
+    const p = opts.open().then(
+      (s) => {
+        everOpened = true;
+        return s;
+      },
+      (error: unknown) => {
+        current = undefined;
+        // ล็อกเฉพาะตอนยังไม่เคยเปิดสำเร็จ (รหัสผิดเกิดตั้งแต่ครั้งแรก) — login ใหม่กลางรอบที่ล้มอาจเป็นหน้าช้า/เด้งหน้าอื่น ไม่ใช่รหัสผิด ไม่ควรทำให้ที่เหลือล้มหมด
+        if (!everOpened && opts.isFatal(error)) fatal = { error };
+        throw error;
+      },
+    );
     current = p;
     return p;
   };
@@ -67,15 +75,20 @@ export function runInSharedSession<S, T>(
   },
 ): Promise<Attempted<T>> {
   let renewed = false;
+  let stale = false; // ล้มชั่วคราวครั้งก่อน — หน้าเดิมอาจค้าง (modal / postback ไม่จบ) ลองซ้ำบนเบราว์เซอร์ใหม่
   return withRetry(
     async () => {
-      const session = await provider.get();
+      const session = stale ? await provider.renew() : await provider.get();
+      stale = false;
       try {
         return await task(session);
       } catch (err) {
-        if (!opts.isSessionLost(err) || renewed) throw err;
-        renewed = true;
-        return await task(await provider.renew());
+        if (opts.isSessionLost(err) && !renewed) {
+          renewed = true;
+          return await task(await provider.renew());
+        }
+        if (!opts.isSessionLost(err) && opts.isRetryable(err)) stale = true;
+        throw err;
       }
     },
     { policy: opts.policy, isRetryable: (e) => !opts.isSessionLost(e) && opts.isRetryable(e), sleep: opts.sleep ?? ((ms) => delay(ms)), ...(opts.onRetry !== undefined ? { onRetry: opts.onRetry } : {}) },
@@ -83,6 +96,13 @@ export function runInSharedSession<S, T>(
 }
 
 /** ปิดหน้าต่างอื่นทั้งหมดนอกจากหน้าหลัก — popup/ดาวน์โหลดค้างของงานก่อนหน้าต้องไม่รั่วไปงานถัดไปใน session เดียวกัน */
-export async function closeStrayPages(pages: readonly { close(): Promise<void> }[], keep: unknown): Promise<void> {
+export async function closeStrayPages(getPages: () => readonly { close(): Promise<void> }[], keep: unknown): Promise<void> {
+  // เบราว์เซอร์ตายแล้ว pages() อาจโยน error — กลืนไว้ ไม่ให้บังคลุม error เดิมของงานที่ตัวตรวจ "session หลุด" ต้องเห็น
+  let pages: readonly { close(): Promise<void> }[];
+  try {
+    pages = getPages();
+  } catch {
+    return;
+  }
   for (const p of pages) if (p !== keep) await p.close().catch(() => undefined);
 }

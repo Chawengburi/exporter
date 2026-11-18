@@ -393,3 +393,21 @@ test('findOutcomeForFile: ไฟล์ per-day ชื่อเดียวกั
   // ไม่ระบุ sha256 = ผลแรกที่เจอเหมือนเดิม (ผู้เรียกเก่า)
   assert.ok(findOutcomeForFile(record, file) !== undefined);
 });
+
+test('findOutcomeForFile: ไบต์ย้อนกลับเป็นฉบับเดิม (A → B → A) → ได้รอบที่สร้างไฟล์ปัจจุบัน ไม่ใช่รอบแรกที่เคยมี A (กัน as_of ถอยหลังแล้วถูกบล็อก)', async () => {
+  const { folder } = await dayFolder();
+  const file = '2026-10-07__postings.xlsx';
+  const outcome = (id: string, sha: string): ReportOutcome => ({
+    report: id, status: 'ok', rows: 1, range: { from: '2026-10-07', to: '2026-10-07' }, actualRange: null, files: [{ file, sha256: sha }], attempts: 1,
+  });
+  const at = (iso: string) => ({ ...BASE, startedAt: new Date(iso), finishedAt: new Date(iso) });
+  const A = 'aa'.repeat(32), B = 'bb'.repeat(32);
+  await recordRun(folder, { ...at('2026-10-07T01:00:00Z'), outcomes: [outcome('postings@round-08', A)] });
+  await recordRun(folder, { ...at('2026-10-07T05:00:00Z'), outcomes: [outcome('postings@round-12', B)] });
+  await recordRun(folder, { ...at('2026-10-07T09:00:00Z'), outcomes: [outcome('postings@round-16', A)] });
+  const record = (await readRunRecord(folder))!;
+  // รายการ manifest ของไฟล์ปัจจุบัน (A ที่ถ่าย 16:00 เวลาไทย = 09:00Z)
+  assert.equal(findOutcomeForFile(record, file, A, '2026-10-07T16:00:00+07:00')?.finishedAt, '2026-10-07T09:00:00.000Z');
+  // ไบต์เดิมถูกดึงซ้ำ: manifest เก็บ takenAt ของฉบับแรก → รอบแรกที่ให้ไบต์นั้น
+  assert.equal(findOutcomeForFile(record, file, B, '2026-10-07T12:00:00+07:00')?.finishedAt, '2026-10-07T05:00:00.000Z');
+});

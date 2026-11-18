@@ -78,9 +78,9 @@ export type ExportOptions = {
 /**
  * ค่าพิเศษของ `--report` ที่หมายถึง "ทุกรายงานในทะเบียน เรียงตามลำดับใน REPORTS"
  *
- * ไม่ใช่ id ของรายงานจริง จึงต้องเช็คก่อน `findReport()` เสมอ · แต่ละรายงานยังเปิด session
- * ของตัวเองเหมือนเดิม ไม่ได้ใช้ session ร่วมกัน เพราะการแทนไฟล์ของรายงานในโฟลเดอร์รอบต้องแยกกันอยู่แล้ว การรวม session จะได้ความเร็วแต่แลกกับความเสี่ยง
- * ที่รายงานหนึ่งพาอีกสองรายงานล้มไปด้วย
+ * ไม่ใช่ id ของรายงานจริง จึงต้องเช็คก่อน `findReport()` เสมอ · โหมด `--daily`/`--date`/baseline/ช่วงวัน: แต่ละรายงานเปิด session ของตัวเอง (ไม่ใช้ร่วมกัน —
+ * รายงานหนึ่งไม่พาที่เหลือล้ม) · โหมด `--round` (ADR-0014): login ครั้งเดียวต่อรอบแล้วใช้ session ร่วมกัน (`core/shared-session.ts`) — ล้มชั่วคราวจึง login ใหม่ก่อนลองซ้ำ
+ * และ session หลุด login ใหม่หนึ่งครั้งต่องาน เพื่อให้รายงานหนึ่งไม่พาที่เหลือล้มเหมือนเดิม
  */
 export const ALL_REPORTS = 'all';
 
@@ -447,7 +447,7 @@ async function exportOne(ctx: RunContext, report: Report, outDir: string, job: R
     throw err;
   } finally {
     if (shared === undefined) await session.close();
-    else await closeStrayPages(session.context.pages(), session.page);
+    else await closeStrayPages(() => session.context.pages(), session.page);
   }
 
   const dataChunks = outcomes.filter((o) => o.kind === 'data').length;
@@ -858,7 +858,7 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
     );
     const folderOutcomes = outcomesOf(result);
     // นโยบายอัปโหลดของไฟล์ที่รอบนี้แตะ (snapshot ที่ไม่ใช่ 23:00 = ไม่ส่ง · ของวันนี้ถือไว้ถึงพรุ่งนี้ · ของเมื่อวานปลด) — ticket 07
-    await applyUploadPolicy(outDir, result.done.flatMap((d) => d.files.map((f) => f.file)), today);
+    await applyUploadPolicy(outDir, result.done.flatMap((d) => d.files.map((f) => f.file)), today, round);
     // per-day ที่ไบต์ต่างจากรอบก่อน (ฉบับเก่าไป _superseded/) — บรรทัดสรุปจาก manifest ของโฟลเดอร์นี้ (ticket 09)
     const changed = perDayChangedNote(await readRawManifest(outDir).then((m) => (m === null ? [] : [m])), roundStartedAt);
     if (changed !== null) {
