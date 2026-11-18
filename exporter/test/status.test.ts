@@ -671,3 +671,33 @@ test('id เดิม (@refresh, @refresh-06, @refresh-23, @period-close) ใน
   assert.equal(r.verdict, 'ok', text(r));
   assert.deepEqual(r.problems, []);
 });
+
+test('🔴 ฉบับรอบ 23:00 ชนะ id ปกติเมื่อมีทั้งคู่ (วันสลับตาราง) — N/N ตามรอบที่ส่ง uploader ทั้งสองทิศ', () => {
+  const s = healthy();
+  const failedLegacyOkRound = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-13', { perDay: ALL_HT, pictures: { arrivals: ['failed', 'Timeout'], 'trial-balance': 'data', 'arrivals@round-23': 'data' } })),
+  }, EVENING_14, SETUP);
+  assert.match(text(failedLegacyOkRound), /2026-10-13[^\n]*ตามวัน 3[^\n]*snapshot ครบ 2\/2/);
+  const okLegacyFailedRound = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-13', { perDay: ALL_HT, pictures: { arrivals: 'data', 'trial-balance': 'data', 'arrivals@round-23': ['failed', 'Timeout'] } })),
+  }, EVENING_14, SETUP);
+  assert.match(text(okLegacyFailedRound), /2026-10-13[^\n]*ตามวัน 3[^\n]*snapshot ได้ 1\/2/);
+});
+
+test('🔴 วันนี้ก่อนรอบ 23:00: snapshot ของรอบก่อนหน้า (ล่าสุดของแต่ละรายงาน) นับเป็นที่ถ่ายแล้ว ไม่ขึ้น "ยังไม่ได้ถ่าย" ทั้งบ่าย', () => {
+  const s = healthy();
+  const afternoon = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-14', { pictures: { 'arrivals@round-08': 'data', 'trial-balance@round-08': 'data', 'arrivals@round-12': 'data' } })),
+  }, thai('2026-10-14T14:00'), SETUP);
+  assert.equal(afternoon.verdict, 'ok', text(afternoon));
+  assert.match(text(afternoon), /วันนี้ 2026-10-14[^\n]*snapshot ครบ 2\/2/);
+  // วันที่ผ่านไปแล้ว ไม่มีรอบ 23:00 = ไม่ครบ (snapshot ย้อนไม่ได้)
+  const past = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-13', { perDay: ALL_HT, pictures: { 'arrivals@round-12': 'data', 'trial-balance@round-12': 'data' } })),
+  }, EVENING_14, SETUP);
+  assert.match(text(past), /2026-10-13[^\n]*ตามวัน 3[^\n]*snapshot ได้ 0\/2/);
+});

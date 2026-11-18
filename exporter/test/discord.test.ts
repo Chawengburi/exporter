@@ -446,3 +446,20 @@ test('snapshotSlotAlert: only when every report of the round failed · login fai
   assert.match(login.content, /login failed — wrong password/);
   assert.deepEqual(login.keys, ['slot-failed@hoteltime@06@2026-10-15']);
 });
+
+// ADR-0014 / 4h-rounds ticket 08: the extraction rounds 04–20 failing for some reports are told in the summary like the other re-takes (no alert)
+test('an extraction round (12:00) failing for some reports: the summary names the round · snapshots still N/N from the 23:00 round · no alert', () => {
+  const s = healthy();
+  const bad: StoreSnapshot = {
+    ...s,
+    hoteltime: [...s.hoteltime.filter((f) => f.day !== '2026-10-14'),
+      folder('2026-10-14', undefined, {
+        'arrivals@round-23': 'data', 'trial-balance@round-23': 'data', 'arrivals@round-12': ['failed', 'Timeout'], 'trial-balance@round-12': 'data',
+      })],
+  };
+  const ms = discordMessages(buildStatus(bad, thai('2026-10-14T23:30'), SETUP), { summary: true, alreadySent: NONE });
+  const all = ms.map((m) => m.content).join('\n');
+  assert.equal(ms.length, 1, all);
+  assert.match(all, /snapshots 2\/2 · 12:00 re-take failed: arrivals/);
+  assert.doesNotMatch(all, /missing|@round/);
+});

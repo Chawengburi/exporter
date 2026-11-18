@@ -125,7 +125,7 @@ function summarySiteBlock(site: SiteView, today: string): string {
     const bad = pictures.failed.filter((f) => !isRefreshId(f.report)).length + pictures.missing.length; // รอบเย็นล้มทั้งรอบไม่ใช่ snapshot ที่ขาด (รอบเที่ยงได้แล้ว)
     parts.push(bad === 0 ? `snapshots ${pictures.taken}/${pictures.total}` : `snapshots ${pictures.taken}/${pictures.total} (${bad} missing)`);
     // ถ่ายซ้ำรอบเย็นล้ม (ADR-0011): รอบเที่ยงได้แล้ว ไม่ใช่ snapshot ที่ขาด — บอกในสรุปอย่างเดียว ไม่เป็นแจ้งเตือน
-    for (const round of ['evening', '06', '23']) {
+    for (const round of ['evening', '06', '23', '04', '08', '12', '16', '20']) { // 06/23 = snapshot slots (ADR-0013) · 04–20 = extraction rounds (ADR-0014; round 23 is the day's snapshot, not an extra)
       const failed = pictures.refreshFailed.filter((f) => retakeRound(f.report) === round);
       if (failed.length === 0) continue;
       const shown = failed.slice(0, 3).map((f) => baseOfRefresh(f.report));

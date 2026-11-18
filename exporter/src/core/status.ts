@@ -222,7 +222,7 @@ function retakeInfo(id: string): { readonly base: string; readonly slot: string 
   const r = parseRefreshId(id);
   if (r !== null) return r;
   const round = parseRoundId(id);
-  return round === null ? null : { base: round.base, slot: round.round };
+  return round === null || round.round === '23' ? null : { base: round.base, slot: round.round }; // รอบ 23 = snapshot ของวัน ไม่ใช่ข้อมูลเสริม
 }
 
 function pictureLevel(v: PictureView, day: string, mode: Mode, now: Clock): Judged {
@@ -287,7 +287,9 @@ function siteView(
   const readable = folders.flatMap((f) => (typeof f.record === 'object' ? [{ day: f.day, record: f.record }] : []));
   const recordOf = new Map(readable.map((f) => [f.day, f.record]));
   const folderOf = new Map(folders.map((f) => [f.day, f]));
-  const state = storeStateFrom(readable, catalog);
+  // `rawState` = ตามที่ planner เห็นจริง (ใช้กับ planDailyRun/closesOf) · `state` = สำเนาที่ฉายผลรอบดึงเป็นมุมมองของ status เท่านั้น
+  const rawState = storeStateFrom(readable, catalog);
+  const state = new Map(rawState);
   const perDayIds = catalog.filter((r) => r.family === 'per-day').map((r) => r.id);
   const pictureIds = catalog.filter((r) => r.family === 'picture').map((r) => r.id);
   // รอบดึง (ADR-0014): snapshot ของวัน = ฉบับรอบ 23:00 (`@round-23`) — ซ้อนเข้า id ปกติเมื่อยังไม่มีผลของ id ปกติ ให้ "N/N" นับตามรอบที่ส่ง uploader (ล้มก็ล้ม = วันนั้นไม่มี snapshot
@@ -295,7 +297,13 @@ function siteView(
   for (const { day } of readable) {
     for (const id of pictureIds) {
       const r23 = state.get(stateKey(roundId(id, '23'), day));
-      if (r23 !== undefined && !state.has(stateKey(id, day))) state.set(stateKey(id, day), r23);
+      if (r23 !== undefined) {
+        state.set(stateKey(id, day), r23); // ฉบับ 23:00 คือฉบับที่ส่ง uploader — ชนะ id ปกติที่อาจเหลือจากตารางเดิมในวันสลับตาราง
+      } else if (day === now.today && !state.has(stateKey(id, day))) {
+        // วันนี้ก่อนรอบ 23:00: ฉบับล่าสุดของรอบก่อนหน้านับเป็น "ถ่ายแล้ว" (ไม่ขึ้นยังไม่ได้ถ่ายทั้งบ่าย) — วันที่ผ่านไปแล้วไม่มีรอบ 23:00 = ไม่ครบ (ย้อนไม่ได้)
+        const latest = ROUND_HOURS.filter((h) => h !== '23').map((h) => state.get(stateKey(roundId(id, h), day))).filter((x) => x !== undefined).at(-1);
+        if (latest !== undefined) state.set(stateKey(id, day), latest);
+      }
     }
   }
   // snapshot ถ่ายซ้ำรอบเย็น (ADR-0011): ไม่นับใน "N/N" (นับต่อรายงาน) · ล้ม = บอกในสรุป ไม่ถือเป็นปัญหา (รอบเที่ยงยังใช้ได้)
@@ -358,11 +366,11 @@ function siteView(
     if (view !== null) days.push({ ...view, ...dayLevel(view, mode, now) });
   }
 
-  const plan = planDailyRun({ now: at, reports: catalog, state, goLive });
+  const plan = planDailyRun({ now: at, reports: catalog, state: rawState, goLive });
   // an extra snapshot round (ADR-0013) records only `@refresh-<HH>` ids — it must not make a day look like "the noon round ran"
   const slotOnly = (r: { readonly reports: readonly string[] }) => r.reports.length > 0 && r.reports.every((id) => parseRefreshId(id)?.slot != null);
   const lastRunDay = readable.flatMap((f) => f.record.runs.filter((r) => !slotOnly(r)).map((r) => thaiDateOf(r.startedAt) ?? '')).sort().at(-1) || null;
-  const closes = closesOf(readable, catalog, state, plan.periodCloses, now.today, windowDays).map((c) => ({ ...c, ...closeLevel(c, mode, now) }));
+  const closes = closesOf(readable, catalog, rawState, plan.periodCloses, now.today, windowDays).map((c) => ({ ...c, ...closeLevel(c, mode, now) }));
   // login ล้มทั้งรอบ (ใบ 02): ตัดสินระดับจากกติกาเวลาเดิมก่อน แล้วบรรทัด login บรรทัดเดียวเล่าแทน — วัน/งวดที่ล้มเพราะ login อย่างเดียวไม่นับซ้ำเป็นปัญหา
   const loginFailure = loginFailureOf(days, closes);
   const withoutLogin = (failed: readonly FailedReport[]) => failed.filter((f) => !isLoginFailureReason(f.error));
