@@ -17,8 +17,8 @@ import {
   type RunKind,
 } from '../../core/order.ts';
 import { dailyFolder, dataFileName, latestPointer, pictureFileName, runFolder } from '../../core/placement.ts';
-import { applyUploadPolicy, perDayChangedNote, publishRawFiles, readRawManifest, recordPublished, type RawFileEntry } from '../../core/raw-manifest.ts';
-import { DEFAULT_RETRY_POLICY, isTransientBrowserError, withBrowserRetry } from '../../core/retry.ts';
+import { applyUploadPolicy, perDayChangedNote, publishRawFiles, readRawManifest, recordPublished, stampUploadPolicy, type RawFileEntry } from '../../core/raw-manifest.ts';
+import { DEFAULT_RETRY_POLICY, isTargetClosed, isTransientBrowserError, withBrowserRetry } from '../../core/retry.ts';
 import { closeStrayPages, createSharedSession, runInSharedSession, type SessionProvider } from '../../core/shared-session.ts';
 import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
@@ -39,6 +39,7 @@ import { LoginError, login, openSession, type Session } from './session.ts';
 import { RowCapError, verifyChunk } from './verify.ts';
 import {
   assertFormAccepted,
+  assertStillLoggedIn,
   clickAndSettle,
   downloadExport,
   readGridText,
@@ -138,6 +139,8 @@ async function fetchChunk(
     waitUntil: 'domcontentloaded',
   });
   await page.waitForLoadState('networkidle').catch(() => undefined);
+  // session ร่วมกันหมดอายุ/ถูกเตะ → goto ถูกพาไปหน้า login: ต้องรู้ตรงนี้ ไม่งั้น applyFilters ล้มด้วย error ทั่วไปที่ไม่ทำให้ login ใหม่ (รอบดึง ticket 12)
+  await assertStillLoggedIn(page);
 
   await report.applyFilters(page, range);
   await clickAndSettle(page, report.searchButton, cfg.timeoutMs, report.allowedControls, report.id);
@@ -347,6 +350,8 @@ type ReportJob = {
   readonly periodClose: boolean;
   /** id ที่บันทึกใน `_run.json` แทน id ของรายงาน — baseline (ใบ 09) มีหลายวันของรายงานเดียวในโฟลเดอร์เดียว: `<รายงาน>@<วันของข้อมูล>` */
   readonly recordId?: string;
+  /** งานของรอบดึง: ใส่นโยบายอัปโหลดลงรายการตอนวางไฟล์ (ticket 07) */
+  readonly uploadRound?: { readonly hour: string; readonly today: string };
 };
 
 /**
@@ -369,8 +374,8 @@ function recordIdOf(report: Report, job: ReportJob): string {
 }
 
 /** งานวันเดียว (วันของข้อมูล / วันสุดท้ายของงวด) — รอบรายวันและ baseline ขอ Site ทีละวันเหมือนกัน */
-function oneDayJob(date: Date, runKind: RunKind, extra: { readonly baselineIntervalDays?: number; readonly periodClose?: boolean } = {}): () => ReportJob {
-  return () => ({ range: { from: date, to: date }, runKind, baselineIntervalDays: extra.baselineIntervalDays, periodClose: extra.periodClose ?? false });
+function oneDayJob(date: Date, runKind: RunKind, extra: { readonly baselineIntervalDays?: number; readonly periodClose?: boolean; readonly uploadRound?: { readonly hour: string; readonly today: string } } = {}): () => ReportJob {
+  return () => ({ range: { from: date, to: date }, runKind, baselineIntervalDays: extra.baselineIntervalDays, periodClose: extra.periodClose ?? false, ...(extra.uploadRound !== undefined ? { uploadRound: extra.uploadRound } : {}) });
 }
 
 /** ของที่ทุกรายงานในรอบใช้ร่วมกัน */
@@ -459,7 +464,10 @@ async function exportOne(ctx: RunContext, report: Report, outDir: string, job: R
     .map((o) => o.range);
   const files = outcomes
     .filter(isData)
-    .map((o) => ({ staged: o.verdict.filePath, entry: manifestEntryFor(report, cfg, o, job) }));
+    .map((o) => {
+      const entry = manifestEntryFor(report, cfg, o, job);
+      return { staged: o.verdict.filePath, entry: job.uploadRound === undefined ? entry : stampUploadPolicy(entry, job.uploadRound.today, job.uploadRound.hour) };
+    });
   let merged: ReturnType<typeof verifyMerged>;
   try {
     merged = verifyMerged(verdicts, emptyRanges, range);
@@ -565,7 +573,7 @@ async function runReports(
     const outcome = sessions === undefined
       ? await withBrowserRetry(() => exportOne(ctx, report, outDir, jobOf()), { label: report.id, describe, ...(log ? { log } : {}) })
       : await runInSharedSession(sessions, (session) => exportOne(ctx, report, outDir, jobOf(), session), {
-          isSessionLost: (e) => e instanceof SessionLostError || /Target page, context or browser has been closed/.test(String((e as Error)?.message)),
+          isSessionLost: (e) => e instanceof SessionLostError || isTargetClosed(e),
           isRetryable: isTransientBrowserError,
           policy: DEFAULT_RETRY_POLICY,
           onRetry: (err, n, waitMs) => log?.(`↻ ${report.id} ครั้งที่ ${n} ล้มชั่วคราว — รอ ${waitMs / 1000} วินาทีแล้วลองใหม่: ${describe(err).split('\n')[0]}`),
@@ -843,43 +851,43 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
   const itemDays = [...new Set(items.map((i) => i.day))].sort();
   const roundStartedAt = new Date();
   try {
-  for (const day of itemDays) {
-    const date = parseISODate(day)!;
-    const outDir = folderOf(date);
-    outDirs.push(outDir);
-    if (!opts.json) console.log(`${chalk.dim('ผลรอบนี้')}  ${path.relative(cfg.projectRoot, outDir)}/  ${chalk.dim(`(รอบ ${round} · วัน ${day})`)}\n`);
-    const startedAt = new Date();
-    const result = await runReports(
-      ctx, outDir,
-      items.filter((i) => i.day === day).map((i) => ({ report: REPORT_BY_ID.get(i.report)!, job: oneDayJob(date, 'daily'), recordId: i.recordId })),
-      true,
-      { first: total.done.length + total.failed.length, total: items.length },
-      sessions,
-    );
-    const folderOutcomes = outcomesOf(result);
-    // นโยบายอัปโหลดของไฟล์ที่รอบนี้แตะ (snapshot ที่ไม่ใช่ 23:00 = ไม่ส่ง · ของวันนี้ถือไว้ถึงพรุ่งนี้ · ของเมื่อวานปลด) — ticket 07
-    await applyUploadPolicy(outDir, result.done.flatMap((d) => d.files.map((f) => f.file)), today, round);
-    // per-day ที่ไบต์ต่างจากรอบก่อน (ฉบับเก่าไป _superseded/) — บรรทัดสรุปจาก manifest ของโฟลเดอร์นี้ (ticket 09)
-    const changed = perDayChangedNote(await readRawManifest(outDir).then((m) => (m === null ? [] : [m])), roundStartedAt);
-    if (changed !== null) {
-      if (!opts.json) console.log(chalk.cyan(changed));
+    for (const day of itemDays) {
+      const date = parseISODate(day)!;
+      const outDir = folderOf(date);
+      outDirs.push(outDir);
+      if (!opts.json) console.log(`${chalk.dim('ผลรอบนี้')}  ${path.relative(cfg.projectRoot, outDir)}/  ${chalk.dim(`(รอบ ${round} · วัน ${day})`)}\n`);
+      const startedAt = new Date();
+      const result = await runReports(
+        ctx, outDir,
+        items.filter((i) => i.day === day).map((i) => ({ report: REPORT_BY_ID.get(i.report)!, job: oneDayJob(date, 'daily', { uploadRound: { hour: round, today } }), recordId: i.recordId })),
+        true,
+        { first: total.done.length + total.failed.length, total: items.length },
+        sessions,
+      );
+      const folderOutcomes = outcomesOf(result);
+      // นโยบายอัปโหลดของไฟล์ที่รอบนี้แตะ (snapshot ที่ไม่ใช่ 23:00 = ไม่ส่ง · ของวันนี้ถือไว้ถึงพรุ่งนี้ · ของเมื่อวานปลด) — ticket 07
+      await applyUploadPolicy(outDir, result.done.flatMap((d) => d.files.map((f) => f.file)), today, round);
+      // per-day ที่ไบต์ต่างจากรอบก่อน (ฉบับเก่าไป _superseded/) — บรรทัดสรุปจาก manifest ของโฟลเดอร์นี้ (ticket 09)
+      const changed = perDayChangedNote(await readRawManifest(outDir).then((m) => (m === null ? [] : [m])), roundStartedAt);
+      if (changed !== null) {
+        if (!opts.json) console.log(chalk.cyan(changed));
+      }
+      await recordRun(outDir, {
+        site: 'hoteltime',
+        kind: 'daily',
+        dataThrough: day,
+        startedAt,
+        finishedAt: new Date(),
+        outcomes: folderOutcomes,
+        ...(changed !== null ? { notes: [changed] } : {}),
+        ...(day === itemDays.at(-1) ? { warnings } : {}),
+        // latest = โฟลเดอร์ของวันนี้ ขยับทุกรอบที่เขียนไฟล์ลงโฟลเดอร์นั้นอย่างน้อยหนึ่งไฟล์ (เหมือนรอบรายวันเดิม) — ขาอัปโหลดคำนวณโฟลเดอร์เมื่อวานเอง ไม่อ่านตัวชี้นี้
+        ...(day === today && result.done.some((d) => d.files.length > 0) ? { latest: latestPointer(cfg.dataDir, 'hoteltime', 'daily') } : {}),
+      });
+      total.done.push(...result.done);
+      total.failed.push(...result.failed);
+      outcomes.push(...folderOutcomes);
     }
-    await recordRun(outDir, {
-      site: 'hoteltime',
-      kind: 'daily',
-      dataThrough: day,
-      startedAt,
-      finishedAt: new Date(),
-      outcomes: folderOutcomes,
-      ...(changed !== null ? { notes: [changed] } : {}),
-      ...(day === itemDays.at(-1) ? { warnings } : {}),
-      // latest = โฟลเดอร์ของวันนี้ ขยับทุกรอบที่เขียนไฟล์ลงโฟลเดอร์นั้นอย่างน้อยหนึ่งไฟล์ (เหมือนรอบรายวันเดิม) — ขาอัปโหลดคำนวณโฟลเดอร์เมื่อวานเอง ไม่อ่านตัวชี้นี้
-      ...(day === today && result.done.some((d) => d.files.length > 0) ? { latest: latestPointer(cfg.dataDir, 'hoteltime', 'daily') } : {}),
-    });
-    total.done.push(...result.done);
-    total.failed.push(...result.failed);
-    outcomes.push(...folderOutcomes);
-  }
   } finally {
     await sessions.close();
   }

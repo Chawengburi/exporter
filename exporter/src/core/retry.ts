@@ -52,6 +52,11 @@ export async function withRetry<T>(task: () => Promise<T>, opts: RetryOptions): 
  * แยกด้วย `name`/ข้อความ ไม่ใช่ `instanceof` เพราะ core ไม่ผูกกับ playwright · ทุกอย่างที่ไม่เข้าข่าย
  * (รวม LoginError ของ "ยังอยู่หน้า login หลังกด Submit" ที่อาจแปลว่ารหัสผิด) ถือว่าไม่ลองใหม่
  */
+/** เบราว์เซอร์/หน้า/context ถูกปิดไปแล้ว (ตาย) — ลองซ้ำบน page เดิมไม่มีทางผ่าน ต้องเปิดใหม่ */
+export function isTargetClosed(err: unknown): boolean {
+  return err instanceof Error && /Target page, context or browser has been closed/.test(err.message);
+}
+
 export function isTransientBrowserError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   if (err.name === 'TimeoutError') return true;
@@ -65,7 +70,7 @@ export function isTransientBrowserError(err: unknown): boolean {
  * · เบราว์เซอร์/page ถูกปิดแล้วลองซ้ำบน page เดิมไม่มีทางผ่าน ทุกใบที่เหลือจะรอเปล่า ๆ ใบละ 90 วินาที
  */
 export function isTransientOnSamePage(err: unknown): boolean {
-  if (err instanceof Error && /Target page, context or browser has been closed/.test(err.message)) return false;
+  if (isTargetClosed(err)) return false;
   return isTransientBrowserError(err);
 }
 

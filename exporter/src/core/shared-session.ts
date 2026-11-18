@@ -14,7 +14,7 @@ export type SessionProvider<S> = {
 };
 
 /**
- * `open` = เปิดเบราว์เซอร์ + login · `isFatal` = ความผิดพลาดที่ลองใหม่ไม่ช่วย และลองซ้ำอาจแย่ลง (รหัสผิด = บัญชีถูกล็อก): พอเกิดในการเปิดครั้งแรก provider จำไว้ และ
+ * `open` = เปิดเบราว์เซอร์ + login · `isFatal` = ความผิดพลาดที่ลองใหม่ไม่ช่วย และลองซ้ำอาจแย่ลง (รหัสผิด = บัญชีถูกล็อก): พอเกิดติดกัน 2 ครั้ง provider จำไว้ และ
  * ทุกการเรียกถัดไปล้มด้วย error เดิมทันทีโดยไม่เปิด/login ซ้ำ — งานที่เหลือของรอบล้มเร็วและบันทึกเป็นล้มต่องาน (เก็บตกรอบถัดไป ADR-0009)
  */
 export function createSharedSession<S>(opts: {
@@ -24,19 +24,20 @@ export function createSharedSession<S>(opts: {
 }): SessionProvider<S> {
   let current: Promise<S> | undefined;
   let fatal: { readonly error: unknown } | undefined;
-  let everOpened = false;
+  let fatalFailures = 0; // login แบบ fatal ที่ล้มติดกัน (นับใหม่เมื่อเปิดสำเร็จ)
 
   const open = (): Promise<S> => {
     if (fatal !== undefined) return Promise.reject(fatal.error);
     const p = opts.open().then(
       (s) => {
-        everOpened = true;
+        fatalFailures = 0;
         return s;
       },
       (error: unknown) => {
         current = undefined;
-        // ล็อกเฉพาะตอนยังไม่เคยเปิดสำเร็จ (รหัสผิดเกิดตั้งแต่ครั้งแรก) — login ใหม่กลางรอบที่ล้มอาจเป็นหน้าช้า/เด้งหน้าอื่น ไม่ใช่รหัสผิด ไม่ควรทำให้ที่เหลือล้มหมด
-        if (!everOpened && opts.isFatal(error)) fatal = { error };
+        // fatal (LoginError) ติดกัน 2 ครั้ง = ล็อกทั้งรอบ: ครั้งเดียวอาจเป็น login ช้า/เด้งหน้าอื่นชั่วคราว (LoginError แยกจากรหัสผิดไม่ได้) จึงให้โอกาสอีกหนึ่งครั้ง
+        // แต่ไม่เกินนั้น — รหัสผิดซ้ำหลายครั้งทำให้บัญชีถูกล็อก
+        if (opts.isFatal(error) && ++fatalFailures >= 2) fatal = { error };
         throw error;
       },
     );
@@ -63,7 +64,7 @@ export function createSharedSession<S>(opts: {
  * รันงานหนึ่งใน session ที่ใช้ร่วมกัน: ความผิดพลาดชั่วคราว (`isRetryable`) ลองซ้ำตามนโยบายใน session เดิม · session หลุด (`isSessionLost`) → `renew()` **หนึ่งครั้ง**
  * แล้วลองงานนั้นซ้ำหนึ่งครั้ง — หลุดซ้ำ = ล้ม (ไม่วนไม่รู้จบ) · อย่างอื่นล้มทันที · งานหนึ่งล้มไม่กระทบงานถัดไป (ผู้เรียกวนต่อ)
  */
-export function runInSharedSession<S, T>(
+export async function runInSharedSession<S, T>(
   provider: SessionProvider<S>,
   task: (session: S) => Promise<T>,
   opts: {
@@ -75,8 +76,9 @@ export function runInSharedSession<S, T>(
   },
 ): Promise<Attempted<T>> {
   let renewed = false;
-  let stale = false; // ล้มชั่วคราวครั้งก่อน — หน้าเดิมอาจค้าง (modal / postback ไม่จบ) ลองซ้ำบนเบราว์เซอร์ใหม่
-  return withRetry(
+  let stale = false; // ล้มชั่วคราว — หน้าเดิมอาจค้าง (modal / postback ไม่จบ): ลองซ้ำบนเบราว์เซอร์ใหม่ และงานถัดไปต้องไม่ได้หน้านั้นไป
+  const transient = (err: unknown) => !opts.isSessionLost(err) && opts.isRetryable(err);
+  const result = await withRetry(
     async () => {
       const session = stale ? await provider.renew() : await provider.get();
       stale = false;
@@ -85,14 +87,22 @@ export function runInSharedSession<S, T>(
       } catch (err) {
         if (opts.isSessionLost(err) && !renewed) {
           renewed = true;
-          return await task(await provider.renew());
+          try {
+            return await task(await provider.renew());
+          } catch (again) {
+            if (transient(again)) stale = true;
+            throw again;
+          }
         }
-        if (!opts.isSessionLost(err) && opts.isRetryable(err)) stale = true;
+        if (transient(err)) stale = true;
         throw err;
       }
     },
-    { policy: opts.policy, isRetryable: (e) => !opts.isSessionLost(e) && opts.isRetryable(e), sleep: opts.sleep ?? ((ms) => delay(ms)), ...(opts.onRetry !== undefined ? { onRetry: opts.onRetry } : {}) },
+    { policy: opts.policy, isRetryable: transient, sleep: opts.sleep ?? ((ms) => delay(ms)), ...(opts.onRetry !== undefined ? { onRetry: opts.onRetry } : {}) },
   );
+  // หมดโอกาสลองซ้ำแล้ว session ที่อาจค้างต้องถูกเปลี่ยนตอนนี้ — ไม่ให้งานถัดไปเสียหนึ่งครั้งกับการรอ 30 วินาทีบนหน้าที่ค้าง
+  if (!result.ok && stale) await provider.renew().catch(() => undefined);
+  return result;
 }
 
 /** ปิดหน้าต่างอื่นทั้งหมดนอกจากหน้าหลัก — popup/ดาวน์โหลดค้างของงานก่อนหน้าต้องไม่รั่วไปงานถัดไปใน session เดียวกัน */

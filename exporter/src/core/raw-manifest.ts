@@ -177,23 +177,32 @@ export function uploadPolicyFor(entry: RawFileEntry, today: string, round: strin
   return day >= today ? { notBefore: addDaysISO(day, 1) } : undefined;
 }
 
+/** ใส่นโยบายอัปโหลดลงรายการตั้งแต่ตอนวางไฟล์ (ก่อน `recordPublished`) — รอบที่ตายกลางโฟลเดอร์ไม่ทิ้งไฟล์ที่ไม่มีธงให้ขาอัปโหลดส่งผิด (ไม่มีธง = ส่งได้) */
+export function stampUploadPolicy(entry: RawFileEntry, today: string, round: string): RawFileEntry {
+  const policy = uploadPolicyFor(entry, today, round);
+  return policy === undefined ? entry : { ...entry, upload: policy };
+}
+
 /**
  * ตั้ง/ล้างนโยบายอัปโหลดของไฟล์ที่รอบดึงนี้แตะ (ชื่อไฟล์ใน `files`) — รายการที่ส่งแล้ว (`uploaded`) ไม่แตะ · รายการที่นโยบายเป็น undefined ถูกล้างธงเดิม
  * (ไฟล์ per-day ของเมื่อวานที่ดึงซ้ำรอบ 08/12 หลุดจากการถือไว้) · ไบต์เดิมที่ ticket 01 เก็บรายการเดิมไว้ก็ได้นโยบายตามวันนี้เช่นกัน
  */
 export async function applyUploadPolicy(folder: string, touched: readonly string[], today: string, round: string): Promise<void> {
+  if (touched.length === 0) return;
   const manifest = await readRawManifest(folder);
   if (manifest === null) return;
   const set = new Set(touched);
-  await writeRawManifest(folder, {
-    ...manifest,
-    files: manifest.files.map((e) => {
-      if (!set.has(e.file) || e.uploaded !== undefined) return e;
-      const { upload: _old, ...rest } = e;
-      const policy = uploadPolicyFor(e, today, round);
-      return policy === undefined ? rest : { ...rest, upload: policy };
-    }),
+  let changed = false;
+  const files = manifest.files.map((e) => {
+    if (!set.has(e.file) || e.uploaded !== undefined) return e;
+    const { upload: old, ...rest } = e;
+    const policy = uploadPolicyFor(e, today, round);
+    if (JSON.stringify(old) === JSON.stringify(policy)) return e; // ไม่เปลี่ยน
+    changed = true;
+    return policy === undefined ? rest : { ...rest, upload: policy };
   });
+  // ไม่เขียนซ้ำเมื่อไม่มีอะไรเปลี่ยน — ลดช่วงอ่านแก้เขียนที่ทับ `uploaded` ที่ขาอัปโหลดเพิ่งบันทึก
+  if (changed) await writeRawManifest(folder, { ...manifest, files });
 }
 
 /** เขียนไฟล์ชั่วคราวแล้ว rename ทับ — manifest เดิมไม่หายถ้าเขียนไม่สำเร็จ */

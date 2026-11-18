@@ -411,3 +411,16 @@ test('findOutcomeForFile: ไบต์ย้อนกลับเป็นฉบ
   // ไบต์เดิมถูกดึงซ้ำ: manifest เก็บ takenAt ของฉบับแรก → รอบแรกที่ให้ไบต์นั้น
   assert.equal(findOutcomeForFile(record, file, B, '2026-10-07T12:00:00+07:00')?.finishedAt, '2026-10-07T05:00:00.000Z');
 });
+
+test('findOutcomeForFile: รอบที่สร้างไฟล์ปัจจุบันตายก่อนบันทึกผล (ไม่มีผลหลัง takenAt) → undefined ให้ผู้เรียกใช้ takenAt ของ manifest ไม่ใช่เวลาของรอบเก่า', async () => {
+  const { folder } = await dayFolder();
+  const file = '2026-10-07__postings.xlsx';
+  const A = 'aa'.repeat(32);
+  await recordRun(folder, {
+    ...BASE, startedAt: new Date('2026-10-07T01:00:00Z'), finishedAt: new Date('2026-10-07T01:00:00Z'),
+    outcomes: [{ report: 'postings@round-08', status: 'ok', rows: 1, range: { from: '2026-10-07', to: '2026-10-07' }, actualRange: null, files: [{ file, sha256: A }], attempts: 1 }],
+  });
+  const record = (await readRunRecord(folder))!;
+  assert.equal(findOutcomeForFile(record, file, A, '2026-10-07T16:00:00+07:00'), undefined);
+  assert.ok(findOutcomeForFile(record, file, A) !== undefined); // ไม่ระบุ takenAt = พฤติกรรมเดิม
+});

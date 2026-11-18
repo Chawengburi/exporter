@@ -3,7 +3,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { RAW_MANIFEST, applyUploadPolicy, recordPublished, recordUploaded, uploadPolicyFor, type RawFileEntry, type RawManifest } from '../src/core/raw-manifest.ts';
+import { RAW_MANIFEST, applyUploadPolicy, recordPublished, recordUploaded, stampUploadPolicy, uploadPolicyFor, type RawFileEntry, type RawManifest } from '../src/core/raw-manifest.ts';
 import { selectPendingFiles } from '../src/core/uploader.ts';
 
 /** exporter-hoteltime-4h-rounds ticket 07: ขาอัปโหลดส่งเฉพาะ per-day ที่จบวันแล้ว + snapshot ฉบับ 23:00 (seam 2/3) */
@@ -63,4 +63,23 @@ test('applyUploadPolicy: ตั้ง/ล้างธงบนรายการ
   await applyUploadPolicy(folder, ['d.xlsx'], '2026-11-19', '08');
   files = await read();
   assert.equal(files.find((f) => f.file === 'd.xlsx')!.upload, undefined);
+});
+
+test('stampUploadPolicy: ตั้งธงตั้งแต่ตอนวางไฟล์ (ก่อนรอบจบ) — รอบที่ตายกลางโฟลเดอร์ไม่ทิ้งไฟล์ที่ไม่มีธงให้ขาอัปโหลดส่งผิด', () => {
+  assert.deepEqual(stampUploadPolicy(snapshot('2026-11-18T12:00:05+07:00'), TODAY, '12').upload, 'skip');
+  assert.deepEqual(stampUploadPolicy(perDay('2026-11-18'), TODAY, '12').upload, { notBefore: '2026-11-19' });
+  assert.equal('upload' in stampUploadPolicy(perDay('2026-11-17'), TODAY, '08'), false);
+});
+
+test('applyUploadPolicy: ไม่มีอะไรเปลี่ยน = ไม่เขียน manifest ซ้ำ (กันทับ uploaded ที่ขาอัปโหลดเพิ่งบันทึก)', async () => {
+  const folder = await mkdtemp(path.join(tmpdir(), 'upload-policy-noop-'));
+  const e = perDay('2026-11-17', { file: 'x.xlsx' });
+  await recordPublished(folder, [e], [], new Set(['x.xlsx']), '2026-11-18T05:00:00.000Z');
+  const { stat, utimes } = await import('node:fs/promises');
+  const target = path.join(folder, RAW_MANIFEST);
+  const old = new Date('2026-01-01T00:00:00Z');
+  await utimes(target, old, old);
+  await applyUploadPolicy(folder, ['x.xlsx'], '2026-11-18', '12'); // นโยบาย undefined เหมือนเดิม
+  await applyUploadPolicy(folder, [], '2026-11-18', '12');
+  assert.equal((await stat(target)).mtime.getTime(), old.getTime());
 });

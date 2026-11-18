@@ -205,7 +205,8 @@ export function findOutcomeForFile(runRecord: RunRecord, file: string, sha256?: 
   // (รอบหลังที่ไบต์เหมือนเดิมถูกทิ้งตอนวางไฟล์ รายการเดิมกับ takenAt เดิมถูกเก็บไว้)
   const since = takenAt === undefined ? Number.NEGATIVE_INFINITY : Date.parse(takenAt);
   const after = Number.isNaN(since) ? matches : matches.filter((o) => Date.parse(o.finishedAt) >= since);
-  return (after.length > 0 ? after : matches).sort((a, b) => a.finishedAt.localeCompare(b.finishedAt))[0];
+  // ไม่มีผลหลังเวลาถ่าย = รอบที่สร้างไฟล์ปัจจุบันตายก่อนบันทึกผล → undefined ให้ผู้เรียกใช้ `takenAt` ของ manifest (ตรงกับไฟล์ปัจจุบัน) ไม่ใช่เวลาของรอบเก่า
+  return after.sort((a, b) => Date.parse(a.finishedAt) - Date.parse(b.finishedAt))[0];
 }
 
 /** รายการที่ข้ามสะสมข้ามรอบเหมือนผลรายใบ — ใบที่รอบนี้รันจริงหลุดออกจากรายการ ใบที่ข้ามใหม่แทนเหตุผลเดิม */
