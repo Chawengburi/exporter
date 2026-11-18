@@ -7,7 +7,7 @@ HotelTime ดึงเป็น **6 รอบต่อวัน** (04:00 08:00 1
 **แผนเปิดใช้:** 5 รอบก่อน (08 12 16 20 23) เฝ้าดูสัปดาห์แรก แล้วค่อยเพิ่ม 04:00
 
 ## ขั้นที่ 1 — อัปเดตโดย**ไม่เปิดรอบใหม่** (ทำก่อน pull)
-1. เปิดไฟล์ `exporter/.env` เติมบรรทัด `HOTELTIME_ROUNDS=off` (ถ้าไม่ตั้ง ค่าเริ่มคือเปิด 5 รอบทันที)
+1. มี `exporter/.env` อยู่แล้ว: เปิดไฟล์เติมบรรทัด `HOTELTIME_ROUNDS=off` (ถ้าไม่ตั้ง ค่าเริ่มคือเปิด 5 รอบทันที) · หรือสร้างใหม่: `mv exporter/.env ~/exporter.env.bak` แล้วรัน `install.sh` (หลัง pull) — ไฟล์ใหม่มาจาก `exporter/.env.example` ซึ่งตั้ง `HOTELTIME_ROUNDS=off` และ `EXPORTER_GO_LIVE=2026-10-20` ไว้แล้ว ตัวติดตั้งถามเฉพาะรหัสผ่านและค่าลับ (HotelTime, FoodStory, Discord, 2captcha, uploader)
 2. จดเลขเวอร์ชันเดิม: `cd ~/chawengburi-exporter && git rev-parse --short HEAD`
 3. เลือกเวลาที่ไม่ใกล้รอบทำงาน (เช่น 13:00–14:45) แล้วรัน:
 ```bash

@@ -41,6 +41,9 @@ echo "== First install — passwords with leading/trailing spaces, with ' (the \
 HOOK='https://discord.com/api/webhooks/123456789/fake-webhook-token-for-install-test'
 HOOK2='https://discord.com/api/webhooks/987654321/fake-upload-hook-test'
 TODAY="$(TZ=Asia/Bangkok date +%F)"
+# a fresh install keeps the go-live date written in exporter/.env.example (the Ubuntu machine's install date); the installer only writes today's date when the line is missing
+FIXED_GO_LIVE="$(sed -n 's/^EXPORTER_GO_LIVE=//p' "$R/exporter/.env.example")" # this script runs inside the test container (piped in), so read the repo copy there
+[ -n "$FIXED_GO_LIVE" ] || fail "exporter/.env.example has no EXPORTER_GO_LIVE line"
 CAPKEY='0123456789abcdef0123456789abcdef' # a fake 2captcha key (32 characters) — ticket 04 of exporter-foodstory-scheduled-daily
 UPPASS='upl0ad p#ss $x'
 ANSWERS=$'hotel-user\n p#ss w0rd!$x \nfood@example.com\nit\'s f00d $$ #1\n\n'"$HOOK"$'\n'"$HOOK2"$'\n'"$CAPKEY"$'\n\nuploader@example.com\n'"$UPPASS"$'\n'
@@ -58,10 +61,10 @@ as_user "cd exporter && node -e '
 '" && pass ".env reads back exactly for every value (leading/trailing spaces, ', #, \$) + default branch + other values from .env.example are still there" || fail ".env values do not match"
 as_user "cd exporter && node -e '
   const v = require(\"dotenv\").config({ quiet: true }).parsed;
-  if (v.EXPORTER_GO_LIVE !== \"$TODAY\") { console.error(\"go-live\", v.EXPORTER_GO_LIVE); process.exit(1); }
+  if (v.EXPORTER_GO_LIVE !== \"$FIXED_GO_LIVE\") { console.error(\"go-live\", v.EXPORTER_GO_LIVE); process.exit(1); }
   if (v.DISCORD_WEBHOOK_URL_EXPORT !== \"$HOOK\") { console.error(\"webhook export does not match\"); process.exit(1); }
   if (v.DISCORD_WEBHOOK_URL_UPLOAD !== \"$HOOK2\") { console.error(\"webhook upload does not match\"); process.exit(1); }
-'" && pass "go-live date = install date ($TODAY) · both channels' webhook URLs read back exactly" || fail "go-live date/webhook URLs were not set"
+'" && pass "go-live date = the one in .env.example ($FIXED_GO_LIVE) · both channels' webhook URLs read back exactly" || fail "go-live date/webhook URLs were not set"
 if grep -q "fake-webhook-token-for-install-test\|fake-webhook-token-upload-for-install-test" /tmp/first.out; then fail "the webhook URL appeared on screen"; fi
 pass "webhook URLs are not shown on screen (both channels)"
 as_user "cd exporter && node -e '
