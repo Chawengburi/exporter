@@ -6,7 +6,7 @@ import { parse as parseDotenv } from 'dotenv';
 import { addDaysISO, formatISO, utcDate } from './order.ts';
 import { SITE_LABEL } from './placement.ts';
 import {
-  CATCH_UP_CAP_DAYS, GO_LIVE_ENV, PERIOD_CLOSE_SUFFIX, PERIOD_CLOSE_WINDOW_DAYS, isDone, lastDueDay, parseGoLive, parseRefreshId, SNAPSHOT_SLOTS, periodCloseRetryUntil, planDailyRun, refreshId, slotRefreshId,
+  CATCH_UP_CAP_DAYS, GO_LIVE_ENV, PERIOD_CLOSE_SUFFIX, PERIOD_CLOSE_WINDOW_DAYS, isDone, lastDueDay, parseGoLive, parseRefreshId, parseRoundId, ROUND_HOURS, roundId, SNAPSHOT_SLOTS, periodCloseRetryUntil, planDailyRun, refreshId, slotRefreshId,
   stateKey, storeStateFrom, type DayStatus, type PlannedItem, type PlannedReport,
 } from './run-planner.ts';
 import { isLoginFailureReason, loginFailureDetail, type RunRecord } from './run-record.ts';
@@ -214,10 +214,21 @@ function perDayLevel(v: PerDayView, day: string, mode: Mode, now: Clock): Judged
 }
 
 /** รายงาน snapshot ที่ถ่ายในวันหนึ่ง — วันที่ผ่านไปแล้ว = หายถาวร (บอกเฉย ๆ) */
+/**
+ * ผลถ่ายซ้ำ/รอบเสริมของ snapshot ที่คนอ่านเห็นเป็น "ข้อมูลเสริม": `@refresh`, `@refresh-<HH>` (ADR-0011/0013) และผลต่อรอบของรอบดึง `@round-<HH>` (ADR-0014)
+ * ยกเว้นรอบ 23 — ฉบับ 23:00 คือ snapshot ของวัน (ฉบับที่ส่ง uploader) นับเป็น "N/N" ผ่านการซ้อนเข้า id ปกติใน `siteView` ไม่ใช่ข้อมูลเสริม
+ */
+function retakeInfo(id: string): { readonly base: string; readonly slot: string | null } | null {
+  const r = parseRefreshId(id);
+  if (r !== null) return r;
+  const round = parseRoundId(id);
+  return round === null ? null : { base: round.base, slot: round.round };
+}
+
 function pictureLevel(v: PictureView, day: string, mode: Mode, now: Clock): Judged {
   if (v.failed.length === 0 && v.missing.length === 0) {
     if (v.refreshFailed.length > 0 && day === now.today) {
-      const onlyExtra = v.refreshFailed.every((f) => parseRefreshId(f.report)?.slot != null);
+      const onlyExtra = v.refreshFailed.every((f) => retakeInfo(f.report)?.slot != null);
       return { level: 'info', note: onlyExtra ? 'ถ่ายซ้ำรอบเสริมล้ม — ใช้ฉบับก่อนหน้าอยู่ ไม่ถือเป็นปัญหา' : 'ถ่ายซ้ำรอบเย็นล้ม — ใช้ฉบับรอบเที่ยงอยู่ ไม่ถือเป็นปัญหา' };
     }
     return { level: 'ok', note: '' };
@@ -279,12 +290,21 @@ function siteView(
   const state = storeStateFrom(readable, catalog);
   const perDayIds = catalog.filter((r) => r.family === 'per-day').map((r) => r.id);
   const pictureIds = catalog.filter((r) => r.family === 'picture').map((r) => r.id);
+  // รอบดึง (ADR-0014): snapshot ของวัน = ฉบับรอบ 23:00 (`@round-23`) — ซ้อนเข้า id ปกติเมื่อยังไม่มีผลของ id ปกติ ให้ "N/N" นับตามรอบที่ส่ง uploader (ล้มก็ล้ม = วันนั้นไม่มี snapshot
+  // ของรายงานนั้น) · รอบอื่น (`@round-04..20`) เป็นข้อมูลเสริมเหมือน re-take ด้านล่าง · per-day: `@round-<HH>`/`@redo-<HH>` ไม่นับเป็น "สำเร็จ" ของวัน (id ปกติเท่านั้น)
+  for (const { day } of readable) {
+    for (const id of pictureIds) {
+      const r23 = state.get(stateKey(roundId(id, '23'), day));
+      if (r23 !== undefined && !state.has(stateKey(id, day))) state.set(stateKey(id, day), r23);
+    }
+  }
   // snapshot ถ่ายซ้ำรอบเย็น (ADR-0011): ไม่นับใน "N/N" (นับต่อรายงาน) · ล้ม = บอกในสรุป ไม่ถือเป็นปัญหา (รอบเที่ยงยังใช้ได้)
   // Rounds that re-take snapshots: the 18:00 re-take (`@refresh`, ADR-0011) and the extra rounds (`@refresh-<HH>`, ADR-0013) — each judged on its own
   const retakeCatalog = catalog.filter((r) => r.family === 'picture' && r.refreshAtHour !== undefined);
   const refreshRounds: readonly (readonly string[])[] = [
     retakeCatalog.map((r) => refreshId(r.id)),
     ...SNAPSHOT_SLOTS.map((slot) => retakeCatalog.map((r) => slotRefreshId(r.id, slot))),
+    ...ROUND_HOURS.filter((h) => h !== '23').map((h) => pictureIds.map((id) => roundId(id, h))),
   ];
   const firstWith = (ids: readonly string[]) => readable.map((f) => f.day).filter((d) => ids.some((id) => state.has(stateKey(id, d)))).sort()[0] ?? null;
   const perDayStart = goLive ?? firstWith(perDayIds);
@@ -293,7 +313,8 @@ function siteView(
   const split = (ids: readonly string[], day: string) => {
     const of = (s: DayStatus) => ids.filter((id) => state.get(stateKey(id, day)) === s);
     const error = (id: string) => {
-      const o = recordOf.get(day)?.reports[id];
+      const reports = recordOf.get(day)?.reports;
+      const o = reports?.[id] ?? reports?.[roundId(id, '23')]; // snapshot ของวันในรอบดึงอยู่ใต้ `@round-23` (ADR-0014)
       return o?.status === 'failed' ? o.error : '';
     };
     return {
@@ -472,8 +493,8 @@ function perDayPart(v: PerDayView): string {
   );
 }
 function picturePart(v: PictureView, lost: boolean): string {
-  const refresh = ['', ...SNAPSHOT_SLOTS].map((slot) => {
-    const failed = v.refreshFailed.filter((f) => (parseRefreshId(f.report)?.slot ?? '') === slot);
+  const refresh = ['', ...SNAPSHOT_SLOTS, ...ROUND_HOURS.filter((h) => h !== '23')].map((slot) => {
+    const failed = v.refreshFailed.filter((f) => (retakeInfo(f.report)?.slot ?? '') === slot);
     return failed.length > 0 ? ` · ${slot === '' ? 'ถ่ายซ้ำรอบเย็นล้ม' : `ถ่ายซ้ำรอบ ${slot}:00 ล้ม`} ${failed.length} (${names(failed.map((f) => baseOfRefresh(f.report)))})` : '';
   }).join('');
   if (v.failed.length === 0 && v.missing.length === 0) return `snapshot ครบ ${v.taken}/${v.total}${refresh}`;
@@ -487,11 +508,11 @@ function picturePart(v: PictureView, lost: boolean): string {
 }
 
 /** id รายงานเดิมจาก id ของผลถ่ายซ้ำ (`<รายงาน>@refresh`) — ข้อความที่คนอ่านไม่เปิดเผย id ภายใน */
-export const isRefreshId = (id: string): boolean => parseRefreshId(id) !== null;
-export const baseOfRefresh = (id: string): string => parseRefreshId(id)?.base ?? id;
+export const isRefreshId = (id: string): boolean => retakeInfo(id) !== null;
+export const baseOfRefresh = (id: string): string => retakeInfo(id)?.base ?? id;
 /** Which re-take round a result id belongs to, for readers: `evening` (the 18:00 re-take) or the slot hour (`06`, `23`) · null = not a re-take id */
 export const retakeRound = (id: string): string | null => {
-  const r = parseRefreshId(id);
+  const r = retakeInfo(id);
   return r === null ? null : (r.slot ?? 'evening');
 };
 

@@ -610,3 +610,64 @@ test('a slot-only run does not make the day look like the noon round ran (lastRu
   assert.equal(lastRun(only({ 'arrivals@refresh-06': 'data', 'trial-balance@refresh-06': 'data' })), null);
   assert.equal(lastRun(only({ arrivals: 'data' })), '2026-10-14');
 });
+
+// ── ADR-0014 / 4h-rounds ticket 08: รอบดึง (`@round-HH`, `@redo-HH`) ──
+test('รอบดึง: snapshot ของวัน = ฉบับรอบ 23:00 (@round-23) นับ "N/N" · วันที่ผ่านไปแล้วที่มีแต่ผลรอบดึงก็ครบ', () => {
+  const s = healthy();
+  const r = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-13', { perDay: ALL_HT, pictures: { 'arrivals@round-23': 'data', 'trial-balance@round-23': 'data' } })),
+  }, EVENING_14, SETUP);
+  assert.equal(r.verdict, 'ok', text(r));
+  assert.match(text(r), /2026-10-13[^\n]*snapshot ครบ 2\/2/);
+});
+
+test('🔴 รอบ 23:00 ล้มบางรายงาน = วันนั้นไม่มี snapshot ของรายงานนั้น และสถานะบอกชื่อชัด (ไม่ใช่ครบ)', () => {
+  const s = healthy();
+  const r = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-13', { perDay: ALL_HT, pictures: { 'arrivals@round-23': ['failed', 'Timeout'], 'trial-balance@round-23': 'data' } })),
+  }, EVENING_14, SETUP);
+  assert.match(text(r), /2026-10-13[^\n]*ตามวัน 3[^\n]*snapshot ได้ 1\/2[^\n]*arrivals — Timeout/);
+  assert.doesNotMatch(text(r), /2026-10-13[^\n]*ตามวัน 3[^\n]*snapshot ครบ/);
+});
+
+test('รอบดึงอื่น (04–20) ล้มบางรายงานเป็นข้อมูลเสริม ไม่ใช่ปัญหา · ล้มทุกใบ = ปัญหา · รอบ 23 ที่ครบไม่เบิ้ลใน N/N', () => {
+  const s = healthy();
+  const withRound = (round: Record<string, Result>) => buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-14', { pictures: { ...PICS_HT, 'arrivals@round-23': 'data', 'trial-balance@round-23': 'data', ...round } })),
+  }, EVENING_14, SETUP);
+  const some = withRound({ 'arrivals@round-12': ['failed', 'Timeout'], 'trial-balance@round-12': 'data' });
+  assert.equal(some.verdict, 'ok', text(some));
+  assert.match(text(some), /2026-10-14[^\n]*snapshot ครบ 2\/2[^\n]*ถ่ายซ้ำรอบ 12:00 ล้ม 1 \(arrivals\)/);
+  const all = withRound({ 'arrivals@round-16': ['failed', 'Timeout'], 'trial-balance@round-16': ['failed', 'Timeout'] });
+  assert.equal(all.verdict, 'problem', text(all));
+});
+
+test('per-day: ผลต่อรอบ (@round-HH ของวันนี้, @redo-HH ของเมื่อวาน) ไม่นับเป็น "สำเร็จ" ของวัน — มีแต่ id รอบ = ยังไม่ได้ดึง · redo ล้มแต่ id ปกติมี = ไม่ใช่ปัญหา', () => {
+  const s = healthy();
+  const onlyRounds = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-13', { perDay: {}, sameDay: { 'postings@round-12': 'data', 'invoices@round-12': 'data', 'cancelled@round-12': 'data' }, pictures: PICS_HT })),
+  }, EVENING_14, SETUP);
+  assert.match(text(onlyRounds), /2026-10-13[^\n]*ยังไม่ได้ดึง 3/);
+  const redoFailed = buildStatus({
+    ...s,
+    hoteltime: replace(s.hoteltime, folder('2026-10-13', { perDay: { ...ALL_HT, 'postings@redo-12': ['failed', 'Timeout'] }, pictures: PICS_HT })),
+  }, EVENING_14, SETUP);
+  assert.equal(redoFailed.verdict, 'ok', text(redoFailed));
+  assert.match(text(redoFailed), /2026-10-13[^\n]*มีข้อมูล 2/);
+});
+
+test('id เดิม (@refresh, @refresh-06, @refresh-23, @period-close) ในโฟลเดอร์ย้อนหลังยังอ่านได้ ไม่ขึ้นเป็นขาด — คู่กับผลรอบดึงในวันอื่น', () => {
+  const s = healthy();
+  const r = buildStatus({
+    ...s,
+    hoteltime: replace(replace(s.hoteltime,
+      folder('2026-10-12', { perDay: ALL_HT, pictures: { ...PICS_HT, 'arrivals@refresh': 'data', 'arrivals@refresh-06': 'data', 'arrivals@refresh-23': 'data' } })),
+    folder('2026-10-13', { perDay: ALL_HT, pictures: { 'arrivals@round-23': 'data', 'trial-balance@round-23': 'data' } })),
+  }, EVENING_14, WITH_REFRESH_SETUP);
+  assert.equal(r.verdict, 'ok', text(r));
+  assert.deepEqual(r.problems, []);
+});
