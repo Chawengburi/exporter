@@ -158,8 +158,13 @@ keep_private "$EXPORTER/.env"
 step "Setting the go-live date and Discord alerts (exporter/.env)"
 env_has() { grep -qE "^$1=.+" "$EXPORTER/.env"; }
 env_key() { grep -qE "^$1=" "$EXPORTER/.env"; } # the line for this key exists (an empty value counts — it was left blank on purpose)
-append_env() { # append_env <line> — printf is a builtin (the value does not show up in ps) · if the file does not end with a newline, add one first, otherwise it would be appended to the last line
+append_env() { # append_env <KEY=value> — fills an empty `KEY=` line of .env.example in place (no duplicate lines), otherwise appends · the value goes through the environment, not argv (not visible in ps)
   [ -w "$EXPORTER/.env" ] || stop "Cannot write exporter/.env (is the file owned by another account?)" "Ask the administrator to run: sudo chown $USER $EXPORTER/.env and run again"
+  local key="${1%%=*}"
+  if grep -qxE "$key=" "$EXPORTER/.env"; then
+    ENV_KEY="$key" ENV_LINE="$1" awk 'BEGIN { k = ENVIRON["ENV_KEY"] "=" } $0 == k && !done { print ENVIRON["ENV_LINE"]; done = 1; next } { print }' "$EXPORTER/.env" | write_secret_file "$EXPORTER/.env"
+    return
+  fi
   [ -z "$(tail -c1 "$EXPORTER/.env")" ] || printf '\n' >>"$EXPORTER/.env"
   printf '%s\n' "$1" >>"$EXPORTER/.env"
 }

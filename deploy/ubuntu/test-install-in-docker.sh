@@ -59,6 +59,8 @@ as_user "cd exporter && node -e '
   for (const [k, w] of Object.entries(want)) if (v[k] !== w) { console.error(k, JSON.stringify(v[k]), \"!=\", JSON.stringify(w)); process.exit(1); }
   if (!v.HOTELTIME_BASE_URL) process.exit(1);
 '" && pass ".env reads back exactly for every value (leading/trailing spaces, ', #, \$) + default branch + other values from .env.example are still there" || fail ".env values do not match"
+as_user "cd exporter && ! grep -E '^[A-Z_]+=' .env | cut -d= -f1 | sort | uniq -d | grep -q ." \
+  && pass "every key appears once in .env: the installer filled the empty lines of .env.example in place, no duplicate lines" || fail ".env has duplicate keys"
 as_user "cd exporter && node -e '
   const v = require(\"dotenv\").config({ quiet: true }).parsed;
   if (v.EXPORTER_GO_LIVE !== \"$FIXED_GO_LIVE\") { console.error(\"go-live\", v.EXPORTER_GO_LIVE); process.exit(1); }
