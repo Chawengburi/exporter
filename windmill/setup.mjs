@@ -40,7 +40,9 @@ function envSetting(name) {
   let raw = process.env[name];
   const envFile = path.join(HERE, '..', 'exporter', '.env');
   if (raw === undefined && existsSync(envFile)) {
-    raw = new RegExp(`^(?:export\\s+)?${name}=(.*)$`, 'm').exec(readFileSync(envFile, 'utf8'))?.[1];
+    // the LAST assignment wins (like a dotenv loader) and a CRLF file is fine
+    const all = [...readFileSync(envFile, 'utf8').replace(/\r/g, '').matchAll(new RegExp(`^(?:export\\s+)?${name}=(.*)$`, 'gm'))];
+    raw = all.at(-1)?.[1];
   }
   return raw === undefined ? undefined : raw.replace(/\s+#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2');
 }

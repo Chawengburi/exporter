@@ -16,8 +16,11 @@ for r in 04 08 12 16 20 23; do
 done
 # a failed report (exit 1/2) must not skip uploading the files that were taken: keep the exit code, upload, then end with it
 export_rc=0
-node src/index.ts export --report all --round "$ROUND" --json || export_rc=$?
-if [ "$ROUND" = "12" ]; then
+out=$(node src/index.ts export --report all --round "$ROUND" --json) || export_rc=$?
+printf '%s\n' "$out"
+# the upload belongs to the 12:00 round only AND only when that round really ran: a round that is switched off (HOTELTIME_ROUNDS=off while the old schedule is still in use, or 12 not listed)
+# or outside its time window must not upload — the old regime has its own upload
+if [ "$ROUND" = "12" ] && ! printf '%s' "$out" | grep -qE '"code": *"(round_disabled|round_window_passed)"'; then
   # `|| true`: leftover/rejected files in the upload must not make Windmill see the whole job as failed — they are reported through the upload leg's Discord + the backlog of `exporter status`
   node src/index.ts upload --site hoteltime --json || true
 fi

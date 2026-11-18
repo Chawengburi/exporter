@@ -81,3 +81,16 @@ test('ไม่ติดตั้ง pipeline = ไม่มีงาน pipelin
   assert.equal(new Set(paths).size, paths.length); // ไม่มี schedule path ซ้ำ
   for (const x of all) assert.match(x.summary, /^\[(Exporter|Pipeline)\] (HotelTime|FoodStory) \(/, x.summary);
 });
+
+test('สคริปต์รอบ: ชั่วโมงรอบในลูป shell ตรงกับ ROUND_HOURS · อัปโหลดเฉพาะรอบ 12 และไม่เมื่อรอบปิด/นอกหน้าต่าง (รหัสที่ export พิมพ์จริง)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const script = readFileSync(new URL('../../windmill/scripts/pms_export_round.sh', import.meta.url), 'utf8');
+  const loop = /for r in ([0-9 ]+); do/.exec(script)?.[1]?.trim().split(/\s+/);
+  assert.deepEqual(loop, [...(ROUND_HOURS as string[])]);
+  const exportSrc = readFileSync(new URL('../src/sites/hoteltime/export.ts', import.meta.url), 'utf8');
+  for (const code of ['round_disabled', 'round_window_passed']) {
+    assert.ok(script.includes(code), `script must not upload on ${code}`);
+    assert.ok(exportSrc.includes(`'${code}'`), `export.ts no longer emits ${code}`);
+  }
+  assert.match(script, /\[ "\$ROUND" = "12" \]/);
+});

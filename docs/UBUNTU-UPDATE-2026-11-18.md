@@ -13,7 +13,7 @@ HotelTime ดึงเป็น **6 รอบต่อวัน** (04:00 08:00 1
 ```bash
 cd ~/chawengburi-exporter && git pull && bash deploy/ubuntu/install.sh
 ```
-**ผลของ `setup.mjs` ที่ควรเห็น:** `Created the script … pms_export_round` และ `Set the schedule of …` ใหม่หลายรายการ (รอบ 6 ตัว + retry + pipeline รอบละ 1) · บรรทัดสรุปปิดท้ายต้องเขียนว่า **`HotelTime runs the OLD schedule … because HOTELTIME_ROUNDS=off`** · schedule เดิม (เที่ยง, 15:00/18:00, snapshot, pipeline 19:00/12:45) ต้อง**ยังเปิด** และไม่มี `Switched off` ของตัวเดิม
+**ผลของ `setup.mjs` ที่ควรเห็น:** `Created the script … pms_export_round` และ `Set the schedule of …` ใหม่ 12 รายการ (รอบ 6 ตัว + retry ของแต่ละรอบ) · schedule ของ pipeline รอบละ 1 จะ**ยังไม่ถูกสร้าง**ตอน `off` (สร้างเมื่อเปิดรอบในขั้นที่ 2) · บรรทัดสรุปปิดท้ายต้องเขียนว่า **`HotelTime runs the OLD schedule … because HOTELTIME_ROUNDS=off`** · schedule เดิม (เที่ยง, 15:00/18:00, snapshot, pipeline 19:00/12:45) ต้อง**ยังเปิด** และไม่มี `Switched off` ของตัวเดิม
 **หยุดทันทีถ้า:** เห็น `Switched off the schedule of … pms_export_daily` หรือบรรทัดสรุปบอกว่า "runs in ROUNDS" ทั้งที่ตั้ง `off` แล้ว (แปลว่าอ่าน `.env` ไม่ถูก)
 รันซ้ำอีกรอบต้องได้ `Nothing changed — everything is already set up`
 
