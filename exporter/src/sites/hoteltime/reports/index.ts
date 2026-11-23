@@ -8,6 +8,7 @@ import {
 } from './accounting-documents.ts';
 import { accountingReportDetail, accountingReportSummary } from './accounting-report.ts';
 import { accountsOpen } from './accounts-open.ts';
+import { arrivalAhead } from './arrival-ahead.ts';
 import { arrivalPeriod } from './arrival-period.ts';
 import { depositToUse, unpaidInvoicesByDate } from './balances.ts';
 import { depositJournal } from './deposit-journal.ts';
@@ -122,6 +123,8 @@ export const REPORTS: readonly Report[] = [
   vatOutput,
   // ticket 04 — ภาษีแยกรายอัตรา (Silver เท่านั้น ยังไม่มีตาราง Gold อ่าน)
   vatInspection,
+  // ADR-0015 — รายงานล่วงหน้า (วันนี้ถึง +N) เก็บ local อย่างเดียว
+  arrivalAhead,
 ];
 
 export function findReport(id: string): Report | undefined {
@@ -138,8 +141,10 @@ export const toPlanned = (r: Report): PlannedReport => ({
   id: r.id,
   family: r.family,
   period: r.period,
+  ...(r.requestWindow !== undefined ? { lookahead: true as const } : {}),
   ...(r.family === 'picture' ? { refreshAtHour: EVENING_REFRESH_HOUR } : {}),
 });
 export function plannedReports(): PlannedReport[] {
-  return REPORTS.map(toPlanned);
+  // รายงานล่วงหน้าไม่รวม: ไม่นับใน "snapshot N/N" ของ status (ADR-0015) — status แสดงเป็นบรรทัดแยก
+  return REPORTS.map(toPlanned).filter((r) => r.lookahead !== true);
 }

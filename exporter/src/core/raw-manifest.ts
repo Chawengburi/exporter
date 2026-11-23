@@ -50,6 +50,11 @@ export type RawFileEntry = {
   /** **snapshot ปิดงวด** — snapshot ของงวด (เดือน/ปี) ที่จบแล้วทั้งงวด (ใบ 05) · ไม่มี = ไม่ใช่ */
   readonly periodClose?: true;
   /**
+   * รายงานนี้ไม่ส่ง uploader ทุกรอบ (ADR-0015 — รายงานล่วงหน้า) · ค่าคงที่ของรายงาน คัดลอกจาก `Report.neverUpload` ตอนเขียน manifest ·
+   * `uploadPolicyFor` และ `selectPendingFiles` อ่านธงนี้ จึงไม่มีกรณีพิเศษต่อรายงานในสคริปต์อัปโหลด
+   */
+  readonly neverUpload?: true;
+  /**
    * ผลส่งเข้า uploader สำเร็จ (รวม `duplicate:true`) — ไม่มี = ยังไม่เคยส่งสำเร็จ ขาอัปโหลดใช้ตัดสินว่าจะข้ามไฟล์นี้
    * ในรอบถัดไปไหม (ticket 01 ของ `exporter-upload-to-uploader`) · ไม่ตรวจกับ server ซ้ำทุกรอบ เพื่อไม่ต้องยิง
    * network สำหรับไฟล์ที่ settled แล้ว
@@ -170,6 +175,7 @@ export async function recordUploaded(folder: string, file: string, result: { rea
  * snapshot ปิดงวดไม่ติดธง (ส่งตามเดิม รวมค้างโฟลเดอร์เก่า) · per-day: วันของข้อมูลถึงวันนี้ยังไม่ครบ ถือไว้ถึงวันถัดไปของข้อมูล · ของเมื่อวานหรือเก่ากว่า ส่งได้ (undefined)
  */
 export function uploadPolicyFor(entry: RawFileEntry, today: string, round: string): RawFileEntry['upload'] {
+  if (entry.neverUpload === true) return 'skip'; // ธงระดับรายงาน (ADR-0015) ชนะทุกกติกาของรอบ รวมรอบ 23
   if (entry.periodClose === true) return undefined;
   // snapshot ตัดสินด้วย**หมายเลขรอบ** ไม่ใช่ชั่วโมงของเวลาถ่าย — รอบ 23 ที่ช้าจน snapshot ท้ายรอบถ่ายหลังเที่ยงคืนยังเป็นฉบับของวัน `today` (โฟลเดอร์วันเริ่มรอบ)
   if (entry.family === 'picture') return round === '23' ? { notBefore: addDaysISO(today, 1) } : 'skip';

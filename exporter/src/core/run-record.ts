@@ -28,6 +28,8 @@ export type ReportOutcome =
        * ไฟล์ข้อมูลที่คนเปิดใช้ (ชื่อ relative กับโฟลเดอร์รอบ) · `rows` ไม่มี = ไม่รู้จำนวนต่อไฟล์ (FoodStory ที่ผ่าเป็นหลายไฟล์ รู้แค่ยอดรวม)
        */
       readonly files: readonly { readonly file: string; readonly rows?: number; readonly sha256: string }[];
+      /** จำนวนแถวที่ชื่อแขกหรือ room type ว่าง — เฉพาะรายงานที่ขอให้นับ (`Report.warnIfBlank`, รายงานล่วงหน้า) · เตือนอย่างเดียว ไม่ใช่ความล้มเหลว · ไม่เก็บค่าเซลล์ */
+      readonly blankRows?: number;
       readonly attempts: number;
     }
   | {

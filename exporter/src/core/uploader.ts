@@ -163,7 +163,7 @@ export function buildIngestPayload(entry: RawFileEntry, asOf: string, documentTy
  */
 export function selectPendingFiles(files: readonly RawFileEntry[], today: string): readonly RawFileEntry[] {
   // `upload` = นโยบายของไฟล์จากรอบดึง (ADR-0014): `skip` ไม่ส่งเลย · `notBefore` ถือไว้ถึงวันนั้น (เวลาไทย) · ไม่มี = ส่งได้
-  return files.filter((f) => f.uploaded === undefined && f.upload !== 'skip' && (f.upload === undefined || f.upload.notBefore <= today));
+  return files.filter((f) => f.uploaded === undefined && f.neverUpload !== true && f.upload !== 'skip' && (f.upload === undefined || f.upload.notBefore <= today));
 }
 
 /** แคบ `unknown` ลงเป็น record ให้เช็ค field ต่อได้ — ใช้ร่วมกันที่นี่และใน `upload.ts` กันโค้ดแคบ JSON ซ้ำ ๆ แบบมือ */

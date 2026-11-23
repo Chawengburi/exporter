@@ -73,6 +73,9 @@ as_user "cd exporter && node -e '
   if (require(\"dotenv\").config({ quiet: true }).parsed.TWOCAPTCHA_API_KEY !== \"$CAPKEY\") process.exit(1);
 '" && pass "2captcha key reads back exactly" || fail "the 2captcha key was not saved"
 if grep -q "$CAPKEY" /tmp/first.out; then fail "the 2captcha key appeared on screen"; fi
+# look-ahead arrival report (ADR-0015): a fresh install must leave it OFF — an empty value, not a number
+as_user "cd exporter && grep -qx 'HOTELTIME_LOOKAHEAD_DAYS=' .env" \
+  && pass "HOTELTIME_LOOKAHEAD_DAYS is present and empty after a fresh install (the look-ahead report stays off until the owner sets N)" || fail "HOTELTIME_LOOKAHEAD_DAYS is missing or not empty in the new .env"
 pass "the 2captcha key is not shown on screen"
 as_user "cd exporter && node -e '
   const v = require(\"dotenv\").config({ quiet: true }).parsed;

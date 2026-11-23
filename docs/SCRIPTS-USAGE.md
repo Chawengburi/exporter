@@ -167,6 +167,28 @@ From 2026-11-18 HotelTime is pulled in up to six **extraction rounds** a day (AD
 | `status` | "snapshot N/N" counts the 23:00 round |
 | Discord | A daily summary is sent from rounds 12 and 23 only |
 
+#### Look-ahead arrival report (`arrival-ahead`)
+
+*Decided in ADR-0015. A **snapshot report** that reads the arrival page for today..+N days. Local only — never uploaded.*
+
+| Item | Behaviour |
+|---|---|
+| Switch | `HOTELTIME_LOOKAHEAD_DAYS` in `exporter/.env`: **empty or unset = off** (the default, and what `.env.example` ships); a whole number `1`-`60` = N days ahead. Anything else (`0`, `61`, `abc`, `1.5`) is an error at start-up. `HOTELTIME_ROUNDS=off` also turns it off |
+| When | Every extraction round that is on, once per round, always the **same window** (today..+N) so the latest file covering a day is the current value for it. Recorded as `arrival-ahead@round-HH`. No catch-up, no yesterday re-take, no baseline, no period close |
+| File | One file per round, even when the window crosses a month end. A page that reaches the 2000-row cap fails loudly (it is never split or truncated). 0 rows is "empty", not a failure |
+| Upload | Never — `_manifest.json` carries `neverUpload`, so `upload: skip` in every round including 23:00 (the uploader could otherwise let a today..+N file supersede yesterday's `arrival-period` file) |
+| `status` | Its own line under HotelTime: last result (rows, window, time), and the last success when the latest failed. It is **not** counted in "snapshot N/N" and a failure never makes a day "incomplete" |
+| Warnings | `_run.json` holds `blankRows` = rows whose guest name or room type is blank (a warning, not a failure). Discord, logs and `status` show row counts and dates only, never guest names |
+| By hand | `exporter export --report arrival-ahead --round HH` — one file, today..+N (N from `HOTELTIME_LOOKAHEAD_DAYS`, or 14 when it is empty). Works while rounds are off and outside the round's time window; it uses the same one login |
+
+**Roll-out (do these in order — the feature stays off until step 5):**
+
+1. Deploy the code with `HOTELTIME_LOOKAHEAD_DAYS` empty (nothing changes by itself).
+2. On the Ubuntu machine run `exporter export --report arrival-ahead --round HH` once by hand.
+3. Check the file in Silver: header, row count, `range` in `_manifest.json` = today..+N.
+4. Ask the Gold side to confirm that ingest accepts a range file that crosses today (Gold classifies files by header, and `arrival-ahead` has the same header as `arrival-period`, so it is unrecognised until `hoteltime-schema` supports it — **not yet tested on the Gold side**).
+5. The owner decides the final N (7 / 14 / 30), puts it in `exporter/.env` as `HOTELTIME_LOOKAHEAD_DAYS=14`, and the next round takes it.
+
 #### Snapshot slots
 
 *Old schedule only: in effect while `HOTELTIME_ROUNDS=off`.* Replaced by rounds otherwise.
@@ -184,11 +206,11 @@ A slot runs only if it is listed in `HOTELTIME_SNAPSHOT_SLOTS` in `exporter/.env
 
 Run `node src/index.ts reports [--site foodstory]` for the authoritative list with labels and paths. Valid values for `--report` are the identifiers below, or `all`.
 
-**HotelTime (48 reports)**
+**HotelTime (48 reports, plus the look-ahead report `arrival-ahead`)**
 
 | Group | Identifiers |
 |---|---|
-| Reservations | `reservations-search`, `reservations-ratecode`, `reservations-cancelled`, `arrival-period`, `reservations-by-arrival-date` |
+| Reservations | `reservations-search`, `reservations-ratecode`, `reservations-cancelled`, `arrival-period`, `reservations-by-arrival-date`, `arrival-ahead` (look-ahead, rounds only) |
 | Guests and movements | `arrivals`, `departures`, `in-house-guests`, `guest-profiles`, `foreign-police-profiles` |
 | Housekeeping and rooms | `housekeeping`, `housekeeping-basic`, `housekeeping-all-in-one`, `rooms-status-overview`, `rooms-ooo`, `rooms-available` |
 | Statistics | `reservation-stats-month`, `reservation-stats-day`, `reservation-stats-term`, `reservation-stats-segment`, `combined-forecast`, `occupancy-annual`, `occupancy-room-type`, `nationality-revenue`, `occupancy-by-nationality`, `occupancy-by-nationality-stay-reason` |
@@ -196,7 +218,7 @@ Run `node src/index.ts reports [--site foodstory]` for the authoritative list wi
 | Deposits and ledgers | `deposit-ledger`, `gift-certificate-ledger`, `deposit-to-use`, `deposit-journal` |
 | Management and accounting | `manager-day-detail`, `manager-summary`, `manager-items`, `accounting-report`, `accounting-report-detail`, `trial-balance`, `accounts-open`, `audit-trail` |
 
-With `--report all`, `--daily` runs every report; other modes skip the per-day reports (ADR-0003).
+With `--report all`, `--daily` runs every report except `arrival-ahead` (it only runs in extraction rounds, or by hand with `--report arrival-ahead --round HH`); other modes skip the per-day reports (ADR-0003).
 
 **FoodStory (49 reports)**
 
@@ -420,6 +442,7 @@ Defined in `exporter/.env` (copy from `exporter/.env.example`). Precedence: shel
 | `TWOCAPTCHA_API_KEY` | FoodStory export | Solves the captcha automatically. Required for unattended runs; if unset, a person must solve it in a headful browser |
 | `EXPORTER_GO_LIVE` | `--daily` | First day to back-fill from (`YYYY-MM-DD`). Unset means yesterday only |
 | `HOTELTIME_ROUNDS` | `--round`, `setup.mjs` | Rounds that are on, from `04,08,12,16,20,23`. Unset = `08,12,16,20,23`; `off` = none (old schedule runs) |
+| `HOTELTIME_LOOKAHEAD_DAYS` | `--round` | Look-ahead arrival report (ADR-0015): days ahead of today, `1`-`60`. **Empty = off** (keep it empty until the roll-out check is done). Invalid = error at start-up |
 | `HOTELTIME_SNAPSHOT_SLOTS` | `--snapshot-slot`, `setup.mjs` | Old schedule only. Enabled slots, e.g. `06,23`. Empty means off |
 | `HOTELTIME_SNAPSHOT_SLOT_REPORTS` | Snapshot rounds | Optional comma-separated report identifiers to take in extra rounds |
 | `DISCORD_WEBHOOK_URL_EXPORT`, `DISCORD_WEBHOOK_URL_UPLOAD` | `notify`, `export`, `upload` | Webhook URLs. Unset means that notification is skipped |

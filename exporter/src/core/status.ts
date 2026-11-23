@@ -138,8 +138,25 @@ export type SiteView = {
   readonly daysSinceLastRun: number | null;
   /** login ล้มทั้งรอบ (ใบ 02 ของ exporter-foodstory-scheduled-daily) ในช่วงที่ดู — รายละเอียดล่าสุด + ระดับตามกติกาเวลา · ไม่มี = null */
   readonly loginFailure: LoginFailure | null;
+  /** รายงานล่วงหน้า (ADR-0015) — ไม่เคยมีผลเลย (ปิดอยู่) = null */
+  readonly lookahead: LookaheadView | null;
 };
 export type LoginFailure = { readonly detail: string; readonly level: StatusLevel };
+
+/**
+ * ผลล่าสุดของ **รายงานล่วงหน้า** `arrival-ahead` (ADR-0015) — อ่านจาก `arrival-ahead@round-<HH>` ใน `_run.json` · แยกจาก "snapshot N/N" และสถานะวัน:
+ * ล้มไม่ทำให้วันใดไม่ครบ ไม่ถูกเก็บตก (รอบถัดไปถ่ายใหม่เอง) · มีแต่จำนวนแถวและช่วงวัน ไม่มีค่าเซลล์
+ */
+export type LookaheadResult =
+  | { readonly state: 'ok'; readonly at: string; readonly round: string; readonly rows: number; readonly range: { readonly from: string; readonly to: string } }
+  | { readonly state: 'failed'; readonly at: string; readonly round: string; readonly error: string };
+export type LookaheadView = {
+  /** ผลล่าสุดไม่ว่าสำเร็จหรือล้ม */
+  readonly latest: LookaheadResult;
+  /** ครั้งล่าสุดที่สำเร็จ (ถ้าผลล่าสุดล้ม) — ไม่เคยสำเร็จเลย = null */
+  readonly lastOk: Extract<LookaheadResult, { state: 'ok' }> | null;
+};
+export const LOOKAHEAD_REPORT_ID = 'arrival-ahead';
 
 export type StatusLine = { readonly level: StatusLevel; readonly text: string };
 export type StatusSection = { readonly title: string; readonly lines: readonly StatusLine[] };
@@ -391,7 +408,43 @@ function siteView(
     lastRunDay,
     daysSinceLastRun: lastRunDay === null ? null : daysBetween(lastRunDay, now.today),
     loginFailure,
+    lookahead: lookaheadOf(readable),
   };
+}
+
+/** ผลล่าสุดของรายงานล่วงหน้าจากทุกโฟลเดอร์ที่อ่านได้ — เทียบด้วยเวลาที่รอบจบ (`finishedAt`) · ไม่ผ่านแคตตาล็อก/`storeStateFrom` จึงไม่เข้าสถานะวันหรือ N/N */
+function lookaheadOf(folders: readonly { readonly day: string; readonly record: RunRecord }[]): LookaheadView | null {
+  const results: (LookaheadResult & { readonly ms: number })[] = [];
+  for (const { record } of folders) {
+    for (const [id, o] of Object.entries(record.reports)) {
+      const parsed = parseRoundId(id);
+      if (parsed === null || parsed.base !== LOOKAHEAD_REPORT_ID) continue;
+      const when = new Date(o.finishedAt);
+      const at = `${formatISO(thaiToday(when))} ${pad2(thaiClock(when).hour)}:${pad2(thaiClock(when).minute)}`;
+      results.push(o.status === 'ok'
+        ? { state: 'ok', at, round: parsed.round, rows: o.rows, range: o.range, ms: when.getTime() }
+        : { state: 'failed', at, round: parsed.round, error: o.error.split('\n')[0] ?? '', ms: when.getTime() });
+    }
+  }
+  if (results.length === 0) return null;
+  results.sort((a, b) => b.ms - a.ms);
+  const strip = ({ ms: _ms, ...r }: LookaheadResult & { readonly ms: number }): LookaheadResult => r as LookaheadResult;
+  const okOnly = results.find((r) => r.state === 'ok');
+  return { latest: strip(results[0]!), lastOk: okOnly === undefined ? null : (strip(okOnly) as Extract<LookaheadResult, { state: 'ok' }>) };
+}
+
+/** บรรทัดแยกของรายงานล่วงหน้า — ระดับ info เสมอ: ไม่เปลี่ยน verdict/ปัญหา/สิ่งที่ต้องทำ (ADR-0015) */
+function lookaheadLine(view: SiteView, out: SectionBuilder): void {
+  const l = view.lookahead;
+  if (l === null) return;
+  const okText = (r: Extract<LookaheadResult, { state: 'ok' }>) =>
+    `${r.rows === 0 ? 'ว่าง (0 แถว)' : `${r.rows} แถว`} · ช่วง ${r.range.from} ถึง ${r.range.to} · ได้เมื่อ ${r.at} (รอบ ${r.round})`;
+  if (l.latest.state === 'ok') {
+    out.add('info', `รายงานล่วงหน้า ${LOOKAHEAD_REPORT_ID}  ${okText(l.latest)}`);
+    return;
+  }
+  const last = l.lastOk === null ? 'ยังไม่เคยสำเร็จ' : `ครั้งล่าสุดที่สำเร็จ: ${okText(l.lastOk)}`;
+  out.add('info', `รายงานล่วงหน้า ${LOOKAHEAD_REPORT_ID}  ล้มเมื่อ ${l.latest.at} (รอบ ${l.latest.round}) — ${l.latest.error} · ${last} · รอบถัดไปถ่ายใหม่เอง ไม่นับเป็นวันที่ไม่ครบ`);
 }
 
 const hasLoginFailure = (failed: readonly FailedReport[]) => failed.some((f) => isLoginFailureReason(f.error));
@@ -560,6 +613,7 @@ function scheduledSiteSection(view: SiteView, now: Clock, out: SectionBuilder): 
     return;
   }
   siteLines(view, now, out);
+  lookaheadLine(view, out);
   if (view.backlogDays > 0) {
     // FoodStory ไม่มี --date (ดึงวันเดียวแยก) — บอกทางเร่งเฉพาะ HotelTime
     out.add('action', `${name} ขาดอีก ${view.backlogDays} วันของข้อมูล เกินที่รอบเดียวเติมได้ (${CATCH_UP_CAP_DAYS}) — รอบ Windmill ถัดไปเติมต่อเอง ` +

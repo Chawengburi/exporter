@@ -15,11 +15,11 @@ const PER_DAY = [
   'audit-trail', 'vat-output', 'vat-inspection',
 ];
 
-test('ทุกรายงานของ HotelTime มีตระกูล และรายงานตามวันตรงกับตารางเทียบรายงาน (25 ตัว ที่เหลือเป็น snapshot 27 ตัว)', () => {
-  assert.equal(REPORTS.length, 52);
+test('ทุกรายงานของ HotelTime มีตระกูล และรายงานตามวันตรงกับตารางเทียบรายงาน (25 ตัว ที่เหลือเป็น snapshot 28 ตัว รวมรายงานล่วงหน้า arrival-ahead)', () => {
+  assert.equal(REPORTS.length, 53);
   for (const r of REPORTS) assert.ok(r.family === 'per-day' || r.family === 'picture', `${r.id} ไม่มีตระกูล`);
   assert.deepEqual(REPORTS.filter((r) => r.family === 'per-day').map((r) => r.id).sort(), [...PER_DAY].sort());
-  assert.equal(REPORTS.filter((r) => r.family === 'picture').length, 27);
+  assert.equal(REPORTS.filter((r) => r.family === 'picture').length, 28);
 });
 
 test('งวดของรายงาน snapshot (ใบ 05): ทุกรายงาน snapshot บอกงวด — เดือน / ปี / ไม่มี ตามรายชื่อใน spec · รายงานตามวันไม่มีงวด', () => {

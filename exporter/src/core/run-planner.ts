@@ -24,7 +24,33 @@ export type PlannedReport = {
    * `toPlanned`) · ใช้ได้กับรายงาน snapshot เท่านั้น · ไม่ใส่ = ถ่ายวันละครั้งตามเดิม (รายงานตามวัน, FoodStory)
    */
   readonly refreshAtHour?: number;
+  /**
+   * **รายงานล่วงหน้า** (ADR-0015) — snapshot เสริมที่ทำงานเมื่อเปิดด้วย `HOTELTIME_LOOKAHEAD_DAYS` เท่านั้น · ผู้วางแผนรอบรับรายการที่ผ่าน {@link withLookahead} แล้ว ·
+   * ผู้วางแผนอื่น (รอบรายวันเดิม, snapshot slot, baseline, `exporter status` ในส่วน snapshot N/N) ไม่รับรายงานนี้
+   */
+  readonly lookahead?: true;
 };
+
+export const LOOKAHEAD_DAYS_ENV = 'HOTELTIME_LOOKAHEAD_DAYS';
+export const LOOKAHEAD_DAYS_MAX = 60;
+
+/**
+ * Parse `HOTELTIME_LOOKAHEAD_DAYS` — ไม่ตั้ง/ว่าง = ปิด (`days: null`) · จำนวนเต็ม 1–{@link LOOKAHEAD_DAYS_MAX} = N · อย่างอื่นรวมนอกช่วง = error (พิมพ์ผิดต้องไม่ปิด/เปิดเงียบ ๆ)
+ */
+export function parseLookaheadDays(raw: string | undefined): { readonly days: number | null } | { readonly error: string } {
+  if (raw === undefined || raw.trim() === '') return { days: null };
+  const t = raw.trim();
+  const n = /^\d+$/.test(t) ? Number(t) : NaN;
+  if (!Number.isInteger(n) || n < 1 || n > LOOKAHEAD_DAYS_MAX) {
+    return { error: `${LOOKAHEAD_DAYS_ENV} must be a whole number from 1 to ${LOOKAHEAD_DAYS_MAX} (or empty to switch the look-ahead report off) — got ${JSON.stringify(raw)}` };
+  }
+  return { days: n };
+}
+
+/** รายการรายงานสำหรับผู้วางแผนรอบ: รายงานล่วงหน้าอยู่เมื่อเปิด (`days` ไม่ใช่ null) เท่านั้น — ปิดอยู่ = ตัดออกทั้งหมด */
+export function withLookahead(reports: readonly PlannedReport[], days: number | null): readonly PlannedReport[] {
+  return days === null ? reports.filter((r) => r.lookahead !== true) : reports;
+}
 
 /**
  * id ที่ใช้บันทึกผลของ **snapshot ปิดงวด** ใน `_run.json` — แยกจาก snapshot ปกติของรายงานเดียวกัน เพราะ snapshot ปิดงวดอยู่ในโฟลเดอร์ของวันสุดท้ายของงวด

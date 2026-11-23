@@ -12,8 +12,7 @@ import {
   partitionForRunAll,
   resolveRunPlan,
   parseISODate,
-  splitRange,
-  type DateRange,
+    type DateRange,
   type RunKind,
 } from '../../core/order.ts';
 import { dailyFolder, dataFileName, latestPointer, pictureFileName, runFolder } from '../../core/placement.ts';
@@ -24,7 +23,7 @@ import { thaiIsoString, thaiToday } from '../../core/thai-time.ts';
 import { exitCodeFor, readRunRecord, recordRun, type ReportOutcome, type SkippedReport } from '../../core/run-record.ts';
 import {
   PlanError, gateRound, isRoundHour, parseRoundId, planRound, redoId, roundId, ROUND_HOURS, ROUND_WINDOW, SNAPSHOT_SLOTS, SLOT_WINDOW, daysToRead, isSnapshotSlot, periodCloseId, planBaselineRun, planDailyRun, planSnapshotSlot, refreshId, planDateRun, planWarnings,
-  slotRefreshId, storeStateFrom, type WorkPlan,
+  slotRefreshId, storeStateFrom, withLookahead, type WorkPlan,
 } from '../../core/run-planner.ts';
 import { createRedactor, redactError, type Redactor } from '../../core/redact.ts';
 import { verifyMerged, type ChunkVerdict } from '../../core/verify.ts';
@@ -36,7 +35,7 @@ import {
   type Credentials,
 } from './config.ts';
 import { LoginError, login, openSession, type Session } from './session.ts';
-import { RowCapError, verifyChunk } from './verify.ts';
+import { RowCapError, rowCapHalves, verifyChunk } from './verify.ts';
 import {
   assertFormAccepted,
   assertStillLoggedIn,
@@ -98,6 +97,8 @@ export type ExportPayload = {
   readonly actualRange: { readonly from: string; readonly to: string } | null;
   /** ไฟล์ดิบที่วางในโฟลเดอร์รอบแล้ว (ADR-0007) พร้อมที่มา — รายการเดียวกับที่บันทึกใน `_manifest.json` */
   readonly files: readonly RawFileEntry[];
+  /** จำนวนแถวที่คอลัมน์สำคัญว่าง (รวมทุกก้อน) — เฉพาะรายงานที่ขอให้นับ · ไม่ใส่ = ไม่ได้นับ */
+  readonly blankRows?: number;
 };
 
 type ChunkOutcome =
@@ -252,13 +253,7 @@ async function fetchAll(
     } catch (err) {
       if (!(err instanceof RowCapError)) throw err;
 
-      const halves = splitRange(range);
-      if (halves === null) {
-        throw new RowCapError(
-          `ช่วง ${label} เหลือวันเดียวแล้วแต่ยังชนเพดาน ${'2000'} แถว\n` +
-            `  ดึงข้อมูลวันนี้ให้ครบด้วยเครื่องมือนี้ไม่ได้ ต้องเรียกคนมาตัดสินใจ`,
-        );
-      }
+      const halves = rowCapHalves(report, range);
       log(`  ${label}  ${chalk.yellow('ชนเพดาน — ผ่าครึ่งแล้วลองใหม่')}`);
       queue.unshift(...halves);
     }
@@ -339,6 +334,7 @@ function manifestEntryFor(report: Report, cfg: Config, o: DataOutcome, job: Repo
     filterNote: filterNoteFor(report),
     ...(baselineIntervalDays !== undefined ? { baselineIntervalDays } : {}),
     ...(periodClose ? { periodClose: true } : {}),
+    ...(report.neverUpload === true ? { neverUpload: true as const } : {}),
     ...(report.scrape !== undefined ? { provenance: 'scrape' as const } : {}),
   };
 }
@@ -407,7 +403,9 @@ function runContext(opts: ExportOptions, cfg: Config): RunContext {
  */
 async function exportOne(ctx: RunContext, report: Report, outDir: string, job: ReportJob, shared?: Session): Promise<ExportPayload> {
   const { opts, cfg, creds, redact } = ctx;
-  const { range, runKind, baselineIntervalDays } = job;
+  const { runKind, baselineIntervalDays } = job;
+  // รายงานล่วงหน้า (ADR-0015): ช่วงที่ขอคือ วันนี้ถึง +N ของวันในงาน ไม่ใช่วันเดียว — ตัวกรอง ด่านวันที่ และช่วงใน manifest ใช้ช่วงนี้
+  const range = report.requestWindow ? report.requestWindow(job.range.from) : job.range;
 
   // รายงานภาพรวมที่ค้นช่วงอื่น (ticket 26): ชื่อไฟล์และช่วงใน _run.json เป็นช่วงข้อมูลจริง ไม่ใช่วันที่ดึง
   const dataRange = dataRangeOf(report, range);
@@ -506,6 +504,7 @@ async function exportOne(ctx: RunContext, report: Report, outDir: string, job: R
     totalRows: merged.totalRows,
     actualRange,
     files: files.map((f) => f.entry),
+    ...(report.warnIfBlank !== undefined ? { blankRows: verdicts.reduce((n, v) => n + (v.blankRows ?? 0), 0) } : {}),
   };
 }
 
@@ -605,6 +604,7 @@ function outcomesOf(result: ReportResult): ReportOutcome[] {
       range: p.range,
       actualRange: p.actualRange,
       files: p.files.map((f) => ({ file: f.file, rows: f.rows, sha256: f.sha256 })),
+      ...(p.blankRows !== undefined ? { blankRows: p.blankRows } : {}),
       attempts: result.attempts.get(p.report) ?? 1,
     })),
     ...result.failed.map((f): ReportOutcome => ({
@@ -625,7 +625,7 @@ async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Re
   const now = new Date();
   const today = formatISO(thaiToday(now));
   const folderOf = (date: Date) => dailyFolder(cfg.dataDir, 'hoteltime', { from: date, to: date });
-  const planned = requested.map(toPlanned);
+  const planned = withLookahead(requested.map(toPlanned), null); // รายงานล่วงหน้าไม่อยู่ในรอบรายวันเดิม (ADR-0015)
   const warnings: string[] = [];
   let plan: WorkPlan;
   if (opts.date !== undefined) {
@@ -743,10 +743,10 @@ async function runSnapshotSlot(opts: ExportOptions, cfg: Config, requested: read
   const date = parseISODate(today)!;
   const outDir = dailyFolder(cfg.dataDir, 'hoteltime', { from: date, to: date });
   const warnings: string[] = [];
-  let state = storeStateFrom([], REPORTS.map(toPlanned));
+  let state = storeStateFrom([], withLookahead(REPORTS.map(toPlanned), null));
   try {
     const record = await readRunRecord(outDir);
-    if (record !== null) state = storeStateFrom([{ day: today, record }], REPORTS.map(toPlanned));
+    if (record !== null) state = storeStateFrom([{ day: today, record }], withLookahead(REPORTS.map(toPlanned), null));
   } catch (err) {
     // an unreadable _run.json must not stop the round — the files already there stay (ADR-0005) and this round simply plans every report again
     warnings.push(`could not read the _run.json of ${today} (${(err as Error).message.split('\n')[0]}) — treating the slot as not taken yet`);
@@ -754,7 +754,7 @@ async function runSnapshotSlot(opts: ExportOptions, cfg: Config, requested: read
   if (!opts.json) for (const w of warnings) console.error(chalk.yellow(`⚠ ${w}`));
   const plan = planSnapshotSlot({
     now,
-    reports: requested.map(toPlanned),
+    reports: withLookahead(requested.map(toPlanned), null),
     state,
     slot,
     ...(cfg.snapshotSlotReports !== null ? { only: cfg.snapshotSlotReports } : {}),
@@ -791,7 +791,12 @@ async function runSnapshotSlot(opts: ExportOptions, cfg: Config, requested: read
 async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promise<number> {
   const round = opts.round!;
   if (!isRoundHour(round)) throw new ConfigError(`--round must be one of ${ROUND_HOURS.join(', ')} — got ${JSON.stringify(round)}`);
-  if (!many) throw new ConfigError('--round takes --report all — an extraction round is the whole set of reports');
+  // สั่งมือรายงานล่วงหน้าใบเดียว (ADR-0015, rollout): `--report arrival-ahead --round HH` — ไม่ผูกกับ HOTELTIME_ROUNDS/หน้าต่างเวลา/HOTELTIME_LOOKAHEAD_DAYS
+  // (ตรวจไฟล์ก่อนเปิดจริง) · รอบเต็มยังต้อง `--report all`
+  const manual = many ? undefined : requireReport(opts.reportId);
+  if (manual !== undefined && manual.requestWindow === undefined) {
+    throw new ConfigError('--round takes --report all — an extraction round is the whole set of reports (only a look-ahead report such as arrival-ahead can be run alone)');
+  }
   const nothing = (code: string, text: string): number => {
     if (opts.json) {
       console.log(JSON.stringify({ ok: true, code, text, warnings: [], reports: [], failed: [], skipped: [], totalRows: 0, outDirs: [] }, null, 2));
@@ -801,7 +806,7 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
     return 0;
   };
   const now = new Date();
-  const gate = gateRound({ now, round, enabled: cfg.rounds });
+  const gate = manual === undefined ? gateRound({ now, round, enabled: cfg.rounds }) : { run: true, reason: null };
   if (gate.reason === 'disabled') return nothing('round_disabled', `round ${round} is switched off — add ${round} to HOTELTIME_ROUNDS in exporter/.env to enable it`);
   if (gate.reason === 'outside_window') {
     const w = ROUND_WINDOW[round];
@@ -810,10 +815,10 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
 
   const today = formatISO(thaiToday(now));
   const folderOf = (date: Date) => dailyFolder(cfg.dataDir, 'hoteltime', { from: date, to: date });
-  const planned = REPORTS.map(toPlanned);
+  const planned = withLookahead(REPORTS.map(toPlanned), cfg.lookaheadDays); // รายงานล่วงหน้าเฉพาะเมื่อเปิด (ADR-0015)
   const warnings: string[] = [];
   const folders = [];
-  for (const day of daysToRead({ now, goLive: cfg.goLive })) {
+  for (const day of manual === undefined ? daysToRead({ now, goLive: cfg.goLive }) : []) {
     try {
       const record = await readRunRecord(folderOf(parseISODate(day)!));
       if (record !== null) folders.push({ day, record });
@@ -823,14 +828,16 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
   }
   // ครั้งแรกของรอบนี้ในวันนี้ = ยังไม่มีผลต่อรอบ (`@round-<HH>`) ในโฟลเดอร์ของวันนี้ก่อนรอบนี้ — retry :30 ไม่ใช่ครั้งแรก (ใช้ตัดสินว่าจะส่งสรุป Discord ซ้ำไหม)
   const firstRun = !Object.keys(folders.find((f) => f.day === today)?.record.reports ?? {}).some((id) => parseRoundId(id)?.round === round);
-  const plan = planRound({ now, round, enabled: cfg.rounds, reports: planned, state: storeStateFrom(folders, planned), goLive: cfg.goLive });
+  const plan = manual === undefined ? planRound({ now, round, enabled: cfg.rounds, reports: planned, state: storeStateFrom(folders, planned), goLive: cfg.goLive }) : null;
   if (!opts.json) for (const w of warnings) console.error(chalk.yellow(`⚠ ${w}`));
-  const items = [
-    ...plan.catchUp.map((i) => ({ ...i, recordId: i.report })),
-    ...plan.redoYesterday.map((i) => ({ ...i, recordId: redoId(i.report, round) })),
-    ...plan.today.map((i) => ({ ...i, recordId: roundId(i.report, round) })),
-    ...plan.pictures.map((i) => ({ ...i, recordId: roundId(i.report, round) })),
-  ];
+  const items = plan === null
+    ? [{ report: manual!.id, day: today, recordId: roundId(manual!.id, round) }]
+    : [
+        ...plan.catchUp.map((i) => ({ ...i, recordId: i.report })),
+        ...plan.redoYesterday.map((i) => ({ ...i, recordId: redoId(i.report, round) })),
+        ...plan.today.map((i) => ({ ...i, recordId: roundId(i.report, round) })),
+        ...plan.pictures.map((i) => ({ ...i, recordId: roundId(i.report, round) })),
+      ];
   if (items.length === 0) return nothing('nothing_to_do', `round ${round} of ${today}: nothing left to take — every report of this round is done`);
 
   const ctx = runContext(opts, cfg);
@@ -896,7 +903,7 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
     await sessions.close();
   }
   const code = finish(opts, true, total, [], outcomes, { outDirs }, warnings);
-  opts.onRoundDone?.({ firstRun, total: total.done.length + total.failed.length, failed: total.failed.length });
+  if (manual === undefined) opts.onRoundDone?.({ firstRun, total: total.done.length + total.failed.length, failed: total.failed.length });
   return code;
 }
 
@@ -908,7 +915,7 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
  */
 async function runBaseline(opts: ExportOptions, cfg: Config, requested: readonly Report[]): Promise<number> {
   const plan = resolveRunPlan(opts, thaiToday()); // flag ที่ขัดกัน / ช่วงถึงวันนี้ โยนจากที่นี่
-  const { items, skipped } = planBaselineRun({ reports: requested.map(toPlanned), from: formatISO(plan.range.from), to: formatISO(plan.range.to) });
+  const { items, skipped } = planBaselineRun({ reports: withLookahead(requested.map(toPlanned), null), from: formatISO(plan.range.from), to: formatISO(plan.range.to) });
   if (items.length === 0) {
     throw new ConfigError(`"${requested.map((r) => r.id).join(', ')}" — ${skipped[0]?.reason ?? 'ไม่มีรายงานตามวันให้ทำ baseline'}`);
   }

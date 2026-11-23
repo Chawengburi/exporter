@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config as loadDotenv } from 'dotenv';
-import { GO_LIVE_ENV, parseGoLive, parseRounds, parseSnapshotSlots, type RoundHour, type SnapshotSlot } from '../../core/run-planner.ts';
+import { GO_LIVE_ENV, parseGoLive, parseLookaheadDays, parseRounds, parseSnapshotSlots, type RoundHour, type SnapshotSlot } from '../../core/run-planner.ts';
 
 /**
  * รากของโปรเจกต์ — ไฟล์นี้อยู่ที่ src/sites/hoteltime/config.ts จึงถอยขึ้นสามชั้น
@@ -53,6 +53,8 @@ export type Config = {
   readonly snapshotSlots: readonly SnapshotSlot[];
   /** Extraction rounds that are switched on (`HOTELTIME_ROUNDS`, default `08,12,16,20,23` — ADR-0014). Independent of `snapshotSlots` (the old variable never turns a new round on) */
   readonly rounds: readonly RoundHour[];
+  /** Look-ahead report length N (`HOTELTIME_LOOKAHEAD_DAYS`, 1–60 — ADR-0015) · null = off (unset/empty): rounds then skip `arrival-ahead` entirely */
+  readonly lookaheadDays: number | null;
   /** Optional narrowing of the extra rounds to some snapshot reports (`HOTELTIME_SNAPSHOT_SLOT_REPORTS`, comma-separated ids) · null = every snapshot report */
   readonly snapshotSlotReports: readonly string[] | null;
 };
@@ -104,6 +106,12 @@ function roundsFromEnv(): readonly RoundHour[] {
   return parsed.rounds;
 }
 
+function lookaheadDaysFromEnv(): number | null {
+  const parsed = parseLookaheadDays(process.env.HOTELTIME_LOOKAHEAD_DAYS);
+  if ('error' in parsed) throw new ConfigError(parsed.error);
+  return parsed.days;
+}
+
 function snapshotSlotReportsFromEnv(): readonly string[] | null {
   const raw = process.env.HOTELTIME_SNAPSHOT_SLOT_REPORTS;
   if (raw === undefined || raw.trim() === '') return null;
@@ -127,6 +135,7 @@ export function loadConfig(): Config {
     goLive: goLiveFromEnv(),
     snapshotSlots: snapshotSlotsFromEnv(),
     rounds: roundsFromEnv(),
+    lookaheadDays: lookaheadDaysFromEnv(),
     snapshotSlotReports: snapshotSlotReportsFromEnv(),
   };
 }
