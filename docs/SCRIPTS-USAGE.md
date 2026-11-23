@@ -181,13 +181,18 @@ From 2026-11-18 HotelTime is pulled in up to six **extraction rounds** a day (AD
 | Warnings | `_run.json` holds `blankRows` = rows whose guest name or room type is blank (a warning, not a failure). Discord, logs and `status` show row counts and dates only, never guest names |
 | By hand | `exporter export --report arrival-ahead --round HH` — one file, today..+N (N from `HOTELTIME_LOOKAHEAD_DAYS`, or 14 when it is empty). Works while rounds are off and outside the round's time window; it uses the same one login |
 
-**Roll-out (do these in order — the feature stays off until step 5):**
+**Roll-out (done in this order — the feature stays off until step 5). Status 2026-11-23: all five steps are done and the look-ahead report is on at the Ubuntu machine with `HOTELTIME_LOOKAHEAD_DAYS=14`.**
 
 1. Deploy the code with `HOTELTIME_LOOKAHEAD_DAYS` empty (nothing changes by itself).
 2. On the Ubuntu machine run `exporter export --report arrival-ahead --round HH` once by hand.
 3. Check the file in Silver: header, row count, `range` in `_manifest.json` = today..+N.
-4. Ask the Gold side to confirm that ingest accepts a range file that crosses today (Gold classifies files by header, and `arrival-ahead` has the same header as `arrival-period`, so it is unrecognised until `hoteltime-schema` supports it — **not yet tested on the Gold side**).
-5. The owner decides the final N (7 / 14 / 30), puts it in `exporter/.env` as `HOTELTIME_LOOKAHEAD_DAYS=14`, and the next round takes it.
+4. Gold confirmed (as reported by the `hoteltime-schema` side): it supports the report (Silver table `hoteltime_arrival_ahead`; Gold `ht_gold_arrival` reads `source='arrival_ahead'`) and ingested a range file that crosses today on production on 2026-11-23 (48 rows). Ingest classifies files by header and `arrival-ahead` has the same header as `arrival-period`, so check again if the Gold side is rebuilt or the columns change.
+5. The owner decides the final N (7 / 14 / 30), puts it in `exporter/.env` as `HOTELTIME_LOOKAHEAD_DAYS=14`, and the next round takes it (chosen: 14).
+
+**Things to expect:**
+
+- **Switching it off later** (clear `HOTELTIME_LOOKAHEAD_DAYS` in `.env`): `verify_coverage` on the `hoteltime-schema` side warns that `arrival-ahead` is "stale" once its latest file is too old, because it treats the report as a snapshot (the threshold is that side's own setting — 9 hours as reported by it on 2026-11-23, and it may change). This is expected, not an error. The same warning shows between the single manual run (step 2) and the moment N is set (step 5).
+- **A manual run** (`exporter export --report arrival-ahead --round HH`) only writes the file to Bronze. It does not start the data pipeline into Silver: wait for the next `run_daily.py` run, or press Run Now on `ht_pipeline_daily`.
 
 #### Snapshot slots
 

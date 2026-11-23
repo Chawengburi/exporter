@@ -1,6 +1,6 @@
 # HotelTime takes a look-ahead arrival report (today..+N) as its own snapshot report, kept local and never uploaded
 
-2026-11-23 · **Decided 2026-11-23; implemented in code the same day, switched off (`HOTELTIME_LOOKAHEAD_DAYS` empty) until the roll-out check below is done.** Context: the web-app wants to show guests who are about to arrive (guest name, room type, room number, nights). Silver only held arrival files up to today, so Gold built future rows from the stay table (no guest name, no room type, room number on 9 of 363 rows). A read-only recon on 2026-11-23 showed HotelTime accepts future dates and returns guest name and room type on every row; the room number is filled only up to about +7 days (at +14 and +30 it is empty — normal for a PMS).
+2026-11-23 · **Decided 2026-11-23; implemented in code the same day, rolled out and switched on at the Ubuntu machine with `HOTELTIME_LOOKAHEAD_DAYS=14` (checked in Silver and Gold on 2026-11-23).** Context: the web-app wants to show guests who are about to arrive (guest name, room type, room number, nights). Silver only held arrival files up to today, so Gold built future rows from the stay table (no guest name, no room type, room number on 9 of 363 rows). A read-only recon on 2026-11-23 showed HotelTime accepts future dates and returns guest name and room type on every row; the room number is filled only up to about +7 days (at +14 and +30 it is empty — normal for a PMS).
 
 **Decision:** add a new report `arrival-ahead` — same page as `arrival-period` (`GuestArrivalsTerm.aspx`), but a **snapshot report** (`family: 'picture'`) whose data window is today..+N (`dataWindow`), taken in **every extraction round** that is switched on, as **one file** per round (no monthly chunks).
 
@@ -16,5 +16,5 @@
 **Consequences**
 - ADR-0003 is not touched. `arrival-period`, the rounds (ADR-0014) and the uploader leg are unchanged.
 - Values for future days change (guests move or cancel) — the file is never a ledger; a row missing from the latest file means moved/cancelled.
-- Not verified yet: Ubuntu behaviour and Gold ingest of a range file that crosses today (the Gold side has not tested it). Roll out with N unset, run once by hand, check Silver, then set N.
+- Verified 2026-11-23 on the Ubuntu machine, and reported by the `hoteltime-schema` side for production: Gold ingests a range file that crosses today (48 rows). It was rolled out with N unset, run once by hand, checked in Silver, then N was set to 14. Switching the report off later makes `verify_coverage` on the `hoteltime-schema` side warn "stale" once the latest file is too old (9 hours as reported by that side on 2026-11-23; its threshold may change) — expected for a snapshot report.
 - Out of scope: freshness of today's check-in status (comes from the `in-house-guests` / `arrivals` snapshots every round); changing round frequency is a separate decision.
