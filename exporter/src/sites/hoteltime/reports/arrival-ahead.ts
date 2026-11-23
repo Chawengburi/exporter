@@ -1,6 +1,6 @@
 import type { Page } from 'playwright';
 import { addDays, formatDMY, type DateRange } from '../../../core/order.ts';
-import { LOOKAHEAD_DAYS_ENV, parseLookaheadDays } from '../../../core/run-planner.ts';
+import { LOOKAHEAD_DAYS_ENV, LOOKAHEAD_REPORT_ID, parseLookaheadDays } from '../../../core/run-planner.ts';
 import { gridRowCount, setDateRange } from '../webforms.ts';
 import { arrivalPeriod } from './arrival-period.ts';
 import type { Report } from './_types.ts';
@@ -12,7 +12,6 @@ import type { Report } from './_types.ts';
  * ช่วงต้องคงที่ทุกรอบ (วันนี้ถึง +N เมื่อ N เท่ากัน) ไม่หดกลางทาง ไม่ซอยก้อน — ข้ามเดือนก็ยังไฟล์เดียว · ชนเพดานแถว = ล้มดัง ๆ (`rowCapFatal`)
  * ด่านวันที่ตรวจคอลัมน์ Arrival ทั้งช่วงแบบ arrival-period (ไม่มีค่าเผื่อขอบ) — จับ "filter ไม่ทำงาน" ได้
  */
-const REPORT_ID = 'arrival-ahead';
 
 /** N ตั้งต้นของการสั่งมือตอนยังไม่ได้ตั้ง `HOTELTIME_LOOKAHEAD_DAYS` (ผังรอบไม่ใช้ค่านี้ — ไม่ตั้ง = ปิด) */
 export const DEFAULT_LOOKAHEAD_DAYS = 14;
@@ -36,7 +35,8 @@ const lookaheadWindowOfToday = (day: Date): DateRange => lookaheadWindow(day, cu
 
 export const arrivalAhead: Report = {
   ...arrivalPeriod,
-  id: REPORT_ID,
+  id: LOOKAHEAD_REPORT_ID,
+  lookahead: true,
   label: 'Arrival look-ahead (today to +N days)',
   dailyOnly: true,
   family: 'picture',
@@ -50,7 +50,7 @@ export const arrivalAhead: Report = {
   requestWindow: lookaheadWindowOfToday,
 
   async applyFilters(page: Page, range: DateRange): Promise<void> {
-    await setDateRange(page, 'ctl00$pc$dtrTerm', formatDMY(range.from), formatDMY(range.to), arrivalPeriod.allowedControls, REPORT_ID);
+    await setDateRange(page, 'ctl00$pc$dtrTerm', formatDMY(range.from), formatDMY(range.to), arrivalPeriod.allowedControls, LOOKAHEAD_REPORT_ID);
   },
 
   async hasResults(page: Page): Promise<boolean> {

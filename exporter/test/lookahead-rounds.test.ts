@@ -10,7 +10,7 @@ import {
 } from '../src/core/run-planner.ts';
 import { formatISO, utcDate } from '../src/core/order.ts';
 import { ConfigError, loadConfig } from '../src/sites/hoteltime/config.ts';
-import { REPORTS, plannedReports, toPlanned } from '../src/sites/hoteltime/reports/index.ts';
+import { REPORTS, plannedOutsideRounds, plannedReports, toPlanned } from '../src/sites/hoteltime/reports/index.ts';
 
 /** รายงานล่วงหน้า ticket 02 (ADR-0015) — seam 1: ตัวอ่านตัวแปร `HOTELTIME_LOOKAHEAD_DAYS` + ผังรอบ */
 
@@ -103,4 +103,15 @@ test('ช่วงคงที่ทุกรอบ: ช่วงของ arriv
   const w = real.requestWindow!(day);
   assert.equal(formatISO(w.from), '2026-11-18');
   assert.equal(formatISO(w.to), '2026-12-02');
+});
+
+test('ธง lookahead ประกาศชัดเจนในนิยามรายงาน (ไม่อนุมานจาก requestWindow) · จุดกรองจุดเดียว plannedOutsideRounds ใช้ร่วมกับ plannedReports', () => {
+  assert.deepEqual(REPORTS.filter((r) => r.lookahead === true).map((r) => r.id), ['arrival-ahead']);
+  // รายงานที่มี requestWindow แต่ไม่ประกาศ lookahead จะไม่ถูกปฏิบัติเป็นรายงานล่วงหน้า
+  const real = REPORTS.find((r) => r.id === 'arrival-ahead')!;
+  const withoutFlag = { ...real, id: 'x', lookahead: undefined };
+  assert.equal(toPlanned(withoutFlag).lookahead, undefined);
+  assert.ok(!plannedOutsideRounds().some((r) => r.id === 'arrival-ahead'));
+  assert.deepEqual(plannedOutsideRounds().map((r) => r.id), plannedReports().map((r) => r.id));
+  assert.deepEqual(plannedOutsideRounds([real]), []); // ส่งรายการที่ขอเองก็ถูกกรองเหมือนกัน
 });

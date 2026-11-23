@@ -32,6 +32,8 @@ export type PlannedReport = {
 };
 
 export const LOOKAHEAD_DAYS_ENV = 'HOTELTIME_LOOKAHEAD_DAYS';
+/** id ของรายงานล่วงหน้า — ที่เดียว ใช้ทั้งนิยามรายงานและ `exporter status` (กัน id สองที่เพี้ยนจากกัน) */
+export const LOOKAHEAD_REPORT_ID = 'arrival-ahead';
 export const LOOKAHEAD_DAYS_MAX = 60;
 
 /**
@@ -47,9 +49,14 @@ export function parseLookaheadDays(raw: string | undefined): { readonly days: nu
   return { days: n };
 }
 
+/** ตัดรายงานล่วงหน้าออก — สำหรับผู้วางแผนที่ไม่ใช่รอบดึง (รอบรายวันเดิม, snapshot slot, baseline) และ `exporter status` ส่วน "snapshot N/N" */
+export function withoutLookahead(reports: readonly PlannedReport[]): readonly PlannedReport[] {
+  return reports.filter((r) => r.lookahead !== true);
+}
+
 /** รายการรายงานสำหรับผู้วางแผนรอบ: รายงานล่วงหน้าอยู่เมื่อเปิด (`days` ไม่ใช่ null) เท่านั้น — ปิดอยู่ = ตัดออกทั้งหมด */
 export function withLookahead(reports: readonly PlannedReport[], days: number | null): readonly PlannedReport[] {
-  return days === null ? reports.filter((r) => r.lookahead !== true) : reports;
+  return days === null ? withoutLookahead(reports) : reports;
 }
 
 /**

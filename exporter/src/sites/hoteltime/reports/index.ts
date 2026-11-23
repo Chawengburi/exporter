@@ -52,7 +52,7 @@ import { inHouseGuests } from './in-house-guests.ts';
 import { reservationsCancelled } from './reservations-cancelled.ts';
 import { reservationsRateCode } from './reservations-ratecode.ts';
 import { reservationsSearch } from './reservations-search.ts';
-import { EVENING_REFRESH_HOUR, type PlannedReport } from '../../../core/run-planner.ts';
+import { EVENING_REFRESH_HOUR, withoutLookahead, type PlannedReport } from '../../../core/run-planner.ts';
 import type { Report } from './_types.ts';
 
 /** ทะเบียนรายงานทั้งหมด — เพิ่มรายงานใหม่โดยเพิ่มไฟล์แล้วมาต่อท้ายที่นี่ */
@@ -141,10 +141,12 @@ export const toPlanned = (r: Report): PlannedReport => ({
   id: r.id,
   family: r.family,
   period: r.period,
-  ...(r.requestWindow !== undefined ? { lookahead: true as const } : {}),
+  ...(r.lookahead === true ? { lookahead: true as const } : {}),
   ...(r.family === 'picture' ? { refreshAtHour: EVENING_REFRESH_HOUR } : {}),
 });
-export function plannedReports(): PlannedReport[] {
-  // รายงานล่วงหน้าไม่รวม: ไม่นับใน "snapshot N/N" ของ status (ADR-0015) — status แสดงเป็นบรรทัดแยก
-  return REPORTS.map(toPlanned).filter((r) => r.lookahead !== true);
-}
+/**
+ * รายการสำหรับผู้วางแผนที่**ไม่ใช่รอบดึง** (รอบรายวันเดิม, snapshot slot, baseline) และ `exporter status` — ไม่รวมรายงานล่วงหน้า (ADR-0015: ไม่นับใน
+ * "snapshot N/N" status แสดงเป็นบรรทัดแยก) · จุดเดียวที่กรอง
+ */
+export const plannedOutsideRounds = (reports: readonly Report[] = REPORTS): PlannedReport[] => [...withoutLookahead(reports.map(toPlanned))];
+export const plannedReports = (): PlannedReport[] => plannedOutsideRounds();

@@ -12,7 +12,7 @@ import {
   partitionForRunAll,
   resolveRunPlan,
   parseISODate,
-    type DateRange,
+  type DateRange,
   type RunKind,
 } from '../../core/order.ts';
 import { dailyFolder, dataFileName, latestPointer, pictureFileName, runFolder } from '../../core/placement.ts';
@@ -46,7 +46,7 @@ import {
 } from './webforms.ts';
 import { DAY_MINUTES, fetchSplitTable, type WindowFetcher } from '../../core/scraped-split.ts';
 import { ScrapeError, scrapedTableToRawFile } from '../../core/scraped-table.ts';
-import { REPORTS, findReport, reportIds, toPlanned } from './reports/index.ts';
+import { REPORTS, findReport, plannedOutsideRounds, reportIds, toPlanned } from './reports/index.ts';
 import type { Report } from './reports/_types.ts';
 
 export type ExportOptions = {
@@ -625,7 +625,7 @@ async function runDaily(opts: ExportOptions, cfg: Config, requested: readonly Re
   const now = new Date();
   const today = formatISO(thaiToday(now));
   const folderOf = (date: Date) => dailyFolder(cfg.dataDir, 'hoteltime', { from: date, to: date });
-  const planned = withLookahead(requested.map(toPlanned), null); // รายงานล่วงหน้าไม่อยู่ในรอบรายวันเดิม (ADR-0015)
+  const planned = plannedOutsideRounds(requested); // รายงานล่วงหน้าไม่อยู่ในรอบรายวันเดิม (ADR-0015)
   const warnings: string[] = [];
   let plan: WorkPlan;
   if (opts.date !== undefined) {
@@ -743,10 +743,11 @@ async function runSnapshotSlot(opts: ExportOptions, cfg: Config, requested: read
   const date = parseISODate(today)!;
   const outDir = dailyFolder(cfg.dataDir, 'hoteltime', { from: date, to: date });
   const warnings: string[] = [];
-  let state = storeStateFrom([], withLookahead(REPORTS.map(toPlanned), null));
+  const catalog = plannedOutsideRounds();
+  let state = storeStateFrom([], catalog);
   try {
     const record = await readRunRecord(outDir);
-    if (record !== null) state = storeStateFrom([{ day: today, record }], withLookahead(REPORTS.map(toPlanned), null));
+    if (record !== null) state = storeStateFrom([{ day: today, record }], catalog);
   } catch (err) {
     // an unreadable _run.json must not stop the round — the files already there stay (ADR-0005) and this round simply plans every report again
     warnings.push(`could not read the _run.json of ${today} (${(err as Error).message.split('\n')[0]}) — treating the slot as not taken yet`);
@@ -754,7 +755,7 @@ async function runSnapshotSlot(opts: ExportOptions, cfg: Config, requested: read
   if (!opts.json) for (const w of warnings) console.error(chalk.yellow(`⚠ ${w}`));
   const plan = planSnapshotSlot({
     now,
-    reports: withLookahead(requested.map(toPlanned), null),
+    reports: plannedOutsideRounds(requested),
     state,
     slot,
     ...(cfg.snapshotSlotReports !== null ? { only: cfg.snapshotSlotReports } : {}),
@@ -915,7 +916,7 @@ async function runRound(opts: ExportOptions, cfg: Config, many: boolean): Promis
  */
 async function runBaseline(opts: ExportOptions, cfg: Config, requested: readonly Report[]): Promise<number> {
   const plan = resolveRunPlan(opts, thaiToday()); // flag ที่ขัดกัน / ช่วงถึงวันนี้ โยนจากที่นี่
-  const { items, skipped } = planBaselineRun({ reports: withLookahead(requested.map(toPlanned), null), from: formatISO(plan.range.from), to: formatISO(plan.range.to) });
+  const { items, skipped } = planBaselineRun({ reports: plannedOutsideRounds(requested), from: formatISO(plan.range.from), to: formatISO(plan.range.to) });
   if (items.length === 0) {
     throw new ConfigError(`"${requested.map((r) => r.id).join(', ')}" — ${skipped[0]?.reason ?? 'ไม่มีรายงานตามวันให้ทำ baseline'}`);
   }

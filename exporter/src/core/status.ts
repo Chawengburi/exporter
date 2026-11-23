@@ -6,7 +6,7 @@ import { parse as parseDotenv } from 'dotenv';
 import { addDaysISO, formatISO, utcDate } from './order.ts';
 import { SITE_LABEL } from './placement.ts';
 import {
-  CATCH_UP_CAP_DAYS, GO_LIVE_ENV, PERIOD_CLOSE_SUFFIX, PERIOD_CLOSE_WINDOW_DAYS, isDone, lastDueDay, parseGoLive, parseRefreshId, parseRoundId, ROUND_HOURS, roundId, SNAPSHOT_SLOTS, periodCloseRetryUntil, planDailyRun, refreshId, slotRefreshId,
+  CATCH_UP_CAP_DAYS, GO_LIVE_ENV, LOOKAHEAD_REPORT_ID, PERIOD_CLOSE_SUFFIX, PERIOD_CLOSE_WINDOW_DAYS, isDone, lastDueDay, parseGoLive, parseRefreshId, parseRoundId, ROUND_HOURS, roundId, SNAPSHOT_SLOTS, periodCloseRetryUntil, planDailyRun, refreshId, slotRefreshId,
   stateKey, storeStateFrom, type DayStatus, type PlannedItem, type PlannedReport,
 } from './run-planner.ts';
 import { isLoginFailureReason, loginFailureDetail, type RunRecord } from './run-record.ts';
@@ -156,7 +156,6 @@ export type LookaheadView = {
   /** ครั้งล่าสุดที่สำเร็จ (ถ้าผลล่าสุดล้ม) — ไม่เคยสำเร็จเลย = null */
   readonly lastOk: Extract<LookaheadResult, { state: 'ok' }> | null;
 };
-export const LOOKAHEAD_REPORT_ID = 'arrival-ahead';
 
 export type StatusLine = { readonly level: StatusLevel; readonly text: string };
 export type StatusSection = { readonly title: string; readonly lines: readonly StatusLine[] };
@@ -414,23 +413,25 @@ function siteView(
 
 /** ผลล่าสุดของรายงานล่วงหน้าจากทุกโฟลเดอร์ที่อ่านได้ — เทียบด้วยเวลาที่รอบจบ (`finishedAt`) · ไม่ผ่านแคตตาล็อก/`storeStateFrom` จึงไม่เข้าสถานะวันหรือ N/N */
 function lookaheadOf(folders: readonly { readonly day: string; readonly record: RunRecord }[]): LookaheadView | null {
-  const results: (LookaheadResult & { readonly ms: number })[] = [];
+  const found: { readonly ms: number; readonly result: LookaheadResult }[] = [];
   for (const { record } of folders) {
     for (const [id, o] of Object.entries(record.reports)) {
       const parsed = parseRoundId(id);
       if (parsed === null || parsed.base !== LOOKAHEAD_REPORT_ID) continue;
       const when = new Date(o.finishedAt);
       const at = `${formatISO(thaiToday(when))} ${pad2(thaiClock(when).hour)}:${pad2(thaiClock(when).minute)}`;
-      results.push(o.status === 'ok'
-        ? { state: 'ok', at, round: parsed.round, rows: o.rows, range: o.range, ms: when.getTime() }
-        : { state: 'failed', at, round: parsed.round, error: o.error.split('\n')[0] ?? '', ms: when.getTime() });
+      found.push({
+        ms: when.getTime(),
+        result: o.status === 'ok'
+          ? { state: 'ok', at, round: parsed.round, rows: o.rows, range: o.range }
+          : { state: 'failed', at, round: parsed.round, error: o.error.split('\n')[0] ?? '' },
+      });
     }
   }
-  if (results.length === 0) return null;
-  results.sort((a, b) => b.ms - a.ms);
-  const strip = ({ ms: _ms, ...r }: LookaheadResult & { readonly ms: number }): LookaheadResult => r as LookaheadResult;
-  const okOnly = results.find((r) => r.state === 'ok');
-  return { latest: strip(results[0]!), lastOk: okOnly === undefined ? null : (strip(okOnly) as Extract<LookaheadResult, { state: 'ok' }>) };
+  if (found.length === 0) return null;
+  const newestFirst = found.sort((a, b) => b.ms - a.ms).map((f) => f.result);
+  const lastOk = newestFirst.find((r): r is Extract<LookaheadResult, { state: 'ok' }> => r.state === 'ok') ?? null;
+  return { latest: newestFirst[0]!, lastOk };
 }
 
 /** บรรทัดแยกของรายงานล่วงหน้า — ระดับ info เสมอ: ไม่เปลี่ยน verdict/ปัญหา/สิ่งที่ต้องทำ (ADR-0015) */

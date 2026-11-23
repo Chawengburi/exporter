@@ -84,6 +84,11 @@ export type Report = {
    */
   readonly rowCapFatal?: boolean;
   /**
+   * true = **รายงานล่วงหน้า** (ADR-0015 · CONTEXT.md) — ทำงานเฉพาะในรอบดึงเมื่อเปิดด้วย `HOTELTIME_LOOKAHEAD_DAYS` (หรือสั่งมือ `--report <id> --round HH`) ·
+   * ผู้วางแผนอื่นและ `exporter status` ส่วน "snapshot N/N" ไม่เห็น · ประกาศชัดเจน ไม่อนุมานจากฟิลด์อื่น
+   */
+  readonly lookahead?: true;
+  /**
    * true = ไฟล์ของรายงานนี้ไม่ส่ง uploader ทุกรอบ รวมรอบ 23:00 (ธงระดับรายงาน ADR-0015) — manifest ติดธง `neverUpload` และนโยบายอัปโหลดอ่านธงนี้ ·
    * ใช้กับรายงานล่วงหน้า: กฎ supersede ของ uploader อาจให้ไฟล์ช่วง วันนี้ถึง +N ไปทับไฟล์ `arrival-period` ของเมื่อวาน
    */
