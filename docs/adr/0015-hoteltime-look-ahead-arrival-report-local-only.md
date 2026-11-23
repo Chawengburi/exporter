@@ -16,5 +16,5 @@
 **Consequences**
 - ADR-0003 is not touched. `arrival-period`, the rounds (ADR-0014) and the uploader leg are unchanged.
 - Values for future days change (guests move or cancel) — the file is never a ledger; a row missing from the latest file means moved/cancelled.
-- Verified 2026-11-23 on the Ubuntu machine and production: the Gold side (`hoteltime-schema`) ingests a range file that crosses today (48 rows). It was rolled out with N unset, run once by hand, checked in Silver, then N was set to 14. Switching the report off later makes `verify_coverage` warn "stale" after 9 hours — expected for a snapshot report.
+- Verified 2026-11-23 on the Ubuntu machine, and reported by the `hoteltime-schema` side for production: Gold ingests a range file that crosses today (48 rows). It was rolled out with N unset, run once by hand, checked in Silver, then N was set to 14. Switching the report off later makes `verify_coverage` on the `hoteltime-schema` side warn "stale" once the latest file is too old (9 hours as reported by that side on 2026-11-23; its threshold may change) — expected for a snapshot report.
 - Out of scope: freshness of today's check-in status (comes from the `in-house-guests` / `arrivals` snapshots every round); changing round frequency is a separate decision.
