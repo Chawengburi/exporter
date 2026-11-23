@@ -50,6 +50,10 @@ After `npm link`, `exporter` can be called from any folder · output files are a
 
 `exporter export --report all --round 12` runs one of six rounds (04, 08, 12, 16, 20, 23 Thai time): all snapshot reports + today's per-day reports (an incomplete version, re-fetched every round) + capped catch-up of missing days; rounds 08 and 12 also re-take **yesterday's** per-day reports. One browser session and one login per round (a lost session logs in again once; a transient failure retries on a fresh browser). Results are recorded under `<report>@round-<HH>` (`@redo-<HH>` for yesterday's re-take). `HOTELTIME_ROUNDS` in `.env` lists the hours that are on (default `08,12,16,20,23`; `off` = none); a round that is off or outside its time window exits at once without logging in. Files carry an `upload` flag in `_manifest.json`: only the 23:00 snapshot and per-day files of finished days are sent by `exporter upload` (the 12:00 round runs it). Not used by Windmill until the new schedule is deployed — see `docs/UBUNTU-UPDATE-2026-11-18.md`.
 
+### Look-ahead arrival report `arrival-ahead` (HotelTime — ADR-0015)
+
+A snapshot report of the arrival page for **today..+N days**, taken once in every round that is on, one file per round, **local only** (never uploaded). Off unless `HOTELTIME_LOOKAHEAD_DAYS` in `.env` is a number `1`-`60` (empty = off; `.env.example` ships it empty). Try it by hand first: `exporter export --report arrival-ahead --round 12`. Shown on its own line in `exporter status`. Roll-out steps and details: `docs/SCRIPTS-USAGE.md` ("Look-ahead arrival report").
+
 ### Daily run `--daily` (both Sites — ADR-0008/0009)
 
 - **Per-day reports** (HotelTime 25 · FoodStory 42 — ledgers/totals for a single day) ask the Site for one **data day** at a time, giving one file per day

@@ -189,7 +189,8 @@ program
     if (opts.daily && opts.date === undefined && opts.snapshotSlot === undefined) await notifyAfterDaily('hoteltime-daily', opts.json);
     // extra snapshot round: alert only when every report of the round failed — no summary, no status evaluation (ADR-0013)
     // extraction round (ADR-0014): same rule — one alert only when every report of the round failed
-    if (opts.round !== undefined) {
+    // เฉพาะรอบเต็ม (`--report all`): การสั่งมือรายงานล่วงหน้าใบเดียว (ADR-0015) ไม่เพิ่มการแจ้งใหม่ — คนสั่งเห็นผลบนจออยู่แล้ว และ "ทุกรายงานล้ม" ของใบเดียวไม่ใช่รอบล้มทั้งชุด
+    if (opts.round !== undefined && opts.report === 'all') {
       const { describeNotify, notifyRound } = await import('./notify.ts');
       const line = describeNotify(await notifyRound({ slot: opts.round }));
       if (opts.json) console.error(line);

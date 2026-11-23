@@ -83,3 +83,38 @@ test('applyUploadPolicy: ไม่มีอะไรเปลี่ยน = ไ�
   await applyUploadPolicy(folder, [], '2026-11-18', '12');
   assert.equal((await stat(target)).mtime.getTime(), old.getTime());
 });
+
+/** รายงานล่วงหน้า ticket 03 (ADR-0015, seam 2): ธง never-upload ระดับรายงาน — ขาอัปโหลดไม่ส่งไฟล์ arrival-ahead ทุกรอบ รวม 23:00 */
+
+const ahead = (takenAt: string, over: Partial<RawFileEntry> = {}) =>
+  snapshot(takenAt, { report: 'arrival-ahead', range: { from: '2026-11-18', to: '2026-12-02' }, neverUpload: true, ...over });
+
+test('🔴 รายงานที่ติดธง neverUpload: นโยบายคือ skip ทุกรอบ รวมรอบ 23 ที่ snapshot ปกติถูกส่ง', () => {
+  for (const round of ['04', '08', '12', '16', '20', '23']) {
+    assert.equal(uploadPolicyFor(ahead(`2026-11-18T${round}:00:05+07:00`), TODAY, round), 'skip', `รอบ ${round}`);
+  }
+  // snapshot อื่นของรอบ 23 ยังส่งเหมือนเดิม · per-day ของเมื่อวานยังส่งเหมือนเดิม
+  assert.deepEqual(uploadPolicyFor(snapshot('2026-11-18T23:00:05+07:00', { report: 'arrivals' }), TODAY, '23'), { notBefore: '2026-11-19' });
+  assert.equal(uploadPolicyFor(perDay('2026-11-17', { report: 'arrival-period' }), TODAY, '12'), undefined);
+});
+
+test('🔴 selectPendingFiles ไม่ส่งไฟล์ที่ติดธง neverUpload แม้ไม่มีนโยบายต่อไฟล์ (ไฟล์ที่ไม่ผ่านการประทับของรอบ)', () => {
+  const noPolicy = ahead('2026-11-18T23:00:05+07:00', { file: 'ahead.xlsx' });
+  const normal = snapshot('2026-11-10T12:00:05+07:00', { file: 'n.xlsx' });
+  assert.deepEqual(selectPendingFiles([noPolicy, normal], TODAY).map((f) => f.file), ['n.xlsx']);
+});
+
+test('applyUploadPolicy + ขาอัปโหลดจริง: โฟลเดอร์ที่มี arrival-ahead ทุกรอบรวม 23:00 → ไม่เหลือไฟล์ให้ส่งเลย · snapshot อื่นของ 23:00 ยังส่ง', async () => {
+  const folder = await mkdtemp(path.join(tmpdir(), 'upload-ahead-'));
+  const entries = [
+    ahead('2026-11-18T12:00:05+07:00', { file: 'ahead-12.xlsx' }),
+    ahead('2026-11-18T23:00:05+07:00', { file: 'ahead-23.xlsx' }),
+    snapshot('2026-11-18T23:00:06+07:00', { file: 'arrivals-23.xlsx', report: 'arrivals' }),
+  ];
+  await recordPublished(folder, entries, [], new Set(entries.map((e) => e.file)), '2026-11-18T16:00:00.000Z');
+  await applyUploadPolicy(folder, entries.map((e) => e.file), '2026-11-18', '23');
+  const files = (JSON.parse(await readFile(path.join(folder, RAW_MANIFEST), 'utf8')) as RawManifest).files;
+  assert.equal(files.find((f) => f.file === 'ahead-23.xlsx')!.upload, 'skip');
+  assert.deepEqual(files.find((f) => f.file === 'arrivals-23.xlsx')!.upload, { notBefore: '2026-11-19' });
+  assert.deepEqual(selectPendingFiles(files, '2026-11-19').map((f) => f.file), ['arrivals-23.xlsx']);
+});

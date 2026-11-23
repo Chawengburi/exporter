@@ -28,6 +28,11 @@ export type ChunkVerdict = {
   readonly sheets: readonly NamedSheet[];
   /** ช่วงวันที่ที่พบจริงในไฟล์ (จากคอลัมน์วันที่ของรายงาน) */
   readonly actualSpan: { readonly from: Date; readonly to: Date };
+  /**
+   * จำนวนแถวที่คอลัมน์สำคัญ (`Report.warnIfBlank`) ว่างอย่างน้อยหนึ่งคอลัมน์ — เตือนอย่างเดียว ไม่ทำให้ไฟล์ล้ม · ไม่ใส่ = รายงานนี้ไม่ได้ขอให้นับ
+   * · เก็บเป็นจำนวนเท่านั้น ห้ามเก็บค่าเซลล์ (ชื่อแขก)
+   */
+  readonly blankRows?: number;
 };
 
 /**

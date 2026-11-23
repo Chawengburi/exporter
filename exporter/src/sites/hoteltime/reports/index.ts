@@ -8,6 +8,7 @@ import {
 } from './accounting-documents.ts';
 import { accountingReportDetail, accountingReportSummary } from './accounting-report.ts';
 import { accountsOpen } from './accounts-open.ts';
+import { arrivalAhead } from './arrival-ahead.ts';
 import { arrivalPeriod } from './arrival-period.ts';
 import { depositToUse, unpaidInvoicesByDate } from './balances.ts';
 import { depositJournal } from './deposit-journal.ts';
@@ -51,7 +52,7 @@ import { inHouseGuests } from './in-house-guests.ts';
 import { reservationsCancelled } from './reservations-cancelled.ts';
 import { reservationsRateCode } from './reservations-ratecode.ts';
 import { reservationsSearch } from './reservations-search.ts';
-import { EVENING_REFRESH_HOUR, type PlannedReport } from '../../../core/run-planner.ts';
+import { EVENING_REFRESH_HOUR, withoutLookahead, type PlannedReport } from '../../../core/run-planner.ts';
 import type { Report } from './_types.ts';
 
 /** ทะเบียนรายงานทั้งหมด — เพิ่มรายงานใหม่โดยเพิ่มไฟล์แล้วมาต่อท้ายที่นี่ */
@@ -122,6 +123,8 @@ export const REPORTS: readonly Report[] = [
   vatOutput,
   // ticket 04 — ภาษีแยกรายอัตรา (Silver เท่านั้น ยังไม่มีตาราง Gold อ่าน)
   vatInspection,
+  // ADR-0015 — รายงานล่วงหน้า (วันนี้ถึง +N) เก็บ local อย่างเดียว
+  arrivalAhead,
 ];
 
 export function findReport(id: string): Report | undefined {
@@ -138,8 +141,12 @@ export const toPlanned = (r: Report): PlannedReport => ({
   id: r.id,
   family: r.family,
   period: r.period,
+  ...(r.lookahead === true ? { lookahead: true as const } : {}),
   ...(r.family === 'picture' ? { refreshAtHour: EVENING_REFRESH_HOUR } : {}),
 });
-export function plannedReports(): PlannedReport[] {
-  return REPORTS.map(toPlanned);
-}
+/**
+ * รายการสำหรับผู้วางแผนที่**ไม่ใช่รอบดึง** (รอบรายวันเดิม, snapshot slot, baseline) และ `exporter status` — ไม่รวมรายงานล่วงหน้า (ADR-0015: ไม่นับใน
+ * "snapshot N/N" status แสดงเป็นบรรทัดแยก) · จุดเดียวที่กรอง
+ */
+export const plannedOutsideRounds = (reports: readonly Report[] = REPORTS): PlannedReport[] => [...withoutLookahead(reports.map(toPlanned))];
+export const plannedReports = (): PlannedReport[] => plannedOutsideRounds();

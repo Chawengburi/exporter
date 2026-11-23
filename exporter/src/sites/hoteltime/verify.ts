@@ -1,4 +1,4 @@
-import { ROW_CAP, formatDMY, type DateRange } from '../../core/order.ts';
+import { ROW_CAP, formatDMY, splitRange, type DateRange } from '../../core/order.ts';
 import { VerifyError, type ChunkVerdict } from '../../core/verify.ts';
 import { parseCellDate, readSheets, requireColumn, type Sheet } from '../../core/xlsx.ts';
 import type { Report } from './reports/_types.ts';
@@ -19,6 +19,33 @@ import type { Report } from './reports/_types.ts';
  */
 export class RowCapError extends VerifyError {
   override readonly name = 'RowCapError';
+}
+
+/**
+ * ก้อนที่ชนเพดานจะผ่าครึ่งอย่างไร — รายงานที่ต้องได้ไฟล์เดียวต่อรอบ (`rowCapFatal`) ล้มดัง ๆ แทน · ช่วงวันเดียวผ่าไม่ได้ก็ล้ม
+ */
+export function rowCapHalves(report: Report, range: DateRange): [DateRange, DateRange] {
+  const label = `${formatDMY(range.from)}–${formatDMY(range.to)}`;
+  if (report.rowCapFatal === true) {
+    throw new RowCapError(
+      `รายงาน "${report.id}" ช่วง ${label} ชนเพดาน ${ROW_CAP} แถว — ข้อมูลถูกตัด ไม่ผ่าครึ่งเพราะรายงานนี้ต้องได้ไฟล์เดียวต่อรอบ\n` +
+        `  ลดจำนวนวันล่วงหน้า (HOTELTIME_LOOKAHEAD_DAYS) หรือเรียกคนมาตัดสินใจ`,
+    );
+  }
+  const halves = splitRange(range);
+  if (halves === null) {
+    throw new RowCapError(
+      `ช่วง ${label} เหลือวันเดียวแล้วแต่ยังชนเพดาน ${ROW_CAP} แถว\n` +
+        `  ดึงข้อมูลวันนี้ให้ครบด้วยเครื่องมือนี้ไม่ได้ ต้องเรียกคนมาตัดสินใจ`,
+    );
+  }
+  return halves;
+}
+
+/** แถวที่ช่องใดช่องหนึ่งของคอลัมน์ที่ระบุว่าง (หลัง trim) — นับแถวละครั้ง · คอลัมน์ที่ไม่มีในไฟล์ = ล้ม (หัวตารางผ่านด่านแล้วจึงไม่ควรเกิด) */
+function countBlankRows(sheet: Sheet, columns: readonly string[]): number {
+  const idx = columns.map((c) => requireColumn(sheet, c));
+  return sheet.rows.filter((r) => idx.some((i) => (r[i] ?? '').trim() === '')).length;
 }
 
 function sameList(a: readonly string[], b: readonly string[]): boolean {
@@ -64,6 +91,8 @@ export function verifyChunk(
   // หัวตารางเท่ากันทุกชีตแล้ว ตำแหน่งคอลัมน์จึงใช้ร่วมกันได้ — ด่านที่เหลือตรวจแถวของทุกชีตรวมกัน
   const sheet: Sheet = { header: sheetsWithRows[0]!.header, rows: sheetsWithRows.flatMap((s) => s.rows) };
   const rowCount = sheet.rows.length;
+  // คำเตือนแถวที่คอลัมน์สำคัญว่าง (ADR-0015) — นับอย่างเดียว ไม่ล้ม ไม่เก็บค่าเซลล์ · ใส่ในทุกทางคืนของ verdict ด้านล่าง
+  const blank = report.warnIfBlank === undefined ? {} : { blankRows: countBlankRows(sheet, report.warnIfBlank) };
 
   // 2) รายงานว่างคือความล้มเหลว ไม่ใช่ผลลัพธ์
   //    (runner ควรกรองก้อนว่างออกด้วย hasResults ตั้งแต่ก่อน export แล้ว มาถึงนี่แปลว่าผิดปกติ)
@@ -96,7 +125,7 @@ export function verifyChunk(
   // (ห้องว่างไม่มีแขก ช่อง Arrival/Departure จึงว่าง) ไม่ใช่แค่ "ไม่ตรงช่วง" — actualSpan ใช้
   // ช่วงที่สั่งตรง ๆ แทน (ซื่อสัตย์กว่าเดาว่า "ตรวจแล้ว")
   if (report.skipDateCoverageCheck) {
-    return { range, filePath, rowCount, sheets, actualSpan: { from: range.from, to: range.to } };
+    return { range, filePath, rowCount, sheets, actualSpan: { from: range.from, to: range.to }, ...blank };
   }
 
   // 5ข) รายงานแบบช่วงพักที่คร่อมช่วงที่ขอ — แต่ละแถวต้องแตะช่วงที่สั่ง (ไม่ใช่อยู่ในช่วงพอดี)
@@ -104,7 +133,7 @@ export function verifyChunk(
     const fromIdx = requireColumn(sheet, report.overlapColumns.from);
     const toIdx = requireColumn(sheet, report.overlapColumns.to);
     const pairs = sheet.rows.map((r) => [r[fromIdx] ?? '', r[toIdx] ?? ''] as const);
-    return { range, filePath, rowCount, sheets, actualSpan: checkOverlapCoverage(pairs, range, report.overlapColumns) };
+    return { range, filePath, rowCount, sheets, actualSpan: checkOverlapCoverage(pairs, range, report.overlapColumns), ...blank };
   }
 
   // 5) ช่วงวันที่ในไฟล์ต้องอยู่ในก้อนที่สั่ง — ด่านนี้คือตัวที่จับเพดาน 2000 ได้ตอนแรก
@@ -140,7 +169,7 @@ export function verifyChunk(
     );
   }
 
-  return { range, filePath, rowCount, sheets, actualSpan: { from, to } };
+  return { range, filePath, rowCount, sheets, actualSpan: { from, to }, ...blank };
 }
 
 /**

@@ -52,3 +52,20 @@ test('--round รับเฉพาะ --report all (รอบดึงคือ
   assert.equal(r.code, 1);
   assert.match(r.out, /--report all/);
 });
+
+test('รายงานล่วงหน้า (ADR-0015): --report arrival-ahead --round HH สั่งมือได้โดยไม่ต้อง --report all · ผ่านด่านตรวจ flag แล้วไปล้มที่ credential (ไม่ login จริง)', () => {
+  const r = run(['--report', 'arrival-ahead', '--round', '12'], { HOTELTIME_ROUNDS: 'off', HOTELTIME_LOOKAHEAD_DAYS: '' });
+  assert.equal(r.code, 1);
+  assert.doesNotMatch(r.out, /--report all/);
+  assert.doesNotMatch(r.out, /switched off/); // สั่งมือไม่ผูกกับ HOTELTIME_ROUNDS หรือหน้าต่างเวลา
+  assert.match(r.out, /HOTELTIME_USERNAME|HOTELTIME_PASSWORD|credential|บัญชี/i);
+});
+
+test('รายงานล่วงหน้า: --round กับรายงานอื่นที่ไม่ใช่ all ยังถูกปฏิเสธ · ชั่วโมงผิดถูกปฏิเสธก่อน', () => {
+  const other = run(['--report', 'postings', '--round', '12'], { HOTELTIME_ROUNDS: '12' });
+  assert.equal(other.code, 1);
+  assert.match(other.out, /--report all/);
+  const badHour = run(['--report', 'arrival-ahead', '--round', '99']);
+  assert.equal(badHour.code, 1);
+  assert.match(badHour.out, /--round must be one of/);
+});
