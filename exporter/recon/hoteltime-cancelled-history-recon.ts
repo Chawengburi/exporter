@@ -9,7 +9,8 @@
  * ไม่ดาวน์โหลด ไม่พิมพ์/ไม่เก็บชื่อแขก — ผลเป็นตัวเลขรวมและวันที่เท่านั้น
  * ผลลัพธ์ลงไฟล์ที่ระบุใน argv[2] (ไม่ลง repo)
  *
- * ใช้: node recon/hoteltime-cancelled-history-recon.ts <ไฟล์ผลลัพธ์.json>
+ * ใช้: node recon/hoteltime-cancelled-history-recon.ts <ไฟล์ผลลัพธ์.json> [DD/MM/YYYY:DD/MM/YYYY,...]
+ *   ใส่ช่วงเอง = ค้นด้วย Cancelled from-to เฉพาะช่วงเหล่านั้น (หาขอบวันที่เก่าสุดที่หน้ารับ) แทนชุดรายเดือนมาตรฐาน
  */
 import { writeFile } from 'node:fs/promises';
 import type { Page } from 'playwright';
@@ -73,6 +74,17 @@ try {
   await login(session, cfg, creds, redact);
   const { page } = session;
 
+  async function probeRange(from: string, to: string) {
+    await page.goto(new URL(PATH, `${cfg.baseUrl}/pms/`).toString(), { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('networkidle').catch(() => undefined);
+    await setRange(page, 'ctl00$pc$drStay', '', '');
+    await setRange(page, 'ctl00$pc$drDeleted', from, to);
+    await search(page);
+    const body = await page.locator('body').innerText();
+    const grid = await readGrid(page);
+    return { from, to, rows: grid === null ? 0 : Math.max(0, grid.length - 1), invalidDate: /invalid date/i.test(body), mandatory: /mandatory item/i.test(body) };
+  }
+
   async function probe(mode: 'cancelled' | 'stay', y: number, m: number) {
     await page.goto(new URL(PATH, `${cfg.baseUrl}/pms/`).toString(), { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle').catch(() => undefined);
@@ -87,16 +99,28 @@ try {
     await search(page);
     const body = await page.locator('body').innerText();
     const mandatory = /mandatory item/i.test(body);
+    const invalidDate = /invalid date/i.test(body);
     const grid = await readGrid(page);
     const header = grid?.[0] ?? [];
     const rows = grid === null ? 0 : Math.max(0, grid.length - 1);
     const ci = header.findIndex((h) => h === 'Cancelled');
     const dates = (grid ?? []).slice(1).map((r) => (ci >= 0 ? parseDMY(r[ci] ?? '') : null)).filter((d): d is string => d !== null).sort();
-    return { month: `${y}-${pad(m)}`, rows, gridPresent: grid !== null, mandatory, cancelledMin: dates[0] ?? null, cancelledMax: dates.at(-1) ?? null };
+    return { month: `${y}-${pad(m)}`, rows, gridPresent: grid !== null, mandatory, invalidDate, cancelledMin: dates[0] ?? null, cancelledMax: dates.at(-1) ?? null };
   }
 
-  for (const [y, m] of MONTHS) (result.q1_byCancelledDate as unknown[]).push(await probe('cancelled', y, m));
-  for (const [y, m] of MONTHS) (result.q2_byStayDate as unknown[]).push(await probe('stay', y, m));
+  const custom = process.argv[3];
+  if (custom) {
+    result.q1_byCancelledDate = [];
+    for (const pair of custom.split(',')) {
+      const [a, b] = pair.split(':');
+      if (!a || !b) throw new Error(`ช่วงไม่ถูกรูปแบบ: ${pair}`);
+      (result.q1_byCancelledDate as unknown[]).push(await probeRange(a, b));
+    }
+    delete result.q2_byStayDate;
+  } else {
+    for (const [y, m] of MONTHS) (result.q1_byCancelledDate as unknown[]).push(await probe('cancelled', y, m));
+    for (const [y, m] of MONTHS) (result.q2_byStayDate as unknown[]).push(await probe('stay', y, m));
+  }
 } catch (err) {
   result.error = redactError(err, redact);
 } finally {
