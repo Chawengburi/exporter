@@ -46,7 +46,7 @@ import {
 } from './webforms.ts';
 import { DAY_MINUTES, fetchSplitTable, type WindowFetcher } from '../../core/scraped-split.ts';
 import { ScrapeError, scrapedTableToRawFile } from '../../core/scraped-table.ts';
-import { REPORTS, findReport, plannedOutsideRounds, reportIds, toPlanned } from './reports/index.ts';
+import { REPORTS, findReport, isManualOnlyReport, plannedOutsideRounds, reportIds, toPlanned } from './reports/index.ts';
 import type { Report } from './reports/_types.ts';
 
 export type ExportOptions = {
@@ -1006,6 +1006,12 @@ export async function runExport(opts: ExportOptions): Promise<number> {
   try {
     const cfg = loadConfig();
     const many = opts.reportId === ALL_REPORTS;
+
+    // รายงานสั่งมือเท่านั้น (ไม่อยู่ใน REPORTS) — ใช้ได้แค่ --from/--to/--last-days · โหมดอื่นจะไปค้นหารายงานในทะเบียนแล้วพัง จึงปฏิเสธตรงนี้พร้อมเหตุผล
+    if (!many && isManualOnlyReport(opts.reportId)
+      && (opts.round !== undefined || opts.snapshotSlot !== undefined || opts.date !== undefined || opts.daily || opts.baseline || opts.baselineIntervalDays !== undefined)) {
+      throw new ConfigError(`"${opts.reportId}" is a manual-only report — use it with --from/--to (or --last-days) only, not --daily/--round/--snapshot-slot/--date/--baseline`);
+    }
 
     if (opts.round !== undefined) {
       if (opts.snapshotSlot !== undefined || opts.daily || opts.baseline || opts.date !== undefined || opts.from !== undefined || opts.to !== undefined
