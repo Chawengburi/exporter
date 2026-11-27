@@ -50,6 +50,7 @@ import { vatInspection } from './vat-inspection.ts';
 import { vatOutput } from './vat-output.ts';
 import { inHouseGuests } from './in-house-guests.ts';
 import { reservationsCancelled } from './reservations-cancelled.ts';
+import { reservationsCancelledByStay } from './reservations-cancelled-by-stay.ts';
 import { reservationsRateCode } from './reservations-ratecode.ts';
 import { reservationsSearch } from './reservations-search.ts';
 import { EVENING_REFRESH_HOUR, withoutLookahead, type PlannedReport } from '../../../core/run-planner.ts';
@@ -127,12 +128,20 @@ export const REPORTS: readonly Report[] = [
   arrivalAhead,
 ];
 
+/**
+ * รายงาน **สั่งมือเท่านั้น** — ไม่อยู่ใน `REPORTS` จึงไม่ถูกดึงใน `--report all`, รอบรายวัน/รอบดึง, baseline, snapshot slot และ `exporter status`
+ * (ทุกที่เหล่านั้นอ่านจาก `REPORTS`) · เข้าถึงได้ผ่าน `--report <id> --from --to` เท่านั้น (ดู `isManualOnlyReport` / ด่านใน runExport)
+ */
+export const MANUAL_ONLY_REPORTS: readonly Report[] = [reservationsCancelledByStay];
+
+export const isManualOnlyReport = (id: string): boolean => MANUAL_ONLY_REPORTS.some((r) => r.id === id);
+
 export function findReport(id: string): Report | undefined {
-  return REPORTS.find((r) => r.id === id);
+  return REPORTS.find((r) => r.id === id) ?? MANUAL_ONLY_REPORTS.find((r) => r.id === id);
 }
 
 export function reportIds(): string[] {
-  return REPORTS.map((r) => r.id);
+  return [...REPORTS, ...MANUAL_ONLY_REPORTS].map((r) => r.id);
 }
 
 /** แคตตาล็อกสำหรับตัววางแผนและ `exporter status` (ตระกูล + งวด) */

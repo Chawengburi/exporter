@@ -267,11 +267,23 @@ export async function clearDateRange(
  * ที่มองเห็นชัด และลิงก์ export ของหน้านั้น **อยู่ตลอดเวลา** ไม่ได้โผล่ตามผลลัพธ์
  * ดังนั้นถ้าไม่เช็คตรงนี้ เราจะกด export แล้วได้ไฟล์ของผลลัพธ์เก่าหรือว่างเปล่า
  */
+/**
+ * ข้อความที่หน้าเว็บขึ้นเมื่อปฏิเสธฟอร์ม → เหตุผล · null = ไม่เห็นสัญญาณปฏิเสธ
+ * - `mandatory item` = ฟิลด์บังคับว่าง
+ * - `invalid date` = ช่องวันที่ไม่รับค่าที่กรอก (พบ 2026-11-27: "Cancelled from - to" ของ ResDeleteList.aspx ไม่รับวันที่เก่า เช่น 01/01/2025 → ตารางว่าง
+ *   exporter เคยเข้าใจว่า "เดือนนี้ไม่มีการยกเลิก" แล้วข้ามเงียบ ๆ)
+ */
+export function formRejectionReason(bodyText: string): string | null {
+  if (/mandatory item/i.test(bodyText)) return '"* mandatory item" แปลว่ามีฟิลด์บังคับที่ยังว่างอยู่';
+  if (/invalid date/i.test(bodyText)) return '"* invalid date" แปลว่าช่องวันที่ไม่รับค่าที่กรอก (วันที่อาจเก่าเกินที่หน้านี้รับ) — ผลว่างที่เห็นไม่ใช่ "ไม่มีข้อมูล"';
+  return null;
+}
+
 export async function assertFormAccepted(page: Page): Promise<void> {
-  const body = await page.locator('body').innerText();
-  if (/mandatory item/i.test(body)) {
+  const reason = formRejectionReason(await page.locator('body').innerText());
+  if (reason !== null) {
     throw new WebFormsError(
-      `ฟอร์มถูกปฏิเสธ — หน้าเว็บขึ้น "* mandatory item" แปลว่ามีฟิลด์บังคับที่ยังว่างอยู่ (${page.url()})\n` +
+      `ฟอร์มถูกปฏิเสธ — หน้าเว็บขึ้น ${reason} (${page.url()})\n` +
         `  อย่ากด export ต่อ เพราะลิงก์ export ของบางหน้าอยู่ตลอดเวลาและจะให้ไฟล์ที่ไม่ตรงกับที่สั่ง`,
     );
   }

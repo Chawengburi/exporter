@@ -27,6 +27,8 @@ const HOTELTIME_DOCUMENT_TYPE_EXCEPTIONS: Readonly<Record<string, string>> = {
   'reservations-search': 'hoteltime_reservation_search',
   'reservations-ratecode': 'hoteltime_reservation_ratecode',
   'reservations-cancelled': 'hoteltime_reservation_cancelled',
+  // สั่งมือเท่านั้น (ค้นด้วย Stay date) — หัวตารางเดียวกับ reservations-cancelled จึงใช้ document_type เดียวกัน
+  'reservations-cancelled-by-stay': 'hoteltime_reservation_cancelled',
 };
 
 /**
